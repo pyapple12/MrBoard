@@ -1,0 +1,65 @@
+# myboard 项目说明
+
+单包 Python 桌面应用：Windows 上的 OpenCode 用量统计 + OpenCode Go 配额监控信息窗口（PyQt6，中文界面为主）。无测试套件、无 lint/格式脚本、无构建步骤。
+
+## 运行与验证
+
+- 入口 `main.py`：GUI 为默认模式；版本常量 `VERSION` 单一来源在 `main.py`，其他模块用 `from main import VERSION` 引用
+- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, config.settings, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry"`。不要直接跑 GUI 验证（会弹窗阻塞）
+- GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
+- 依赖（`requirements.txt`）：PyQt6（其余按需添加，见 z.plan.md）
+
+## 环境陷阱
+
+- `.venv` 是机器绑定的：`pyvenv.cfg` 的 `home` 指向创建时机器的 Python 路径。换机器/换用户后解释器损坏，症状是 VSCode Python 扩展报 `write EPIPE / Shutting down server`（Jedi 语言服务器无法启动）。重建：`Remove-Item -Recurse -Force .venv; py -3.12 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.txt`，然后在 VSCode 重选解释器
+- 数据源路径（Windows）：opencode.db 与 auth.json 位于 `%USERPROFILE%\.local\share\opencode\` 与 `%USERPROFILE%\.config\opencode\`，路径探测必须兼容不同安装方式（见 reference/opencode-bar 的多路径探测）
+
+## 结构与约定
+
+- 包结构按依赖单向分层（参考 AccelWorld）：`utils/` 通用工具（logger/file_utils/retry，无业务依赖）→ `config/` 配置（settings，JSON 存 `~/.config/myboard/config.json`）→ `modules/` 业务核心（opencode_usage 用量统计、go_quota Go 配额、pricing 定价）→ `ui/` 界面（main_window 主窗口、system_tray 托盘、themes 主题 QSS）→ `data/` 静态数据
+- `main.py` 收编 GUI 分发与 `VERSION`；模块间顶层 import，不要使用函数内延迟 import
+- 提交信息用中文 conventional 风格并带版本号，如 `feat: V0.1，完成用量统计模块...`
+- 项目规划与方案文档在 `z.plan.md`
+- `reference/` 目录是外部项目的 git clone（浅克隆），**不纳入本仓库版本控制**；需要更新时重新 clone
+
+## 代码规范
+
+### 函数注释规则
+
+- 每个函数定义下方紧跟 `#` 注释，说明该函数的用途和核心逻辑（1-3 行）
+- 每个 `.py` 文件末尾必须有完整的函数逻辑说明区，用 `# =====` 分隔，涵盖文件中所有函数/模块级常量：
+  - 输入、输出、逻辑步骤
+  - 设计理由（为什么这样做）
+  - 异常处理说明
+  - 关联的配置或外部依赖
+
+### 代码约定
+
+- 注释必须用 `#`，禁止 `//` 或其他语言注释符号；所有注释使用中文
+- 命名风格：函数/变量用 `snake_case`，类用 `CamelCase`，常量用 `UPPER_CASE`
+- `_` 前缀：函数名前加 `_` 表示模块内部私用，如 `_format_tokens()`，外部模块不应直接调用
+- `def main()`：每个可独立运行的脚本都有 `main()` + `if __name__ == "__main__": main()`
+- 类型注解：优先使用 Python 类型注解，包括 `typing` 模块和 `| None` 语法
+- dataclass：配置聚合优先用 `@dataclass`
+- import 顺序：标准库 → 第三方库 → 本地模块，每组之间空行分隔
+- f-string：字符串格式化优先用 f-string，避免 `.format()` 或 `%`
+- 推导式：优先用列表/字典推导式而非手写 for 循环构建集合
+- 布尔值判断：用 `if x:` / `if not x:` 而非 `if x == True:` / `if x is False:`
+- 空值判断：用 `if x is None:` / `if x is not None:` 而非 `if x == None:`
+- 异常捕获：避免裸 `except:`，至少用 `except Exception:`，指定具体异常类型更好；捕获多个异常类型可用 `except (Exc1, Exc2):`
+- 行长度：每行尽量不超过 100 字符（超过时在运算符或逗号后换行）
+- 空格约定：逗号后加空格、冒号前不加空格（切片冒号两侧不加）、赋值/比较运算符两侧加空格、函数定义前后各空两行、类定义前后各空两行、方法之间空一行
+- 字符串引号：普通字符串用双引号，文档字符串用 `"""` 三引号；f-string 内含大量双引号时允许外层使用单引号
+- 路径处理：强制使用 `pathlib` 代替 `os.path`
+- 临时文件：所有临时生成的脚本/文件必须写入项目根目录下的 `.temp/` 文件夹（已 gitignore）
+
+## Git 注意
+
+- `.gitignore` 忽略 `.venv`、`reference/`、`archived/`、`.temp/`、`opencode-go.json`（含配额凭据）—— 对这些文件的修改不会出现在 `git status` 中；`AGENTS.md` 已纳入版本控制
+- 严禁将 API key、authCookie、workspaceId 等凭据提交到仓库
+
+## 操作注意
+
+- 执行命令前先检测当前 shell（Windows 下为 pwsh）：使用 PowerShell 兼容命令（`Select-String` 替代 `grep`，`Get-ChildItem` 替代 `ls` 等），避免 Linux-only 工具
+- pwsh 会话带 `-NoProfile` 不加载 `$PROFILE`，输出中文前必须先设置编码：`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;`
+- 未经用户明确要求，不得擅自执行 `git add`、`git commit` 或任何其他 Git 写操作

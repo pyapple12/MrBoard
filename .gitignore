@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 参考项目（外部 clone，不纳入版本控制）
+reference/
+
+# 归档与临时
+archived/
+.temp/
+
+# 凭据（严禁提交）
+opencode-go.json
+>>>>>>> origin/main
