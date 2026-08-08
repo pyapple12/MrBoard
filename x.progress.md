@@ -1,166 +1,158 @@
 # 开发进度追踪（x.progress.md）
 
-> 依据：`z.plan.md`（myboard 初步方案报告）
-> 当前版本：ver 0.0（开发起点，VERSION 单一来源在 main.py）
+> 依据：`z.plan.md`（myboard 方案报告）
+> 当前版本：ver 0.05（VERSION 单一来源在 config/constants.py）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
+> 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
 
 ---
 
-## S1 骨架搭建（对应 z.plan.md 第七章 S1）
+## S1-S6 完成记录（简化）
 
-> 目标：建立包结构、项目文档、git 仓库，安装依赖，空模块可导入
+### S1 骨架搭建 ✅
 
-### S1.1 项目初始化
+包结构（modules/config/ui/utils/data）+ AGENTS.md + z.plan.md + git 仓库（干净单线历史）+ `.venv`（Python 3.14）+ `main.py` 入口（VERSION 单一来源）+ `utils/logger.py`（双 handler）/`file_utils.py`（原子写+缓存单例）/`retry.py`（指数退避重试）。验证：17 项断言通过。
 
-- [x] S1.1.1 创建 `modules/config/ui/utils/data` 包结构及各 `__init__.py`（对应 z.plan.md 第四章目录树）
-- [x] S1.1.2 编写 `AGENTS.md`（参照 AccelWorld 规范：注释规则/代码约定/验证命令/环境陷阱）
-- [x] S1.1.3 编写 `z.plan.md` 初步方案
-- [x] S1.1.4 `reference/` 克隆 3 个参考项目（opencode-bar / opencode-usage / OpenCode-Token，浅克隆）
-- [x] S1.1.5 `.gitignore`（合并 GitHub 模板 + 项目特有：reference/、.temp/、凭据文件）
+### S2 用量统计模块 ✅
+
+`modules/opencode_usage.py`：三级路径探测（env → `opencode db path` → XDG）、只读连接（mode=ro）、`json_extract` + `COALESCE(SUM)` 聚合（不依赖 `tokens.total`，兼容新旧格式混合）、按天/模型/provider/agent 分组、库 cost 优先 + estimate 估算回退、CLI 自测。`modules/pricing.py`：三级来源合并（缓存 TTL → models.dev → 内置表）+ 本地覆盖打标 + 多币种分桶禁止相加。真实库对照 `opencode stats` 全口径一致（Sessions 111/Days 214/Cost $63.19 等）。验证：30 项断言通过。
+
+### S3 Go 配额模块 ✅
+
+`modules/go_quota.py`：auth.json 多路径 + jsonc 剥离 + key 多键兼容；dashboard 凭据链（env → 配置文件 key 兼容集合 → 浏览器）去重首成功返回；models Bearer 校验；dashboard HTML 抓取（实体反转义 + `$R[NN]=` 兼容正则）→ 5h/周/月三窗口 + max 取最紧；60s 节流 + 缓存兜底 + `GoQuotaError` 四分类；窗口缺失容忍。验证：39 项断言通过。
+
+### S4 GUI 界面 ✅
+
+`ui/themes.py`（LIGHT/DARK QSS + 三色分级）、`ui/main_window.py`（5 卡片 + 配额进度条 + 分组表格 + QThreadPool 后台加载 + 启动延迟防双加载 + 保留旧 view + 5 分钟定时刷新 + 主题切换）、`ui/system_tray.py`（状态色图标 + 菜单 + 信号解耦）、`main.py` run_gui + _quit_app（VERSION 循环依赖函数内打破，对齐 AccelWorld）。验证：29 项断言通过 + offscreen GUI init OK。
+
+### S5 完善收尾 ✅
+
+`config/settings.py`（AppConfig 持久化：几何/主题/刷新间隔，宽容解析）；`modules/exporter.py`（5 CSV UTF-8 BOM + usage.json）+ GUI 导出按钮（后台线程）；AGENTS.md 错误策略章节落地；README（启动/凭据/配置表）；closeEvent 隐藏到托盘常驻。验证：29 项断言通过。
+
+### S6 增强 ✅
+
+S6.1 `modules/browser_creds.py`：v10 DPAPI+AES-GCM 离线解密；**实测**确认 History/Local State 运行时共享可读、Cookies 独占锁定、Chrome 136+ 调试端口仅非默认 profile 开放、完整 CDP 流程无需关闭用户浏览器；v20 检测改查 Local State `app_bound_encrypted_key`；CDP 方案（独立临时 profile + `Network.getAllCookies`，Chrome 自行解密跨版本稳定）。S6.2 凭据配置引导：引导卡片（凭据缺失显示）+ 一键 CDP 获取（后台线程：快照 workspaceID → 临时调试 Chrome → 轮询登录 → 写凭据 → 清理 → 自动刷新）+ 手动填写（模板 + 示例 + 打开文件夹）。S6.3 多 provider 已评估关闭。验证：verify_s6 33 项 + verify_s7 18 项通过。
+
+### 验证总览
+
+S1-S6 全量回归 **195 项断言全部通过**（verify_s1:17 / verify_s2:30 / verify_s3:39 / verify_s4:29 / verify_s5:29 / verify_s6:33 / verify_s7:18）。
+
+---
+
+## S7 审计整改（依据 z.plan.md 第九章审计结果）
+
+> 目标：修复 4 个真实 bug + 8 个中危问题 + 消重抽取；完成后全量回归
+> 依据：z.plan.md 九、代码审计结果（2026-08-08 全量 13 文件审计）
+
+### S7.1 真实 Bug 修复（优先级：高）
+
+- [x] S7.1.1 B1：`go_quota.py` retry_call 重试失效修复——`_http_get` 网络类异常（URLError/TimeoutError/5xx）原样抛出交 retry_call 重试（401/403 仍转 auth 分类不可重试）；`fetch_dashboard_usage` 的 HTTPError 兜底分支从死代码变活代码；重试耗时 mock 验证（第 1/2、2/2 次重试真实发生）
+- [x] S7.1.2 B2：托盘配额预警接线——MainWindow 新增 `quota_updated` 信号（_on_quota_ready 发射），main.py `_on_quota_updated`：错误置灰 / 正常更新状态色 / ≥80% 气泡预警
+- [x] S7.1.3 B3：`_estimate_missing_costs` 增加 since/until 时间过滤（`_time_clause` 复用），估算范围与 totals 一致（验证：范围外 cost=0 消息不计入）
+- [x] S7.1.4 B4：logger.py FileHandler 异常保护（try/except OSError 降级仅控制台，修正说明区）；删除 settings.py 未使用的 `logger` 变量（消除 import 副作用）
 - 状态：✅ 已完成｜优先级：高
 
-### S1.2 git 仓库
+### S7.2 中危问题修复（优先级：中）
 
-- [x] S1.2.1 `git init`（main 分支）+ 项目本地 user 配置（pyapple12 / takechance_bao@188.com）
-- [x] S1.2.2 绑定远程 `git@takechance:pyapple12/mrboard.git`（SSH 账号 B）
-- [x] S1.2.3 整理干净单线历史（reset --soft 到网页 Initial commit 后重新提交）
-- [x] S1.2.4 首次 push + 建立 tracking 关系
-- 状态：✅ 已完成｜优先级：高
+- [x] S7.2.1+M7.2.2 M1/M2：VERSION 循环依赖根治——新建 `config/constants.py` 持 VERSION，main.py 与 ui 均从该模块引用；main.py 改顶层 import（删除函数内延迟 import），`_quit_app` 注解引用顶层名字（Python ≤3.13 兼容）
+- [x] S7.2.3 M3：新建 `utils/convert.py`（to_int/to_float/to_optional_float 弹性转换），替换 opencode_usage 全部 12 处 `int(row[...])` 强转 + 2 处 float 强转；pricing 私有转换迁移复用（删除本地重复定义）
+- [x] S7.2.4 M4：`_set_status_style` 方法（setObjectName + unpolish/polish 强制 QSS 重算），替换 _render_quota 三处样式设置
+- [x] S7.2.5 M5：`GoQuotaInfo.error_stage` 字段（no_key/no_dashboard_creds/auth/network/...），_fallback 携带阶段；引导卡片仅对 CDP 可解决的阶段（no_dashboard_creds/auth）显示，no_key/network 不误导
+- [x] S7.2.6 M6：浏览器探测降级闭环——`find_browser_credentials` 逐浏览器 try + `_profile_dirs` iterdir 异常捕获，不再冒泡打断 go_quota 凭据链
+- [x] S7.2.7 M7：CDP 端口占用检测——`launch_chrome_debug` 启动前 wait_cdp_ready(timeout=1)，占用则拒绝启动（防误连他人调试实例）
+- [x] S7.2.8 M8：死代码接入——`_CdpGuideTask.run` 预检：v10 环境（has_v20_cookies False）跳过 CDP 提示自动探测；is_chrome_running 记录日志（独立 profile 不冲突）
+- 状态：✅ 已完成｜优先级：中
 
-### S1.3 环境与入口
+### S7.3 消重与函数抽取（优先级：中）
 
-- [ ] S1.3.1 创建 `.venv` 并安装 `requirements.txt`（PyQt6）
-- [ ] S1.3.2 编写 `main.py` 入口：GUI 分发 + `VERSION` 常量单一来源
-- 状态：⏳ 待开发｜优先级：高
+- [x] S7.3.1 D1：`flatten_tokens(tokens, prefix)`（opencode_usage 模块函数）——CLI 嵌套结构（空前缀）与 exporter 平铺（tokens_ 前缀）4 处统一复用
+- [x] S7.3.2 D2：`_TOKEN_SUM_SELECT` 模块常量——`_base_sql` 与 `_query_grouped` 聚合列模板 2 处复用（加字段只改一处）
+- [x] S7.3.3 D3：exporter 删除私有 `_write_json`，复用 file_utils.write_json（原子写 + 缓存）
+- [x] S7.3.4 D4：pricing `_rate_from_raw(item, default_source)`——内置/缓存/本地覆盖三处弹性构建统一（宽容回默认）
+- [x] S7.3.5 D6：browser_creds `_with_copied_db(db_path, query)`——三个复制库查询骨架统一（自动连接/关闭/清理，修复异常路径临时文件残留）
+- [x] S7.3.6 D7：go_quota 拆分 `_throttled_cache` / `_fetch_usage_with_fallback` / `_build_info`（修复拆分时丢失 global 声明的回归：缓存更新失效已修）
+- [x] S7.3.7 D8：main_window `_build_ui` 拆分 `_build_cards` / `_build_quota_section` / `_build_guide_card` / `_build_detail_section`
+- [x] S7.3.8 D9：`_wait_for_login_cookie(deadline)` 抽取（轮询循环独立）
+- [x] S7.3.9 D10：themes `_build_theme(palette)` 模板化——两套 QSS 60 行重复消除（改样式只改模板/调色板）
+- [x] S7.3.10 D11：go_quota `_mark_cached(info, message)`——dataclasses.replace 浅拷贝标注，不再污染共享缓存对象
+- [x] S7.3.11 D12：browser_creds `_local_appdata()` 收敛三处 LOCALAPPDATA 推导
+- [x] S7.3.12 D13：themes 阈值常量 `QUOTA_WARN_PERCENT=50` / `QUOTA_DANGER_PERCENT=80`（quota_chunk_color 与 system_tray 共用）
+- [x] S7.3.13 D14：system_tray 阈值改用 themes 常量 + `NOTIFY_DURATION_MS` 常量（消除硬编码 80/50/5000）
+- 状态：✅ 已完成｜优先级：中
 
-### S1.4 utils 基础骨架
+### S7.4 规范口径与验证（优先级：中）
 
-- [ ] S1.4.1 `utils/logger.py`：统一日志（控制台+文件双 handler，`get_logger(name)`）
-- [ ] S1.4.2 `utils/file_utils.py`：pathlib 封装 JSON 读写 + 缓存单例
-- [ ] S1.4.3 `utils/retry.py`：泛型重试 `retry_call(func, *args, retries, exceptions, delay, **kwargs)`
-- 状态：⏳ 待开发｜优先级：高
-
-### S1.5 验证
-
-- [ ] S1.5.1 导入验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, config.settings, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry"`
-- [ ] S1.5.2 GUI 无头初始化：`$env:QT_QPA_PLATFORM="offscreen"; ... print('GUI init OK')`
-- 状态：⏳ 待开发｜优先级：高
-
----
-
-## S2 用量统计模块（对应 z.plan.md 3.1 与 S2）
-
-> 目标：读取本地 opencode.db，统计 tokens/费用/会话，支持多维度聚合（参考 reference/opencode-usage）
-
-### S2.1 数据源探测
-
-- [ ] S2.1.1 多路径探测 opencode.db：`%USERPROFILE%\.local\share\opencode\`、`%USERPROFILE%\.config\opencode\` 等（参考 opencode-bar 多路径模式）
-- [ ] S2.1.2 探测数据库结构（表/字段），确认 tokens/cost 字段来源
-- 状态：⏳ 待开发｜优先级：高
-
-### S2.2 统计核心
-
-- [ ] S2.2.1 dataclass：`UsageSummary`/`UsageEntry`（时间/模型/provider/agent/tokens 明细）
-- [ ] S2.2.2 时间过滤：全部 / 最近 7 天 / 最近 30 天
-- [ ] S2.2.3 分组聚合：按 model、provider、agent（含子 agent）、日期
-- [ ] S2.2.4 费用计算：优先数据库已记录 cost；缺失时走定价估算
-- 状态：⏳ 待开发｜优先级：高
-
-### S2.3 定价模块
-
-- [ ] S2.3.1 `modules/pricing.py`：models.dev 定价表 + 本地缓存（参考 OpenCode-Token prices.json 机制）
-- [ ] S2.3.2 cache read/write 折扣价处理
-- 状态：⏳ 待开发｜优先级：中
-
-### S2.4 验证
-
-- [ ] S2.4.1 CLI 输出对照 `opencode stats` / `opencode stats --models` 数据一致
-- 状态：⏳ 待开发｜优先级：高
+- [x] S7.4.1 注释规则决策（用户审批通过）：**回归 AGENTS.md 原规则**——函数下方只允许 `#` 注释（1-3 行），详细信息全部在文件末尾 `# =====` 说明区；**禁止 docstring 顶替 `#` 注释**
+- [x] S7.4.2 AGENTS.md 修订：函数注释规则新增"禁止 docstring 替代 # 注释（verify_s11 自动检测）"条款
+- [x] S7.4.3 全量整改：147 个函数 docstring → 函数下 `#` 注释 + 15 个模块 docstring + 23 个类 docstring 全部转 `#` 注释（155 函数/15 模块/23 类零残留，py_compile 全过）
+- [x] S7.4.4 `.temp/verify_s11.py`：AST 全量检测（函数下必须有 # 注释、禁止任何 docstring 节点残留）+ 检测器反向验证（能抓无注释函数/残留 docstring）
+- [x] S7.4.5 全量回归：verify_s1-s10 共 279 项全部通过（注释转换零逻辑变更）
+- 状态：✅ 已完成｜优先级：中
 
 ---
 
-## S3 Go 配额模块（对应 z.plan.md 3.2 与 S3）
+## S8 配置层对齐 AccelWorld（json 驱动静态配置）
 
-> 目标：读取凭据并拉取 OpenCode Go 5h/周/月配额（移植 reference/opencode-bar 的 OpenCodeGoProvider.swift）
+> 目标：对齐 AccelWorld config 模式——静态配置（开发期参数）json 文件驱动、代码零硬编码；用户配置（运行时设置）保持 dataclass + json 持久化，两类严格分离
+> 参考：AccelWorld `config/static/`（static_config.py + config.json 引导映射表 + base.json 应用参数 + ui.json UI 参数）+ `config/settings.py`（UserConfig，默认值从静态配置现取）
+> 边界：业务逻辑常量（SQL 表达式、正则、ASSISTANT_ROLE、维度枚举）**不抽**，保持代码内；只抽"可调参数"
+> 路径决策（用户审核确认）：**用户配置移到项目内**（对齐 AccelWorld S9.5 定案：`get_project_root() / base["user_config_path"]` = config/user_config.json）；**凭据 opencode-go.json 保留 `~/.config/myboard/`**（敏感，防误提交 + 打包安全）；**日志保留 `~/.local/share/myboard/`**（打包分发到只读目录时项目内日志会写失败）
+> 版本决策（用户审核确认）：**S8 完成后 constants.py 删除**——VERSION 移入 base.json（版本号外置为静态配置，单一来源跟随 json）；`get_project_root()` 放置于 `utils/file_utils.py`（对齐 AccelWorld）
 
-### S3.1 凭据探测
+### S8.1 静态配置基础设施（config/static/）
 
-- [ ] S3.1.1 解析 `auth.json` 的 `opencode-go` 条目（API key）
-- [ ] S3.1.2 workspaceId + authCookie 多路径探测：环境变量 `OPENCODE_GO_WORKSPACE_ID`/`OPENCODE_GO_AUTH_COOKIE` → `~/.config/myboard/opencode-go.json` → 其他路径
-- [ ] S3.1.3 凭据仅在内存使用，严禁写入仓库/日志
+- [ ] S8.1.1 新建 `config/static/` 包（**init**.py）+ 引导映射表 `config.json`（`{"base": "base.json", "ui": "ui.json"}`）
+- [ ] S8.1.2 `config/static/static_config.py`：`StaticConfig` dataclass（base/ui 两个 dict 字段，只读）+ `_load_static_config()`（读映射表 → 遍历读取各分类 json → 聚合）+ `get_static_config()` 缓存单例（懒加载，`__file__` 自定位目录）
+- [ ] S8.1.3 失败策略：映射/文件缺失或损坏抛 `RuntimeError`（开发期快速暴露，对齐 AccelWorld 不静默兜底）；文件内容解析宽容（read_json 复用）
 - 状态：⏳ 待开发｜优先级：高
 
-### S3.2 接口调用
+### S8.2 应用参数外置（config/static/base.json）
 
-- [ ] S3.2.1 key 校验：请求 `https://opencode.ai/zen/go/v1/models`（参考 OpenCodeGoProvider.swift:44）
-- [ ] S3.2.2 配额拉取：5 小时 / 每周 / 每月三个窗口的已用量/剩余量/百分比
-- [ ] S3.2.3 接入 `utils/retry.py` 重试 + 失败回退缓存数据
+- [ ] S8.2.1 窗口与刷新：默认窗口尺寸（760x640）、`REFRESH_INTERVAL_MS`（5 分钟）、`AUTO_LOAD_DELAY_MS`（10ms）——来自 ui/main_window.py
+- [ ] S8.2.2 配额节流：`MIN_FETCH_INTERVAL`（60s）、models 校验与 dashboard 抓取的 `RETRY_COUNT`（2）/`RETRY_DELAY`（1.0s）——来自 modules/go_quota.py
+- [ ] S8.2.3 浏览器/CDP：`CDP_PORT`（9222）、`HISTORY_LIMIT`（200）、`ESENTUTL_TIMEOUT`（30s）、CDP 登录等待（180s）/轮询间隔（5s）——来自 modules/browser_creds.py
+- [ ] S8.2.4 导出与定价：`EXPORT_LIMIT`（100000，exporter）、`PRICE_CACHE_TTL`（86400）、`MODELS_DEV_URL`（pricing）
+- [ ] S8.2.5 路径与默认值（对齐 AccelWorld）：`utils/file_utils.py` 新增 `get_project_root()`（校验 main.py 存在，防层级偏移）；base.json 增加 `user_config_path`（`"config/user_config.json"`）、`default_theme`（light）、**`version`（"ver 0.05"）**；**凭据路径 CREDENTIALS_FILE 与日志路径 LOG_DIR 不进 base.json**（决策：保留用户目录，见 S8 头部）
+- [ ] S8.2.6 **删除被抽走的硬编码常量**（REFRESH_INTERVAL_MS/MIN_FETCH_INTERVAL/CDP_PORT 等，改从静态配置读取），杜绝双源
 - 状态：⏳ 待开发｜优先级：高
 
-### S3.3 降级策略
+### S8.3 UI 参数外置（config/static/ui.json）
 
-- [ ] S3.3.1 接口失效时：仅显示本地用量统计 + 明确提示配额不可用（对应 z.plan.md 待确认问题 1）
-- [ ] S3.3.2 Cookie 过期/凭据变更时的提示与重新配置引导
+- [ ] S8.3.1 配额颜色与阈值：`QUOTA_COLOR_OK/WARN/DANGER`、`QUOTA_WARN_PERCENT`（50）/`QUOTA_DANGER_PERCENT`（80）、托盘未配置灰 `#9e9e9e`——来自 ui/themes.py + ui/system_tray.py
+- [ ] S8.3.2 托盘与通知：`ICON_SIZE`（128）、`NOTIFY_DURATION_MS`（5000）——来自 ui/system_tray.py
+- [ ] S8.3.3 表格列文案 `TABLE_HEADERS`（中文表头）——来自 ui/main_window.py（仅文案，维度枚举 DIMENSIONS 保留代码内）
 - 状态：⏳ 待开发｜优先级：中
 
-### S3.4 验证
+### S8.4 用户配置改造（config/settings.py）
 
-- [ ] S3.4.1 打印 5h/周/月 数值与百分比，人工核对 dashboard
-- 状态：⏳ 待开发｜优先级：高
-
----
-
-## S4 GUI 界面（对应 z.plan.md 3.3 与 S4）
-
-> 目标：主窗口 + 系统托盘 + 主题 + 定时刷新
-
-### S4.1 主题
-
-- [ ] S4.1.1 `ui/themes.py`：LIGHT/DARK 双主题 QSS（对齐 AccelWorld themes 模式）
+- [ ] S8.4.1 `AppConfig` 默认值改从 `get_static_config()` 现取（`refresh_interval_ms`、`theme`），消除代码内默认值硬编码
+- [ ] S8.4.2 用户配置路径对齐 AccelWorld：`get_project_root() / base["user_config_path"]`（项目内 `config/user_config.json`），settings.py 不再自推导 `~/.config/myboard/`；**凭据文件路径（go_quota.CREDENTIALS_FILE）保持 `~/.config/myboard/opencode-go.json` 不变**（敏感数据不随项目走）
 - 状态：⏳ 待开发｜优先级：中
 
-### S4.2 主窗口
+### S8.5 各模块引用改造（顶层一次性解包，运行时零 IO）
 
-- [ ] S4.2.1 `ui/main_window.py`：用量总览卡片（总 tokens/总费用/会话数）+ 分组表格
-- [ ] S4.2.2 Go 配额进度条面板（5h/周/月 三窗口，颜色分级）
-- [ ] S4.2.3 数据加载走后台线程（QThreadPool），不阻塞 UI
-- [ ] S4.2.4 `QTimer` 定时刷新（约 5 分钟）+ 手动刷新按钮
-- 状态：⏳ 待开发｜优先级：高
-
-### S4.3 系统托盘
-
-- [ ] S4.3.1 `ui/system_tray.py`：常驻图标 + 菜单（显示窗口/刷新/退出）
-- [ ] S4.3.2 退出前保存配置（对齐 AccelWorld 修复 B2 的经验）
+- [ ] S8.5.1 `ui/main_window.py`：窗口尺寸/刷新间隔/启动延迟 → 模块常量区 `_SC = get_static_config()` 一次性解包
+- [ ] S8.5.2 `modules/go_quota.py`：节流/重试/URL → 静态配置
+- [ ] S8.5.3 `modules/browser_creds.py`：CDP 端口/超时/上限 → 静态配置
+- [ ] S8.5.4 `modules/exporter.py`：EXPORT_LIMIT → 静态配置
+- [ ] S8.5.5 `modules/pricing.py`：TTL/URL → 静态配置
+- [ ] S8.5.6 `ui/themes.py` + `ui/system_tray.py`：调色板/阈值/图标参数 → ui.json（QSS 模板构建逻辑不变，调色板数据源改 json）
+- [ ] S8.5.7 **constants.py 删除与 VERSION 迁移**：VERSION 从 `config/constants.py` 移入 base.json（`version` 字段）——main.py 与 ui/main_window.py 改为从静态配置读取；`config/constants.py` 文件删除；连带同步：README Version badge 链接、verify_s1 的 VERSION 断言（改为断言 base.json 值）、导入验证命令移除 config.constants
 - 状态：⏳ 待开发｜优先级：中
 
-### S4.4 验证
+### S8.6 验证
 
-- [ ] S4.4.1 GUI 无头初始化 + 手动冒烟（切主题/刷新/托盘退出后配置保留）
+- [ ] S8.6.1 `.temp/verify_s12.py`：静态配置加载正确性（映射/缺失抛错/缓存单例单次 IO/改 json 后生效）+ 各模块解包值与原常量一致（防抽参改值）+ **VERSION 单一来源断言（base.json `version` 字段 == main.py 输出）**
+- [ ] S8.6.2 全量回归：verify_s1-s11 共 283 项全部通过 + GUI offscreen 初始化（verify_s1 的 VERSION 断言已随 S8.5.7 同步）
+- [ ] S8.6.3 AGENTS.md 更新：config 结构说明（constants.py 已删除）+ 新约定"可调参数一律走 config/static/*.json，禁止代码硬编码；版本号唯一来源为 base.json version 字段"
 - 状态：⏳ 待开发｜优先级：高
 
----
+### S8.7 文档同步
 
-## S5 完善收尾（对应 z.plan.md 3.1 导出与 S5）
-
-> 目标：配置持久化、数据导出、文档收尾
-
-### S5.1 配置持久化
-
-- [ ] S5.1.1 `config/settings.py`：`AppConfig` dataclass + JSON 存 `~/.config/myboard/config.json`（窗口位置/刷新间隔/主题）
-- 状态：⏳ 待开发｜优先级：中
-
-### S5.2 数据导出
-
-- [ ] S5.2.1 CSV 导出（UTF-8 BOM，Excel 直接打开，参考 OpenCode-Token）
-- [ ] S5.2.2 JSON 导出（供脚本处理）
+- [ ] S8.7.1 README 项目结构更新（config/static/ 说明 + 参数 json 列表）
+- [ ] S8.7.2 z.plan.md 第五章结构章节同步（config 树）
 - 状态：⏳ 待开发｜优先级：低
-
-### S5.3 代码规范与文档
-
-- [ ] S5.3.1 全部 .py 文件补齐函数下方 `#` 注释 + 文件末尾 `# =====` 说明区（AGENTS.md 规范）
-- [ ] S5.3.2 更新 README（启动方式、功能说明、凭据配置说明）
-- 状态：⏳ 待开发｜优先级：中
 
 ---
 
@@ -168,8 +160,21 @@
 
 ```powershell
 # 导入验证
-.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, config.settings, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry"
+.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, config.settings, config.constants, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert"
 
 # GUI 无头初始化验证（不弹窗）
 $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"
+
+# 阶段验证脚本（各自模块开发完成后运行）
+.\.venv\Scripts\python.exe .temp\verify_s1.py   # S1 骨架：logger/file_utils/retry/main
+.\.venv\Scripts\python.exe .temp\verify_s2.py   # S2 用量统计 + pricing
+.\.venv\Scripts\python.exe .temp\verify_s3.py   # S3 Go 配额
+.\.venv\Scripts\python.exe .temp\verify_s4.py   # S4 GUI（offscreen）
+.\.venv\Scripts\python.exe .temp\verify_s5.py   # S5 配置/导出/文档
+.\.venv\Scripts\python.exe .temp\verify_s6.py   # S6.1 浏览器凭据 + CDP
+.\.venv\Scripts\python.exe .temp\verify_s7.py   # S6.2 凭据配置引导
+.\.venv\Scripts\python.exe .temp\verify_s8.py   # S7.1 真实 Bug 修复
+.\.venv\Scripts\python.exe .temp\verify_s9.py   # S7.2 中危问题修复
+.\.venv\Scripts\python.exe .temp\verify_s10.py  # S7.3 消重与函数抽取
+.\.venv\Scripts\python.exe .temp\verify_s11.py  # S7.4 注释规范检测
 ```

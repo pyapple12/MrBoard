@@ -1,2 +1,202 @@
-# mrboard
-一款查看OpenCode信息的白板工具
+# myboard —— OpenCode 用量与 Go 配额监控
+
+[![Version](https://img.shields.io/badge/Version-ver%200.05-blue.svg)](config/constants.py)
+[![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+---
+
+## 项目简介
+
+Windows 桌面信息窗口应用，一站式监控 **OpenCode 用量统计** 与 **OpenCode Go 配额**。读取本地 opencode.db 展示 tokens/费用/会话等用量数据（与 `opencode stats` 全口径一致），抓取 OpenCode 官方 dashboard 展示 5 小时/每周/每月配额使用窗口。常驻系统托盘，配额紧张时图标变红并气泡预警。
+
+## 目录
+
+- [特性](#特性)
+- [快速开始](#快速开始)
+- [使用说明](#使用说明)
+- [凭据配置](#凭据配置)
+- [项目结构](#项目结构)
+- [依赖](#依赖)
+- [常见问题](#常见问题)
+- [许可证](#许可证)
+
+## 项目展示
+
+启动应用即可同时查看用量总览卡片、Go 配额进度条与分组明细表格。
+
+| 用量统计                                      | Go 配额                                   |
+| --------------------------------------------- | ----------------------------------------- |
+| 会话数 / 总 tokens / 总费用 / 输入 / 缓存读取 | 5 小时 / 每周 / 每月使用百分比 + 重置时间 |
+
+---
+
+## 特性
+
+- **用量统计**：读取本地 opencode.db（只读连接防误写），展示会话/消息/活动天数/tokens/费用，支持按日期、模型、Provider、Agent 分组（与 `opencode stats` 输出一致）
+- **Go 配额监控**：5 小时/每周/每月三个窗口的已用百分比与重置时间，颜色分级（绿/黄/红），`max` 取最紧窗口
+- **配额预警**：最紧窗口 ≥80% 时托盘图标变红 + 系统气泡通知
+- **凭据三路径配置**：v10 自动探测（老 Chrome）→ CDP 一键获取（新 Chrome 一键登录）→ 手动填写，凭据缺失时主窗口引导
+- **数据导出**：一键导出 5 个 CSV（UTF-8 BOM，Excel 直接打开）+ JSON
+- **常驻托盘**：关闭按钮最小化到托盘，双击图标显示窗口，配额状态一眼可见
+- **主题切换**：浅色/深色双主题一键切换
+- **配置持久化**：自动保存窗口位置、主题、刷新间隔（5 分钟定时刷新）
+- **宽容容错**：网络失败回退缓存、接口结构变更降级提示、数字字段弹性解析（不崩溃）
+
+## 快速开始
+
+### 环境要求
+
+- Windows 10/11
+- Python 3.12 或更高版本
+- pip（Python 包管理器）
+
+### 安装
+
+```bash
+# 克隆仓库
+git clone git@takechance:pyapple12/mrboard.git
+cd mrboard
+
+# 创建虚拟环境并安装依赖
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+## 使用说明
+
+### 图形界面（默认）
+
+```bash
+.\.venv\Scripts\python.exe main.py
+
+# 查看版本
+.\.venv\Scripts\python.exe main.py --version
+```
+
+### 命令行模式
+
+```bash
+# 用量统计总览（对照 opencode stats 用）
+.\.venv\Scripts\python.exe -m modules.opencode_usage --json
+
+# 按模型分组（最近 7 天）
+.\.venv\Scripts\python.exe -m modules.opencode_usage --since 7d --by model
+
+# Go 配额状态
+.\.venv\Scripts\python.exe -m modules.go_quota
+```
+
+### 命令行参数
+
+| 参数              | 说明                                               |
+| ----------------- | -------------------------------------------------- |
+| `--version`, `-V` | 显示版本信息                                       |
+| `--db`            | 指定 opencode.db 路径（默认自动探测）              |
+| `--since`         | 时间范围：`7d`/`2w`/`3h` 或 ISO 日期               |
+| `--by`            | 分组维度：`total`/`day`/`model`/`provider`/`agent` |
+| `--json`          | JSON 输出                                          |
+| `--estimate`      | 对库 cost 缺失的消息做定价估算                     |
+
+### GUI 操作说明
+
+- **刷新**：点击"刷新"按钮或等待 5 分钟定时自动刷新（刷新失败保留旧数据）
+- **切换维度**：明细区下拉框切换 总览/按日期/按模型/按 Provider/按 Agent
+- **导出数据**：点击"导出"选择目录，生成 CSV + JSON
+- **切换主题**：点击"主题"按钮切换浅色/深色
+- **配置凭据**：凭据缺失时配额区显示引导卡片——"一键自动获取"或"手动填写"
+- **托盘操作**：单击/双击图标显示窗口；托盘菜单"刷新/退出"；关闭窗口最小化到托盘
+
+## 凭据配置
+
+Go 配额用量需要浏览器登录凭据（workspaceId + authCookie）。首次启动未配置时，主窗口显示配置引导，三种方式按可用性选择：
+
+1. **自动探测（Chrome/Edge ≤126）**：自动读取浏览器 cookie 离线解密，零配置
+2. **一键自动获取（Chrome v127+，推荐）**：点击"一键自动获取"——程序启动**独立临时 Chrome 窗口**（不影响你正在使用的浏览器），登录 opencode.ai 后自动保存凭据并清理
+3. **手动填写**：点击"手动填写"——程序打开配置文件夹并生成模板 `opencode-go.json`：
+
+```json
+{
+  "workspaceId": "wrk_xxx（浏览器地址栏 /workspace/ 后复制）",
+  "authCookie": "xxx（开发者工具 → Application → Cookies → opencode.ai → auth）"
+}
+```
+
+环境变量方式（高级）：设置 `OPENCODE_GO_WORKSPACE_ID` + `OPENCODE_GO_AUTH_COOKIE` 同样有效（探测链优先级：环境变量 → 配置文件 → 浏览器）。
+
+## 项目结构
+
+```
+mrboard/
+├── main.py                    # 主入口：GUI 分发，版本号 VERSION 单一来源（config/constants.py）
+├── modules/                   # 业务核心层（无 GUI 依赖，可独立测试）
+│   ├── opencode_usage.py      # 用量统计：只读聚合 + 三级路径探测 + CLI
+│   ├── go_quota.py            # Go 配额：凭据链 + HTML 抓取 + 节流缓存
+│   ├── pricing.py             # 定价：三级来源合并 + 多币种分桶
+│   ├── exporter.py            # 导出：CSV(UTF-8 BOM) + JSON
+│   └── browser_creds.py       # 浏览器凭据：v10 DPAPI + v20 CDP 引导
+├── config/
+│   ├── constants.py           # VERSION 单一来源
+│   └── settings.py            # 用户配置读写（AppConfig，~/.config/myboard/config.json）
+├── ui/                        # GUI 层
+│   ├── main_window.py         # 主窗口（卡片/配额/表格/引导 + 后台加载）
+│   ├── system_tray.py         # 系统托盘（状态色图标/菜单/预警）
+│   └── themes.py              # 浅色/深色主题 QSS（模板 + 调色板）
+├── data/                      # 静态数据（预留）
+├── utils/                     # 通用工具
+│   ├── logger.py              # 统一日志（控制台 + 文件，~/.local/share/myboard/myboard.log）
+│   ├── file_utils.py          # JSON 读写（原子写）+ 缓存单例
+│   ├── retry.py               # 泛型重试函数（指数退避）
+│   └── convert.py             # 弹性类型转换（宽容解析）
+├── requirements.txt           # Python 依赖列表
+├── LICENSE                    # MIT 许可证
+└── README.md                  # 本文件
+```
+
+## 依赖
+
+| 包名             | 版本     | 说明                          |
+| ---------------- | -------- | ----------------------------- |
+| PyQt6            | >= 6.6.0 | GUI 框架                      |
+| pywin32          | >= 306   | Windows DPAPI 凭据解密        |
+| pycryptodome     | >= 3.20  | AES-GCM cookie 解密           |
+| websocket-client | >= 1.7   | CDP 调试协议 WebSocket 客户端 |
+
+## 常见问题
+
+### Q1：Go 配额显示"未配置凭据"，怎么配置？
+
+A：主窗口配额区会显示引导卡片。推荐点击"一键自动获取"——程序会打开一个独立的临时 Chrome 窗口（不影响你正在使用的浏览器），登录 opencode.ai 后自动保存凭据。也可点击"手动填写"按模板配置，详见[凭据配置](#凭据配置)。
+
+### Q2：Chrome 正在运行时能使用"一键自动获取"吗？
+
+A：能。CDP 引导使用独立临时 profile 启动 Chrome，与正在运行的 Chrome 互不干扰，无需关闭浏览器。
+
+### Q3：我的 Chrome 是最新版，为什么不能自动读取凭据？
+
+A：Chrome v127+ 的新 cookie 使用 App-Bound 加密（v20），无法离线解密（出于安全设计）。请使用"一键自动获取"（CDP 方式，Chrome 自行解密）或手动填写。
+
+### Q4：用量统计的数字和 opencode 官方一致吗？
+
+A：一致。本应用从 opencode.db 读取原始数据，聚合口径与 `opencode stats` 输出对齐（会话数/活动天数/tokens/费用全口径一致）。
+
+### Q5：关闭程序后设置会丢失吗？
+
+A：不会。窗口位置、主题、刷新间隔自动保存到 `~/.config/myboard/config.json`，下次启动自动恢复。凭据保存在 `~/.config/myboard/opencode-go.json`。
+
+### Q6：数据会发送到第三方吗？
+
+A：不会。用量统计全部本地读取；配额请求直连 opencode.ai 官方服务器；models.dev 仅拉取公开定价表（无凭据）。API key 与 authCookie 只在本机内存流转，日志不打印。
+
+### Q7：配额接口不稳定怎么办？
+
+A：程序已内置降级：接口失败回退显示上次缓存数据（标注"缓存数据"），单窗口解析失败仅警告，全部失败提示"页面结构可能已变更"并保留用量统计功能。
+
+## 维护者
+
+- 作者：[pyapple12](https://github.com/pyapple12)
+- 邮箱：takechance_bao@188.com
+
+## 许可证
+
+本项目基于 [MIT 许可证](./LICENSE) 开源。

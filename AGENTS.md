@@ -4,29 +4,43 @@
 
 ## 运行与验证
 
-- 入口 `main.py`：GUI 为默认模式；版本常量 `VERSION` 单一来源在 `main.py`，其他模块用 `from main import VERSION` 引用
-- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, config.settings, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry"`。不要直接跑 GUI 验证（会弹窗阻塞）
+- 入口 `main.py`：GUI 为默认模式；版本常量 `VERSION` 单一来源在 `config/constants.py`，其他模块用 `from config.constants import VERSION` 引用（避免 main↔ui 循环依赖）
+- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, config.settings, config.constants, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_s1.py`、`.temp/verify_s2.py`、`.temp/verify_s3.py`、`.temp/verify_s4.py`、`.temp/verify_s5.py`、`.temp/verify_s6.py`、`.temp/verify_s7.py`、`.temp/verify_s8.py`、`.temp/verify_s9.py`、`.temp/verify_s10.py`、`.temp/verify_s11.py`（各自模块开发完成后运行）
 - GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
 - 依赖（`requirements.txt`）：PyQt6（其余按需添加，见 z.plan.md）
 
 ## 环境陷阱
 
-- `.venv` 是机器绑定的：`pyvenv.cfg` 的 `home` 指向创建时机器的 Python 路径。换机器/换用户后解释器损坏，症状是 VSCode Python 扩展报 `write EPIPE / Shutting down server`（Jedi 语言服务器无法启动）。重建：`Remove-Item -Recurse -Force .venv; py -3.12 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.txt`，然后在 VSCode 重选解释器
+- `.venv` 是机器绑定的：`pyvenv.cfg` 的 `home` 指向创建时机器的 Python 路径。换机器/换用户后解释器损坏，症状是 VSCode Python 扩展报 `write EPIPE / Shutting down server`（Jedi 语言服务器无法启动）。重建：`Remove-Item -Recurse -Force .venv; py -3.14 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.txt`，然后在 VSCode 重选解释器
 - 数据源路径（Windows）：opencode.db 与 auth.json 位于 `%USERPROFILE%\.local\share\opencode\` 与 `%USERPROFILE%\.config\opencode\`，路径探测必须兼容不同安装方式（见 reference/opencode-bar 的多路径探测）
 
 ## 结构与约定
 
 - 包结构按依赖单向分层（参考 AccelWorld）：`utils/` 通用工具（logger/file_utils/retry，无业务依赖）→ `config/` 配置（settings，JSON 存 `~/.config/myboard/config.json`）→ `modules/` 业务核心（opencode_usage 用量统计、go_quota Go 配额、pricing 定价）→ `ui/` 界面（main_window 主窗口、system_tray 托盘、themes 主题 QSS）→ `data/` 静态数据
-- `main.py` 收编 GUI 分发与 `VERSION`；模块间顶层 import，不要使用函数内延迟 import
+- `main.py` 收编 GUI 分发；模块间顶层 import，不要使用函数内延迟 import
 - 提交信息用中文 conventional 风格并带版本号，如 `feat: V0.1，完成用量统计模块...`
 - 项目规划与方案文档在 `z.plan.md`
 - `reference/` 目录是外部项目的 git clone（浅克隆），**不纳入本仓库版本控制**；需要更新时重新 clone
 
 ## 代码规范
 
+### 错误策略（z.plan.md 第四章，参考 opencode-bar / opencode-usage / OpenCode-Token）
+
+常驻桌面应用的错误处理主线：**不崩溃、不阻塞、有提示、能自愈**。传统"抛异常就崩、出错就弹窗"对常驻应用不可接受。
+
+- 统一错误类型：业务错误定义分类异常（如 `GoQuotaError` 的 auth/network/decoding/provider），携带中文消息；UI 只认分类不认细节
+- 降级不中断：多数据源/多 provider 任一失败不影响整体；非核心子系统失败仅状态栏提示，不弹窗
+- 缓存兜底：网络失败返回上次缓存数据 + 标注来源（`is_cached` + 错误原因），不显示空白
+- 宽容解析：外部数据（opencode.db 结构、dashboard HTML、配置/价格文件）格式可能变更——数字字段可能是字符串（弹性转换）、坏 JSON 返回空不崩溃、None 语义区分"未记录"与 0
+- 节流 + 去重：非官方接口（dashboard HTML）设 `minimumFetchInterval` 节流 + in-flight 去重，防频繁刷新打爆接口
+- 保留旧数据：刷新失败保留旧 view，成功后视图才替换
+- 只读防误写：opencode.db 一律只读连接（`mode=ro`），从源头杜绝误写
+- 窗口缺失容忍：dashboard 单窗口解析失败仅警告，全部缺失才报错（markup 可能变更）
+
 ### 函数注释规则
 
 - 每个函数定义下方紧跟 `#` 注释，说明该函数的用途和核心逻辑（1-3 行）
+- **禁止使用 docstring（三引号字符串）替代 `#` 注释**——函数/类/模块文档统一走 `#` 注释体系，docstring 不承担注释职责；单行 docstring 当注释用属于违规（`.temp/verify_s11.py` 自动检测）
 - 每个 `.py` 文件末尾必须有完整的函数逻辑说明区，用 `# =====` 分隔，涵盖文件中所有函数/模块级常量：
   - 输入、输出、逻辑步骤
   - 设计理由（为什么这样做）
