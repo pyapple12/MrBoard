@@ -6,13 +6,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from config.static.static_config import get_static_config
 from modules.opencode_usage import OpenCodeDB, UsageRow, UsageSummary, flatten_tokens
 from utils.file_utils import write_json
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-EXPORT_LIMIT = 100000  # 分组导出行数上限（防超长表）
+# 静态配置解包（S8：参数外置 base.json）
+_SC = get_static_config()
+EXPORT_LIMIT = int(_SC.base["export_limit"])
 SUMMARY_CSV_COLUMNS = (
     "sessions",
     "messages",

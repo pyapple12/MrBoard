@@ -77,20 +77,26 @@
 
 ```
 mrboard/
-├── main.py                      # 入口：GUI 分发 + VERSION 单一来源
+├── main.py                      # 入口：GUI 分发 + VERSION（base.json version 字段）
 ├── modules/                     # 业务核心（无 GUI 依赖，可独立测试）
 │   ├── opencode_usage.py        # 用量统计：只读聚合 + 三级探测 + CLI
 │   ├── go_quota.py              # Go 配额：凭据链 + HTML 抓取 + 节流缓存
 │   ├── pricing.py               # 定价：三级来源合并 + 多币种分桶
 │   ├── exporter.py              # 导出：CSV(UTF-8 BOM) + JSON
 │   └── browser_creds.py         # 浏览器凭据：v10 DPAPI + v20 CDP
-├── config/settings.py           # AppConfig 持久化（~/.config/myboard/config.json）
+├── config/                      # 配置（S8 对齐 AccelWorld：静态 json 驱动 + 用户配置分离）
+│   ├── settings.py              # 用户配置 AppConfig（项目内 config/user_config.json，可读写）
+│   └── static/                  # 静态配置（只读，json 驱动，代码零硬编码）
+│       ├── static_config.py     # StaticConfig 加载器 + get_static_config() 缓存单例
+│       ├── config.json          # 引导映射表
+│       ├── base.json            # 应用参数（版本/间隔/端口/上限/路径/默认值）
+│       └── ui.json              # UI 参数（颜色/阈值/表头）
 ├── ui/                          # 界面
 │   ├── main_window.py           # 主窗口：卡片/配额/表格/引导 + 后台加载
 │   ├── system_tray.py           # 托盘：状态色图标 + 菜单
 │   └── themes.py                # LIGHT/DARK QSS + 颜色分级
 ├── utils/                       # 通用工具（无业务依赖）
-│   ├── logger.py / file_utils.py / retry.py
+│   ├── logger.py / file_utils.py（含 get_project_root）/ retry.py / convert.py
 ├── data/                        # 静态数据（预留）
 ├── reference/                   # 参考项目（不入版本控制）
 ├── AGENTS.md / z.plan.md / x.progress.md / w.study.md

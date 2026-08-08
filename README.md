@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.05-blue.svg)](config/constants.py)
+[![Version](https://img.shields.io/badge/Version-ver%200.05-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -128,7 +128,7 @@ Go 配额用量需要浏览器登录凭据（workspaceId + authCookie）。首�
 
 ```
 mrboard/
-├── main.py                    # 主入口：GUI 分发，版本号 VERSION 单一来源（config/constants.py）
+├── main.py                    # 主入口：GUI 分发，版本号 VERSION 单一来源（base.json version 字段）
 ├── modules/                   # 业务核心层（无 GUI 依赖，可独立测试）
 │   ├── opencode_usage.py      # 用量统计：只读聚合 + 三级路径探测 + CLI
 │   ├── go_quota.py            # Go 配额：凭据链 + HTML 抓取 + 节流缓存
@@ -136,8 +136,11 @@ mrboard/
 │   ├── exporter.py            # 导出：CSV(UTF-8 BOM) + JSON
 │   └── browser_creds.py       # 浏览器凭据：v10 DPAPI + v20 CDP 引导
 ├── config/
-│   ├── constants.py           # VERSION 单一来源
-│   └── settings.py            # 用户配置读写（AppConfig，~/.config/myboard/config.json）
+│   ├── settings.py            # 用户配置读写（AppConfig，config/user_config.json）
+│   └── static/                # 静态配置（只读，json 驱动）
+│       ├── static_config.py   # StaticConfig 加载器 + 缓存单例
+│       ├── base.json          # 应用参数（版本/间隔/端口/上限等）
+│       └── ui.json            # UI 参数（颜色/阈值/表头）
 ├── ui/                        # GUI 层
 │   ├── main_window.py         # 主窗口（卡片/配额/表格/引导 + 后台加载）
 │   ├── system_tray.py         # 系统托盘（状态色图标/菜单/预警）
@@ -152,6 +155,24 @@ mrboard/
 ├── LICENSE                    # MIT 许可证
 └── README.md                  # 本文件
 ```
+
+### 配置参数（config/static/，json 驱动）
+
+可调参数一律外置于静态配置（代码零硬编码），按分类：
+
+| 文件                        | 参数                                                                                           | 说明                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `config/static/config.json` | 引导映射表                                                                                     | `base.json` / `ui.json` 分类对应关系 |
+| `config/static/base.json`   | `version`                                                                                      | 版本号唯一来源（ver 0.05）           |
+|                             | `window_width/height`、`refresh_interval_ms`、`auto_load_delay_ms`                             | 窗口尺寸与刷新调度                   |
+|                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                             | 配额接口节流与重试                   |
+|                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval` | 浏览器/CDP 引导参数                  |
+|                             | `export_limit`、`price_cache_ttl`、`models_dev_url`                                            | 导出与定价                           |
+|                             | `user_config_path`、`default_theme`                                                            | 用户配置路径与默认值                 |
+| `config/static/ui.json`     | `colors.quota_*`、`quota_warn_percent`、`quota_danger_percent`                                 | 配额颜色与阈值                       |
+|                             | `icon_size`、`notify_duration_ms`、`table_headers`                                             | 托盘图标/通知与表格表头              |
+
+修改 json 后重启应用生效（`get_static_config()` 缓存单例，进程内只读一次）。
 
 ## 依赖
 
@@ -182,7 +203,7 @@ A：一致。本应用从 opencode.db 读取原始数据，聚合口径与 `open
 
 ### Q5：关闭程序后设置会丢失吗？
 
-A：不会。窗口位置、主题、刷新间隔自动保存到 `~/.config/myboard/config.json`，下次启动自动恢复。凭据保存在 `~/.config/myboard/opencode-go.json`。
+A：不会。窗口位置、主题、刷新间隔自动保存到项目内 `config/user_config.json`（随项目走，对齐 AccelWorld 模式），下次启动自动恢复。凭据保存在 `~/.config/myboard/opencode-go.json`（敏感数据不随项目走）。
 
 ### Q6：数据会发送到第三方吗？
 

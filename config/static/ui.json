@@ -1,0 +1,23 @@
+{
+  "colors": {
+    "quota_ok": "#4caf50",
+    "quota_warn": "#ff9800",
+    "quota_danger": "#f44336",
+    "quota_gray": "#9e9e9e"
+  },
+  "quota_warn_percent": 50,
+  "quota_danger_percent": 80,
+  "icon_size": 128,
+  "notify_duration_ms": 5000,
+  "table_headers": [
+    "标签",
+    "调用数",
+    "输入",
+    "输出",
+    "推理",
+    "缓存读",
+    "缓存写",
+    "总 token",
+    "费用"
+  ]
+}

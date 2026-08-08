@@ -35,8 +35,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config.constants import VERSION
 from config.settings import load_config, save_config
+from config.static.static_config import get_static_config
 from modules import browser_creds
 from modules.exporter import export_all
 from modules.go_quota import (
@@ -58,9 +58,13 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-REFRESH_INTERVAL_MS = 5 * 60 * 1000  # 定时刷新间隔：5 分钟
+# 静态配置解包（S8：参数外置 base.json，运行时零 IO）
+_SC = get_static_config()
+VERSION = str(_SC.base["version"])
+REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
+AUTO_LOAD_DELAY_MS = int(_SC.base["auto_load_delay_ms"])
 
-# 分组维度与表格列配置
+# 分组维度与表格列配置（表头文案外置 ui.json，S8.3；维度枚举保留代码内）
 DIMENSIONS = ("total", "day", "model", "provider", "agent")
 DIMENSION_LABELS = {
     "total": "总览",
@@ -69,17 +73,7 @@ DIMENSION_LABELS = {
     "provider": "按 Provider",
     "agent": "按 Agent",
 }
-TABLE_HEADERS = (
-    "标签",
-    "调用数",
-    "输入",
-    "输出",
-    "推理",
-    "缓存读",
-    "缓存写",
-    "总 token",
-    "费用",
-)
+TABLE_HEADERS = tuple(_SC.ui["table_headers"])
 
 
 @dataclass
@@ -196,7 +190,7 @@ def _wait_for_login_cookie(deadline: float) -> str | None:
     while time.time() < deadline and auth_cookie is None:
         auth_cookie = browser_creds.fetch_auth_cookie_via_cdp(timeout=10)
         if auth_cookie is None:
-            time.sleep(5)
+            time.sleep(int(_SC.base["cdp_poll_interval"]))
     return auth_cookie
 
 
@@ -206,10 +200,14 @@ class _CdpGuideTask(QRunnable):
     def __init__(
         self, signals: _CdpGuideSignals, login_wait_seconds: int = 180
     ) -> None:
-        # 初始化任务：记录信号对象与登录等待时长（秒）
+        # 初始化任务：记录信号对象与登录等待时长（默认取静态配置）
         super().__init__()
         self.signals = signals
-        self.login_wait_seconds = login_wait_seconds
+        self.login_wait_seconds = (
+            login_wait_seconds
+            if login_wait_seconds is not None
+            else int(_SC.base["cdp_login_wait_seconds"])
+        )
 
     def run(self) -> None:
         # 后台执行：环境预检 → 快照 workspaceID → 启动调试 Chrome → 轮询登录 → 写凭据 → 清理
@@ -297,7 +295,8 @@ class MainWindow(QMainWindow):
         self._quota_info: GoQuotaInfo | None = None
         self._is_dark = False
         self._pending_auto_load = False
-        self._pool = QThreadPool.globalInstance()
+        # globalInstance 可能返回 None（PyQt6 stub Optional），兜底新建实例
+        self._pool = QThreadPool.globalInstance() or QThreadPool()
         self._signals = _LoadSignals()
         self._signals.usage_ready.connect(self._on_usage_ready)
         self._signals.quota_ready.connect(self._on_quota_ready)
@@ -310,7 +309,7 @@ class MainWindow(QMainWindow):
         self._guide_signals.failed.connect(self._on_guide_failed)
 
         self.setWindowTitle(f"myboard 用量与配额 {VERSION}")
-        self.resize(760, 640)
+        self.resize(int(_SC.base["window_width"]), int(_SC.base["window_height"]))
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
         self._is_dark = self._config.theme == "dark"
@@ -320,11 +319,11 @@ class MainWindow(QMainWindow):
             )
         self._build_ui()
         self._apply_theme()
-        self.statusBar().showMessage("正在加载…")
+        self._status_bar.showMessage("正在加载…")
 
         # 启动延迟加载（手动刷新会取消该调度，防双加载）
         self._pending_auto_load = True
-        QTimer.singleShot(10, self._trigger_auto_load)
+        QTimer.singleShot(AUTO_LOAD_DELAY_MS, self._trigger_auto_load)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self.refresh)
         self._refresh_timer.start(self._config.refresh_interval_ms)
@@ -489,9 +488,9 @@ class MainWindow(QMainWindow):
         self._apply_theme()
 
     def _apply_theme(self) -> None:
-        # 应用当前主题 QSS 到应用级样式
+        # 应用当前主题 QSS 到应用级样式（isinstance 收窄 QCoreApplication → QApplication）
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             app.setStyleSheet(get_theme("dark" if self._is_dark else "light"))
 
     def _on_usage_ready(self, data: UsageData) -> None:
@@ -598,8 +597,9 @@ class MainWindow(QMainWindow):
         # 设置配额状态标签样式名并强制 QSS 重算（setObjectName 后不重算颜色不生效）
         self._quota_status.setObjectName(object_name)
         style = self._quota_status.style()
-        style.unpolish(self._quota_status)
-        style.polish(self._quota_status)
+        if style is not None:
+            style.unpolish(self._quota_status)
+            style.polish(self._quota_status)
 
     def _render_quota(self, info: GoQuotaInfo) -> None:
         # 渲染 Go 配额进度条与状态信息（颜色分级）
@@ -663,16 +663,17 @@ class MainWindow(QMainWindow):
     def save_state(self) -> None:
         # 保存窗口状态：几何/主题/刷新间隔到配置文件（托盘退出与关闭时调用）
         config = load_config()
-        config.window_geometry = bytes(self.saveGeometry().toHex()).decode()
+        config.window_geometry = bytes(self.saveGeometry().toHex().data()).decode()
         config.theme = "dark" if self._is_dark else "light"
         config.refresh_interval_ms = self._refresh_timer.interval()
         save_config(config)
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        # 关闭按钮：保存状态并隐藏到托盘（常驻模式，不真正退出）
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
+        # 关闭按钮：保存状态并隐藏到托盘（常驻模式，不真正退出；签名对齐 PyQt6 stub）
         self.save_state()
         self.hide()
-        event.ignore()
+        if a0 is not None:
+            a0.ignore()
 
 
 # ===== ui/main_window.py 模块说明 =====

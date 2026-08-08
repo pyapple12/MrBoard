@@ -1,0 +1,20 @@
+{
+  "version": "ver 0.06",
+  "window_width": 760,
+  "window_height": 640,
+  "refresh_interval_ms": 300000,
+  "auto_load_delay_ms": 10,
+  "min_fetch_interval": 60,
+  "retry_count": 2,
+  "retry_delay": 1.0,
+  "cdp_port": 9222,
+  "history_limit": 200,
+  "esentutl_timeout": 30,
+  "cdp_login_wait_seconds": 180,
+  "cdp_poll_interval": 5,
+  "export_limit": 100000,
+  "price_cache_ttl": 86400,
+  "models_dev_url": "https://models.dev/api.json",
+  "user_config_path": "config/user_config.json",
+  "default_theme": "light"
+}

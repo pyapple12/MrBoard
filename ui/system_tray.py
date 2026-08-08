@@ -2,8 +2,9 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
+from config.static.static_config import get_static_config
 from ui.themes import (
     QUOTA_COLOR_DANGER,
     QUOTA_COLOR_OK,
@@ -12,8 +13,11 @@ from ui.themes import (
     QUOTA_WARN_PERCENT,
 )
 
-ICON_SIZE = 128
-NOTIFY_DURATION_MS = 5000  # 气泡通知时长
+# 图标/通知参数（S8.3：外置 ui.json，静态配置解包）
+_SC = get_static_config()
+ICON_SIZE = int(_SC.ui["icon_size"])
+NOTIFY_DURATION_MS = int(_SC.ui["notify_duration_ms"])
+QUOTA_GRAY = str(_SC.ui["colors"]["quota_gray"])
 
 
 class SystemTray(QSystemTrayIcon):
@@ -43,9 +47,9 @@ class SystemTray(QSystemTrayIcon):
         self.activated.connect(self._on_activated)
 
     def show_requested(self) -> None:
-        # 菜单"显示窗口"：主窗口显示并置前
+        # 菜单"显示窗口"：主窗口显示并置前（isinstance 收窄类型供静态检查）
         window = self.parent()
-        if window is not None:
+        if isinstance(window, QWidget):
             window.show()
             window.raise_()
             window.activateWindow()
@@ -54,7 +58,7 @@ class SystemTray(QSystemTrayIcon):
         # 按最紧窗口使用百分比更新图标颜色（绿/黄/红；阈值用 themes 常量）
         if used_percent is None:
             self._quota_status = 0
-            self.setIcon(self._build_icon(QColor("#9e9e9e")))
+            self.setIcon(self._build_icon(QColor(QUOTA_GRAY)))
             return
         if used_percent >= QUOTA_DANGER_PERCENT:
             color = QColor(QUOTA_COLOR_DANGER)

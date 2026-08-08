@@ -199,7 +199,7 @@ cython_debug/
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
@@ -220,10 +220,16 @@ __marimo__/
 # 参考项目（外部 clone，不纳入版本控制）
 reference/
 
+# opencode 项目级配置（机器绑定解释器路径）
+.opencode/
+
 # 归档与临时
 archived/
 .temp/
 
 # 凭据（严禁提交）
 opencode-go.json
+
+# 用户配置（运行时生成，随项目模式但避免每次运行 dirty）
+config/user_config.json
 >>>>>>> origin/main

@@ -102,57 +102,57 @@ S1-S6 全量回归 **195 项断言全部通过**（verify_s1:17 / verify_s2:30 /
 
 ### S8.1 静态配置基础设施（config/static/）
 
-- [ ] S8.1.1 新建 `config/static/` 包（**init**.py）+ 引导映射表 `config.json`（`{"base": "base.json", "ui": "ui.json"}`）
-- [ ] S8.1.2 `config/static/static_config.py`：`StaticConfig` dataclass（base/ui 两个 dict 字段，只读）+ `_load_static_config()`（读映射表 → 遍历读取各分类 json → 聚合）+ `get_static_config()` 缓存单例（懒加载，`__file__` 自定位目录）
-- [ ] S8.1.3 失败策略：映射/文件缺失或损坏抛 `RuntimeError`（开发期快速暴露，对齐 AccelWorld 不静默兜底）；文件内容解析宽容（read_json 复用）
-- 状态：⏳ 待开发｜优先级：高
+- [x] S8.1.1 新建 `config/static/` 包 + 引导映射表 `config.json`（`{"base": "base.json", "ui": "ui.json"}`）
+- [x] S8.1.2 `config/static/static_config.py`：`StaticConfig` dataclass（base/ui 只读）+ `_load_static_config()`（映射表 → 遍历聚合）+ `get_static_config()` 缓存单例（懒加载，`__file__` 自定位）
+- [x] S8.1.3 失败策略：映射/文件缺失或损坏抛 `RuntimeError`（开发期快速暴露）；**修复真实 bug**：`_load_static_config` 用 `use_cache=False`（file_utils 缓存导致"改 json 不生效"，static_config 单例为唯一缓存层）
+- 状态：✅ 已完成｜优先级：高
 
 ### S8.2 应用参数外置（config/static/base.json）
 
-- [ ] S8.2.1 窗口与刷新：默认窗口尺寸（760x640）、`REFRESH_INTERVAL_MS`（5 分钟）、`AUTO_LOAD_DELAY_MS`（10ms）——来自 ui/main_window.py
-- [ ] S8.2.2 配额节流：`MIN_FETCH_INTERVAL`（60s）、models 校验与 dashboard 抓取的 `RETRY_COUNT`（2）/`RETRY_DELAY`（1.0s）——来自 modules/go_quota.py
-- [ ] S8.2.3 浏览器/CDP：`CDP_PORT`（9222）、`HISTORY_LIMIT`（200）、`ESENTUTL_TIMEOUT`（30s）、CDP 登录等待（180s）/轮询间隔（5s）——来自 modules/browser_creds.py
-- [ ] S8.2.4 导出与定价：`EXPORT_LIMIT`（100000，exporter）、`PRICE_CACHE_TTL`（86400）、`MODELS_DEV_URL`（pricing）
-- [ ] S8.2.5 路径与默认值（对齐 AccelWorld）：`utils/file_utils.py` 新增 `get_project_root()`（校验 main.py 存在，防层级偏移）；base.json 增加 `user_config_path`（`"config/user_config.json"`）、`default_theme`（light）、**`version`（"ver 0.05"）**；**凭据路径 CREDENTIALS_FILE 与日志路径 LOG_DIR 不进 base.json**（决策：保留用户目录，见 S8 头部）
-- [ ] S8.2.6 **删除被抽走的硬编码常量**（REFRESH_INTERVAL_MS/MIN_FETCH_INTERVAL/CDP_PORT 等，改从静态配置读取），杜绝双源
-- 状态：⏳ 待开发｜优先级：高
+- [x] S8.2.1 窗口与刷新：默认窗口尺寸（760x640）、`REFRESH_INTERVAL_MS`（5 分钟）、`AUTO_LOAD_DELAY_MS`（10ms）——ui/main_window.py 已解包
+- [x] S8.2.2 配额节流：`MIN_FETCH_INTERVAL`（60s）、`RETRY_COUNT`（2）/`RETRY_DELAY`（1.0s）——modules/go_quota.py 已解包
+- [x] S8.2.3 浏览器/CDP：`CDP_PORT`（9222）、`HISTORY_LIMIT`（200）、`ESENTUTL_TIMEOUT`（30s）、`cdp_login_wait_seconds`（180s）、`cdp_poll_interval`（5s）——modules/browser_creds.py + ui/main_window.py 已解包
+- [x] S8.2.4 导出与定价：`EXPORT_LIMIT`（100000）、`PRICE_CACHE_TTL`（86400）、`MODELS_DEV_URL`——exporter/pricing 已解包
+- [x] S8.2.5 路径与默认值：`utils/file_utils.py` 新增 `get_project_root()`（校验 main.py）；base.json 增加 `user_config_path`/`default_theme`/`version`；凭据与日志路径不进 base.json（决策保留）
+- [x] S8.2.6 硬编码常量删除：6 个文件 17 处硬编码全部清除（verify_s12 防回归检查），解包值与原值一致
+- 状态：✅ 已完成｜优先级：高
 
 ### S8.3 UI 参数外置（config/static/ui.json）
 
-- [ ] S8.3.1 配额颜色与阈值：`QUOTA_COLOR_OK/WARN/DANGER`、`QUOTA_WARN_PERCENT`（50）/`QUOTA_DANGER_PERCENT`（80）、托盘未配置灰 `#9e9e9e`——来自 ui/themes.py + ui/system_tray.py
-- [ ] S8.3.2 托盘与通知：`ICON_SIZE`（128）、`NOTIFY_DURATION_MS`（5000）——来自 ui/system_tray.py
-- [ ] S8.3.3 表格列文案 `TABLE_HEADERS`（中文表头）——来自 ui/main_window.py（仅文案，维度枚举 DIMENSIONS 保留代码内）
-- 状态：⏳ 待开发｜优先级：中
+- [x] S8.3.1 配额颜色与阈值：`QUOTA_COLOR_OK/WARN/DANGER`、`QUOTA_WARN_PERCENT`/`QUOTA_DANGER_PERCENT`、托盘灰 `quota_gray`——ui/themes.py + ui/system_tray.py 已解包（分级函数行为不变）
+- [x] S8.3.2 托盘与通知：`ICON_SIZE`（128）、`NOTIFY_DURATION_MS`（5000）——ui/system_tray.py 已解包
+- [x] S8.3.3 表格列文案 `TABLE_HEADERS`（9 列中文表头）→ ui.json list——ui/main_window.py 已解包（维度枚举 DIMENSIONS 保留代码内）
+- 状态：✅ 已完成｜优先级：中
 
 ### S8.4 用户配置改造（config/settings.py）
 
-- [ ] S8.4.1 `AppConfig` 默认值改从 `get_static_config()` 现取（`refresh_interval_ms`、`theme`），消除代码内默认值硬编码
-- [ ] S8.4.2 用户配置路径对齐 AccelWorld：`get_project_root() / base["user_config_path"]`（项目内 `config/user_config.json`），settings.py 不再自推导 `~/.config/myboard/`；**凭据文件路径（go_quota.CREDENTIALS_FILE）保持 `~/.config/myboard/opencode-go.json` 不变**（敏感数据不随项目走）
-- 状态：⏳ 待开发｜优先级：中
+- [x] S8.4.1 `AppConfig` 默认值从 `get_static_config()` 现取（`theme` → default_theme、`refresh_interval_ms` → base.json），代码内默认值硬编码清除
+- [x] S8.4.2 用户配置路径对齐 AccelWorld：`get_project_root() / base["user_config_path"]` = 项目内 `config/user_config.json`（与 AccelWorld 一致随项目走、被 git 跟踪）；**凭据路径 go_quota.CREDENTIALS_FILE 保持 `~/.config/myboard/opencode-go.json` 不变**
+- 状态：✅ 已完成｜优先级：中
 
 ### S8.5 各模块引用改造（顶层一次性解包，运行时零 IO）
 
-- [ ] S8.5.1 `ui/main_window.py`：窗口尺寸/刷新间隔/启动延迟 → 模块常量区 `_SC = get_static_config()` 一次性解包
-- [ ] S8.5.2 `modules/go_quota.py`：节流/重试/URL → 静态配置
-- [ ] S8.5.3 `modules/browser_creds.py`：CDP 端口/超时/上限 → 静态配置
-- [ ] S8.5.4 `modules/exporter.py`：EXPORT_LIMIT → 静态配置
-- [ ] S8.5.5 `modules/pricing.py`：TTL/URL → 静态配置
-- [ ] S8.5.6 `ui/themes.py` + `ui/system_tray.py`：调色板/阈值/图标参数 → ui.json（QSS 模板构建逻辑不变，调色板数据源改 json）
-- [ ] S8.5.7 **constants.py 删除与 VERSION 迁移**：VERSION 从 `config/constants.py` 移入 base.json（`version` 字段）——main.py 与 ui/main_window.py 改为从静态配置读取；`config/constants.py` 文件删除；连带同步：README Version badge 链接、verify_s1 的 VERSION 断言（改为断言 base.json 值）、导入验证命令移除 config.constants
-- 状态：⏳ 待开发｜优先级：中
+- [x] S8.5.1 `ui/main_window.py`：窗口尺寸/刷新间隔/启动延迟 → `_SC` 解包（S8.2 提前完成）
+- [x] S8.5.2 `modules/go_quota.py`：节流/重试 → 静态配置（S8.2 提前完成，URL 属接口常量保留代码内）
+- [x] S8.5.3 `modules/browser_creds.py`：CDP 端口/超时/上限 → 静态配置（S8.2 提前完成）
+- [x] S8.5.4 `modules/exporter.py`：EXPORT_LIMIT → 静态配置（S8.2 提前完成）
+- [x] S8.5.5 `modules/pricing.py`：TTL/URL → 静态配置（S8.2 提前完成）
+- [x] S8.5.6 `ui/themes.py` + `ui/system_tray.py`：调色板阈值/图标参数 → ui.json（S8.3 提前完成）
+- [x] S8.5.7 **constants.py 删除与 VERSION 迁移**：VERSION 移入 base.json `version` 字段——main.py 与 ui/main_window.py 改为 `get_static_config().base["version"]` 读取；`config/constants.py` 已删除；连带同步：README 结构/badge 链接、verify_s9 断言改 base.json、verify_s11 文件清单、AGENTS.md 与 x.progress 导入命令移除 config.constants
+- 状态：✅ 已完成｜优先级：中
 
 ### S8.6 验证
 
-- [ ] S8.6.1 `.temp/verify_s12.py`：静态配置加载正确性（映射/缺失抛错/缓存单例单次 IO/改 json 后生效）+ 各模块解包值与原常量一致（防抽参改值）+ **VERSION 单一来源断言（base.json `version` 字段 == main.py 输出）**
-- [ ] S8.6.2 全量回归：verify_s1-s11 共 283 项全部通过 + GUI offscreen 初始化（verify_s1 的 VERSION 断言已随 S8.5.7 同步）
-- [ ] S8.6.3 AGENTS.md 更新：config 结构说明（constants.py 已删除）+ 新约定"可调参数一律走 config/static/*.json，禁止代码硬编码；版本号唯一来源为 base.json version 字段"
-- 状态：⏳ 待开发｜优先级：高
+- [x] S8.6.1 `.temp/verify_s12.py` 17 项：静态配置加载正确性（映射/缺失抛错/缓存单例单次 IO/改 json 后生效）+ 各模块解包值一致 + **VERSION 单一来源断言**（base.json `version` == main.VERSION）
+- [x] S8.6.2 全量回归：verify_s1-s14 共 **328 项全部通过** + GUI offscreen 初始化 OK
+- [x] S8.6.3 AGENTS.md 更新：结构与约定章节重写——config 两类配置说明（static 只读 json 驱动 / settings 用户配置项目内）+ 新约定"可调参数一律走 config/static/*.json，禁止代码硬编码；版本号唯一来源为 base.json version 字段；凭据与日志保持在用户目录"
+- 状态：✅ 已完成｜优先级：高
 
 ### S8.7 文档同步
 
-- [ ] S8.7.1 README 项目结构更新（config/static/ 说明 + 参数 json 列表）
-- [ ] S8.7.2 z.plan.md 第五章结构章节同步（config 树）
-- 状态：⏳ 待开发｜优先级：低
+- [x] S8.7.1 README：项目结构树含 config/static/（S8.5 已更新）+ 新增"配置参数（json 驱动）"小节（base.json/ui.json 全参数清单 + 生效说明）+ Q5 答案修正（用户配置移项目内 config/user_config.json，凭据仍在 ~/.config）
+- [x] S8.7.2 z.plan.md 第五章结构树更新：config/ 展开为 settings.py + static/ 四文件（映射表/base/ui/加载器），VERSION 来源、utils 清单同步
+- 状态：✅ 已完成｜优先级：低
 
 ---
 
@@ -160,7 +160,7 @@ S1-S6 全量回归 **195 项断言全部通过**（verify_s1:17 / verify_s2:30 /
 
 ```powershell
 # 导入验证
-.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, config.settings, config.constants, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert"
+.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert"
 
 # GUI 无头初始化验证（不弹窗）
 $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"
@@ -177,4 +177,7 @@ $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWi
 .\.venv\Scripts\python.exe .temp\verify_s9.py   # S7.2 中危问题修复
 .\.venv\Scripts\python.exe .temp\verify_s10.py  # S7.3 消重与函数抽取
 .\.venv\Scripts\python.exe .temp\verify_s11.py  # S7.4 注释规范检测
+.\.venv\Scripts\python.exe .temp\verify_s12.py  # S8.1/S8.2 静态配置检验
+.\.venv\Scripts\python.exe .temp\verify_s13.py  # S8.3/S8.4 UI 外置与用户配置
+.\.venv\Scripts\python.exe .temp\verify_s14.py  # S8.5 VERSION 迁移与 constants 删除
 ```

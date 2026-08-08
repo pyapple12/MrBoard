@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from config.static.static_config import get_static_config
 from modules import browser_creds
 from utils.file_utils import write_json
 from utils.logger import get_logger
@@ -26,7 +27,11 @@ CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     " (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
-MIN_FETCH_INTERVAL = 60  # 节流：距上次成功拉取不足 60 秒则返回缓存
+# 静态配置解包（S8：参数外置 base.json）
+_SC = get_static_config()
+MIN_FETCH_INTERVAL = int(_SC.base["min_fetch_interval"])
+RETRY_COUNT = int(_SC.base["retry_count"])
+RETRY_DELAY = float(_SC.base["retry_delay"])
 AUTH_KEY_FIELDS = ("key", "access", "token", "apiKey", "value")
 WORKSPACE_ID_FIELDS = ("workspaceId", "workspaceID", "workspace_id")
 AUTH_COOKIE_FIELDS = ("authCookie", "auth_cookie", "cookie")
@@ -261,9 +266,9 @@ def fetch_model_count(api_key: str) -> int | None:
                 "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
             },
-            retries=2,
+            retries=RETRY_COUNT,
             exceptions=(urllib.error.URLError, TimeoutError),
-            delay=1.0,
+            delay=RETRY_DELAY,
         )
     except GoQuotaError:
         raise
@@ -298,9 +303,9 @@ def fetch_dashboard_usage(
             _http_get,
             url,
             headers=headers,
-            retries=2,
+            retries=RETRY_COUNT,
             exceptions=(urllib.error.URLError, TimeoutError),
-            delay=1.0,
+            delay=RETRY_DELAY,
         )
     except GoQuotaError:
         raise

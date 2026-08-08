@@ -4,10 +4,13 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from config.constants import VERSION
+from config.static.static_config import get_static_config
 from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
+
+# 版本号单一来源（S8.5：外置 base.json version 字段）
+VERSION = str(get_static_config().base["version"])
 
 
 def main() -> None:
@@ -57,7 +60,7 @@ if __name__ == "__main__":
 
 # ===== main.py 模块说明 =====
 # 模块级常量：
-#   VERSION：来自 config.constants（单一来源），main.py 与 ui 层共同引用，
+#   VERSION：来自 base.json version 字段（S8.5 外置），main.py 与 ui 层共同引用，
 #     消除循环依赖（审计 M1/M2 修复：原 VERSION 放 main.py 导致 ui 反向引用）
 # 函数：
 #   main()：
@@ -75,4 +78,4 @@ if __name__ == "__main__":
 #     逻辑步骤：window.save_state() → tray.hide() → app.quit()
 #     设计理由：任何退出路径都先保存状态（对齐 AccelWorld B2 修复经验）
 # 异常处理：GUI 异常由 Qt 事件循环处理；本模块无网络/文件操作
-# 关联配置：config.constants.VERSION
+# 关联配置：config/static/base.json（version 字段）

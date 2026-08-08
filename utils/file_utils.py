@@ -6,7 +6,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+# 项目根目录（utils/ 的父目录），get_project_root 校验用
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 _json_cache: dict[Path, Any] = {}
+
+
+def get_project_root() -> Path:
+    # 获取项目根目录并校验 main.py 存在（防止目录层级偏移）
+    if not (_PROJECT_ROOT / "main.py").is_file():
+        raise RuntimeError(f"项目根目录检测失败：{_PROJECT_ROOT} 下缺少 main.py")
+    return _PROJECT_ROOT
 
 
 def read_json(path: Path, default: Any = None, use_cache: bool = True) -> Any:

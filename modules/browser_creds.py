@@ -17,6 +17,7 @@ from typing import Any, Callable, TypeVar
 
 T = TypeVar("T")
 
+from config.static.static_config import get_static_config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -39,11 +40,14 @@ except ImportError:  # 打包环境缺依赖时降级（CDP 获取不可用，�
 OPENCODE_HOST = "opencode.ai"
 COOKIE_NAMES = ("auth",)
 WORKSPACE_ID_RE = re.compile(r"/workspace/(wrk_[A-Za-z0-9]+)")
-HISTORY_LIMIT = 200
+# 静态配置解包（S8：参数外置 base.json）
+_SC = get_static_config()
+HISTORY_LIMIT = int(_SC.base["history_limit"])
+CDP_PORT = int(_SC.base["cdp_port"])
+ESENTUTL_TIMEOUT = int(_SC.base["esentutl_timeout"])
 V10_PREFIX = b"v10"
 V20_PREFIX = b"v20"
 CDP_HOST = "127.0.0.1"
-CDP_PORT = 9222  # Chrome 远程调试端口（仅引导流程使用，临时开放）
 
 # 模块级状态：CDP 引导用的临时 profile 目录（launch 创建，shutdown 清理）
 _cdp_profile_dir: Path | None = None
@@ -240,7 +244,7 @@ def _safe_copy_db(db_path: Path) -> Path | None:
                 ["esentutl.exe", "/y", str(db_path), "/d", str(copy_path)],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=ESENTUTL_TIMEOUT,
             )
             if result.returncode == 0 and copy_path.is_file():
                 return copy_path

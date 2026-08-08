@@ -1,4 +1,6 @@
-# 主题样式模块：QSS 模板 + 双调色板（浅/深），配额阈值常量集中定义
+# 主题样式模块：QSS 模板 + 双调色板（浅/深），配额阈值/颜色外置 ui.json
+
+from config.static.static_config import get_static_config
 
 # ===== QSS 模板（{占位符} 由调色板替换；QSS 自身的 {} 保持不变） =====
 _QSS_TEMPLATE = """
@@ -125,14 +127,13 @@ _DARK_PALETTE = {
     "menu_selected": "#37474f",
 }
 
-# 配额使用百分比阈值（system_tray/main_window 共用，改一处生效）
-QUOTA_WARN_PERCENT = 50
-QUOTA_DANGER_PERCENT = 80
-
-# 进度条颜色分级（按使用百分比）
-QUOTA_COLOR_OK = "#4caf50"
-QUOTA_COLOR_WARN = "#ff9800"
-QUOTA_COLOR_DANGER = "#f44336"
+# 配额颜色与阈值（S8.3：外置 ui.json，静态配置解包）
+_SC = get_static_config()
+QUOTA_WARN_PERCENT = int(_SC.ui["quota_warn_percent"])
+QUOTA_DANGER_PERCENT = int(_SC.ui["quota_danger_percent"])
+QUOTA_COLOR_OK = str(_SC.ui["colors"]["quota_ok"])
+QUOTA_COLOR_WARN = str(_SC.ui["colors"]["quota_warn"])
+QUOTA_COLOR_DANGER = str(_SC.ui["colors"]["quota_danger"])
 
 
 def _build_theme(palette: dict[str, str]) -> str:

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from config.static.static_config import get_static_config
 from utils.convert import to_float, to_optional_float
 from utils.file_utils import read_json, write_json
 from utils.logger import get_logger
@@ -15,11 +16,13 @@ from utils.retry import retry_call
 
 logger = get_logger(__name__)
 
-MODELS_DEV_URL = "https://models.dev/api.json"
+# 静态配置解包（S8：参数外置 base.json）
+_SC = get_static_config()
+MODELS_DEV_URL = str(_SC.base["models_dev_url"])
 PRICE_CACHE_DIR = Path.home() / ".config" / "myboard"
 PRICE_CACHE_FILE = PRICE_CACHE_DIR / "prices.json"
 PRICE_LOCAL_FILE = PRICE_CACHE_DIR / "prices.local.json"
-PRICE_CACHE_TTL = 86400  # 远程价格缓存有效期：1 天
+PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效期：1 天
 
 # 内置常见模型价格表（单位：美元/百万 token，cache 价格缺省为 None 表示按无折扣计）
 # 来源：models.dev 快照与 opencode-bar 测试数据，仅作无网络/无缓存时的回退
