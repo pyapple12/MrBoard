@@ -319,6 +319,8 @@ def launch_chrome_debug(
                 f"--remote-debugging-port={port}",
                 f"--user-data-dir={_cdp_profile_dir}",
                 "--restore-last-session",
+                # Chrome 137+ 校验 WebSocket Origin，不加则 CDP 连接 403 被拒
+                "--remote-allow-origins=*",
                 login_url,
             ],
             stdout=subprocess.DEVNULL,

@@ -41,7 +41,10 @@ from modules import browser_creds
 from modules.exporter import export_all
 from modules.go_quota import (
     CREDENTIALS_FILE,
+    DashboardCredentials,
+    GoQuotaError,
     GoQuotaInfo,
+    fetch_dashboard_usage,
     fetch_go_quota,
     save_dashboard_credentials,
 )
@@ -184,14 +187,45 @@ class _CdpGuideSignals(QObject):
     failed = pyqtSignal(str)
 
 
-def _wait_for_login_cookie(deadline: float) -> str | None:
-    # 轮询 CDP 直到拿到 opencode.ai 的 auth cookie 或超时（每 5 秒一次）
+def _wait_for_login_cookie(
+    deadline: float, workspace_ids: list[str]
+) -> tuple[str | None, str | None]:
+    # 端到端轮询：拿 cookie 后实测 dashboard 可解析才算登录完成
+    # （防占位 cookie 误判：打开登录页时页面会种匿名 auth cookie）
+    # 返回 (cookie, 验证通过的 workspace_id)——多账户场景保存时须用验证通过的
     auth_cookie = None
+    valid_workspace_id = None
     while time.time() < deadline and auth_cookie is None:
-        auth_cookie = browser_creds.fetch_auth_cookie_via_cdp(timeout=10)
+        # 调试：记录剩余等待时间，排查提前退出
+        logger.info("轮询登录中（剩余 %.0f 秒）", deadline - time.time())
+        candidate = browser_creds.fetch_auth_cookie_via_cdp(timeout=10)
+        if candidate:
+            if not workspace_ids:
+                # 无 workspace 可验证：直接返回，交由上层"无 workspaceID"分支提示
+                auth_cookie = candidate
+                break
+            for workspace_id in workspace_ids:
+                try:
+                    usage = fetch_dashboard_usage(
+                        DashboardCredentials(workspace_id, candidate, "cdp验证")
+                    )
+                    if usage:
+                        auth_cookie = candidate
+                        valid_workspace_id = workspace_id
+                        logger.info("cookie 验证通过（dashboard 可解析）")
+                        break
+                except GoQuotaError:
+                    # 占位 cookie/未登录：dashboard 返回登录页或解析失败，继续轮询
+                    continue
         if auth_cookie is None:
             time.sleep(int(_SC.base["cdp_poll_interval"]))
-    return auth_cookie
+    # 调试：记录退出原因（超时还是拿到 cookie）
+    logger.info(
+        "轮询结束：cookie=%s，剩余 %.0f 秒",
+        bool(auth_cookie),
+        deadline - time.time(),
+    )
+    return auth_cookie, valid_workspace_id
 
 
 class _CdpGuideTask(QRunnable):
@@ -234,21 +268,29 @@ class _CdpGuideTask(QRunnable):
             if not browser_creds.wait_cdp_ready(timeout=30):
                 self.signals.failed.emit("Chrome 调试端口未就绪，请重试或使用手动填写")
                 return
-            auth_cookie = _wait_for_login_cookie(time.time() + self.login_wait_seconds)
+            auth_cookie, valid_workspace_id = _wait_for_login_cookie(
+                time.time() + self.login_wait_seconds, workspace_ids
+            )
             if not auth_cookie:
+                # 调试：确认超时路径
+                logger.info("登录超时，关闭调试实例")
                 self.signals.failed.emit(
                     f"等待登录超时（{self.login_wait_seconds // 60} 分钟）。"
                     "请确认已在新窗口登录 opencode.ai 后重试，或使用手动填写"
                 )
                 return
+            # 调试：确认拿到 cookie 路径
+            logger.info("已获取 cookie，写入凭据")
             if not workspace_ids:
                 self.signals.failed.emit(
                     "已获取 cookie 但未在浏览历史中找到 workspaceID，请使用手动填写"
                 )
                 return
-            save_dashboard_credentials(workspace_ids[0], auth_cookie)
+            # 保存验证通过的 workspace（多账户场景：不能固定取第一个）
+            saved_workspace_id = valid_workspace_id or workspace_ids[0]
+            save_dashboard_credentials(saved_workspace_id, auth_cookie)
             self.signals.success.emit(
-                f"凭据已保存（workspaceId: {workspace_ids[0][:16]}…），正在刷新配额"
+                f"凭据已保存（workspaceId: {saved_workspace_id[:16]}…），正在刷新配额"
             )
         except Exception as exc:
             self.signals.failed.emit(f"自动获取失败：{exc}")

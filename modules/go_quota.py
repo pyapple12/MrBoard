@@ -318,9 +318,14 @@ def fetch_dashboard_usage(
         raise GoQuotaError("provider", f"HTTP {exc.code}") from exc
     except Exception as exc:
         raise GoQuotaError("network", f"请求 dashboard 失败：{exc}") from exc
-    usage, missing = parse_dashboard_html(
-        body.decode("utf-8", errors="replace"), datetime.now(timezone.utc)
-    )
+    html = body.decode("utf-8", errors="replace")
+    if "OpenAuth" in html or "<title>OpenAuth</title>" in html:
+        # 未登录会话被重定向到 OpenAuth 登录页：凭据失效，按 auth 分类
+        # （引导卡片据此显示，用户可一键重新获取）
+        raise GoQuotaError(
+            "auth", "OpenCode Go 登录会话已失效，请点击一键自动获取重新登录"
+        )
+    usage, missing = parse_dashboard_html(html, datetime.now(timezone.utc))
     if missing:
         logger.warning("dashboard 缺失窗口：%s", "、".join(missing))
     return usage
@@ -510,12 +515,9 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
     try:
         model_count = fetch_model_count(api_key)
     except GoQuotaError as exc:
-        return _fallback(
-            now,
-            exc.message,
-            auth_path,
-            stage=exc.code if exc.code in ("auth", "network") else "provider",
-        )
+        # key 校验失败不阻断 dashboard 配额：配额走浏览器会话（workspaceId +
+        # authCookie），与 API key 相互独立，key 失效仅降级模型数展示
+        logger.warning("API key 校验失败（降级继续，模型数未知）：%s", exc.message)
 
     credentials = find_dashboard_credentials()
     if not credentials:
