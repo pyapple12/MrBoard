@@ -10,7 +10,7 @@ from typing import Any
 
 from config.static.static_config import get_static_config
 from utils.convert import to_float, to_optional_float
-from utils.file_utils import read_json, write_json
+from utils.file_utils import get_project_root, read_json, write_json
 from utils.logger import get_logger
 from utils.retry import retry_call
 
@@ -19,7 +19,8 @@ logger = get_logger(__name__)
 # 静态配置解包（S8：参数外置 base.json）
 _SC = get_static_config()
 MODELS_DEV_URL = str(_SC.base["models_dev_url"])
-PRICE_CACHE_DIR = Path.home() / ".config" / "myboard"
+# 价格缓存目录（P2：集中项目内 data/prices，不使用用户目录）
+PRICE_CACHE_DIR = get_project_root() / Path(str(_SC.base["prices_dir"]))
 PRICE_CACHE_FILE = PRICE_CACHE_DIR / "prices.json"
 PRICE_LOCAL_FILE = PRICE_CACHE_DIR / "prices.local.json"
 PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效期：1 天
@@ -291,7 +292,8 @@ def json_loads(body: bytes) -> Any:
 # ===== modules/pricing.py 模块说明 =====
 # 模块级常量：
 #   MODELS_DEV_URL：models.dev 全量定价接口
-#   PRICE_CACHE_FILE / PRICE_LOCAL_FILE：缓存与本地覆盖文件（~/.config/myboard/）
+#   PRICE_CACHE_FILE / PRICE_LOCAL_FILE：缓存与本地覆盖文件（项目内 data/prices/，
+#     P2：集中项目内，不使用用户目录）
 #   PRICE_CACHE_TTL：远程缓存有效期 1 天
 #   BUNDLED_PRICES：内置常见模型价格（无网络回退，仅机制兜底）
 # 类型：
@@ -314,4 +316,5 @@ def json_loads(body: bytes) -> Any:
 # 设计理由：库 cost 优先（opencode_usage 聚合），估算仅作缺失回退；价格数据带
 #   source 标记可审计；TTL 缓存避免每次启动打网络
 # 异常处理：网络失败/JSON 损坏/坏条目全部降级，绝不因价格问题阻断统计
-# 关联配置：PRICE_LOCAL_FILE 可由用户手写覆盖（~/.config/myboard/prices.local.json）
+# 关联配置：config/static/base.json（prices_dir/models_dev_url/price_cache_ttl）；
+#   PRICE_LOCAL_FILE 可由用户手写覆盖（data/prices/prices.local.json）

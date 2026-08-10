@@ -4,7 +4,12 @@ import logging
 import sys
 from pathlib import Path
 
-LOG_DIR = Path.home() / ".local" / "share" / "myboard"
+from config.static.static_config import get_static_config
+from utils.file_utils import get_project_root
+
+# 静态配置解包（P2：日志目录外置 base.json logs_dir，集中项目内，不使用用户目录）
+_SC = get_static_config()
+LOG_DIR = get_project_root() / Path(str(_SC.base["logs_dir"]))
 LOG_FILE = LOG_DIR / "myboard.log"
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -40,8 +45,9 @@ def _setup_handlers() -> None:
 
 # ===== utils/logger.py 模块说明 =====
 # 模块级常量：
-#   LOG_DIR / LOG_FILE：日志文件路径（~/.local/share/myboard/myboard.log，与
-#     opencode 数据目录同风格，Windows 下 %USERPROFILE%\.local\share 通用）
+#   LOG_DIR / LOG_FILE：日志文件路径（项目内 data/logs/myboard.log，由 base.json
+#     logs_dir 字段 + get_project_root() 拼接，P2 决策：所有数据目录集中项目内，
+#     不使用用户目录；utils 层允许依赖 config.static 读取配置，AGENTS.md 已放宽）
 #   LOG_FORMAT / DATE_FORMAT：统一日志格式（时间 | 级别 | 模块名 | 消息）
 #   _configured：模块级状态标记，保证 handler 只初始化一次（幂等）
 # 函数：
@@ -57,4 +63,4 @@ def _setup_handlers() -> None:
 #     设计理由：文件日志落盘便于排查常驻应用问题；控制台便于 CLI/开发调试
 # 异常处理：文件 handler 创建失败（目录无权限/磁盘满）捕获 OSError 后仅保留
 #   控制台输出，绝不阻断应用启动（z.plan 第四章"不崩溃"策略）
-# 关联配置：无（路径固定为 ~/.local/share/myboard）
+# 关联配置：config/static/base.json（logs_dir 字段）

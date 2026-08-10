@@ -1,5 +1,5 @@
 {
-  "version": "ver 0.07",
+  "version": "ver 0.08",
   "window_width": 760,
   "window_height": 640,
   "refresh_interval_ms": 300000,
@@ -16,5 +16,8 @@
   "price_cache_ttl": 86400,
   "models_dev_url": "https://models.dev/api.json",
   "user_config_path": "config/user_config.json",
+  "credentials_dir": "data/credentials",
+  "logs_dir": "data/logs",
+  "prices_dir": "data/prices",
   "default_theme": "light"
 }

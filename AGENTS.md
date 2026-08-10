@@ -12,15 +12,15 @@
 ## 环境陷阱
 
 - `.venv` 是机器绑定的：`pyvenv.cfg` 的 `home` 指向创建时机器的 Python 路径。换机器/换用户后解释器损坏，症状是 VSCode Python 扩展报 `write EPIPE / Shutting down server`（Jedi 语言服务器无法启动）。重建：`Remove-Item -Recurse -Force .venv; py -3.14 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.txt`，然后在 VSCode 重选解释器
-- 数据源路径（Windows）：opencode.db 与 auth.json 位于 `%USERPROFILE%\.local\share\opencode\` 与 `%USERPROFILE%\.config\opencode\`，路径探测必须兼容不同安装方式（见 reference/opencode-bar 的多路径探测）
+- 数据源路径（Windows）：opencode.db 位于 `%USERPROFILE%\.local\share\opencode\`，路径探测必须兼容不同安装方式（见 reference/opencode-bar 的多路径探测）；auth.json 已不读取（P3：程序不接触任何 API key，仅使用 dashboard 会话凭据）
 
 ## 结构与约定
 
-- 包结构按依赖单向分层（参考 AccelWorld）：`utils/` 通用工具（logger/file_utils/retry/convert，无业务依赖）→ `config/` 配置 → `modules/` 业务核心（opencode_usage 用量统计、go_quota Go 配额、pricing 定价、exporter 导出、browser_creds 浏览器凭据）→ `ui/` 界面（main_window 主窗口、system_tray 托盘、themes 主题 QSS）→ `data/` 静态数据
+- 包结构按依赖单向分层（参考 AccelWorld）：`utils/` 通用工具（file_utils/retry/convert 无业务依赖；logger 允许依赖 `config.static` 读取日志路径，不依赖其他业务模块）→ `config/` 配置 → `modules/` 业务核心（opencode_usage 用量统计、go_quota Go 配额、pricing 定价、exporter 导出、browser_creds 浏览器凭据）→ `ui/` 界面（main_window 主窗口、system_tray 托盘、themes 主题 QSS）→ `data/` 静态数据 + 运行数据（凭据/日志/价格缓存）
 - `config/` 配置分两类（S8 定案，对齐 AccelWorld）：
   - **静态配置**（`config/static/`，只读，json 驱动）：`static_config.py` 加载器 + `config.json` 引导映射表 + `base.json`（应用参数：版本/间隔/端口/上限等）+ `ui.json`（UI 参数：颜色/阈值/表头）；模块顶层 `_SC = get_static_config()` 一次性解包，运行时零 IO
   - **用户配置**（`config/settings.py`，可读写）：AppConfig dataclass，存项目内 `config/user_config.json`（路径由 base.json `user_config_path` 指定）
-- **参数约定**：可调参数一律走 `config/static/*.json`，禁止代码硬编码；版本号唯一来源为 `base.json` 的 `version` 字段；凭据（opencode-go.json）与日志保持在用户目录（`~/.config/myboard/`、`~/.local/share/myboard/`），不随项目走
+- **参数约定**：可调参数一律走 `config/static/*.json`，禁止代码硬编码；版本号唯一来源为 `base.json` 的 `version` 字段；所有配置与数据目录集中在项目内——凭据（opencode-go.json）、日志、价格缓存路径由 base.json 的 `credentials_dir` / `logs_dir` / `prices_dir` 指定（相对项目根，运行时生成、已 gitignore），**不使用用户目录**
 - `main.py` 收编 GUI 分发；模块间顶层 import，不要使用函数内延迟 import
 - 提交信息用中文 conventional 风格并带版本号，如 `feat: V0.1，完成用量统计模块...`
 - 项目规划与方案文档在 `z.plan.md`
@@ -73,7 +73,7 @@
 
 ## Git 注意
 
-- `.gitignore` 忽略 `.venv`、`reference/`、`archived/`、`.temp/`、`opencode-go.json`（含配额凭据）—— 对这些文件的修改不会出现在 `git status` 中；`AGENTS.md` 已纳入版本控制
+- `.gitignore` 忽略 `.venv`、`reference/`、`archived/`、`.temp/`、`config/user_config.json`、`data/credentials/`、`data/logs/`、`data/prices/`、`opencode-go.json`（含配额凭据）—— 对这些文件的修改不会出现在 `git status` 中；`AGENTS.md` 已纳入版本控制
 - 严禁将 API key、authCookie、workspaceId 等凭据提交到仓库
 
 ## 操作注意

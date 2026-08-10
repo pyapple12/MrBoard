@@ -211,9 +211,17 @@ class OpenCodeDB:
     def by_day(
         self, since: int | None = None, until: int | None = None, limit: int = 100
     ) -> list[UsageRow]:
-        # 按日期分组聚合（日期升序，本地时区）
+        # 按日期分组聚合（日期降序，最近日期在前，本地时区；P7 由近到远）
         return self._query_grouped(
-            self._day_expr(), since, until, order="label ASC", limit=limit
+            self._day_expr(), since, until, order="label DESC", limit=limit
+        )
+
+    def by_month(
+        self, since: int | None = None, until: int | None = None, limit: int = 100
+    ) -> list[UsageRow]:
+        # 按月份分组聚合（%Y-%m 降序，最新月在前；P8 月度统计）
+        return self._query_grouped(
+            self._month_expr(), since, until, order="label DESC", limit=limit
         )
 
     def by_model(
@@ -278,6 +286,13 @@ class OpenCodeDB:
     def _day_expr(self) -> str:
         # 按天分组表达式：毫秒时间戳转本地时区日期字符串
         return "date(json_extract(data, '$.time.created') / 1000, 'unixepoch', 'localtime')"
+
+    def _month_expr(self) -> str:
+        # 按月分组表达式：毫秒时间戳转本地时区 %Y-%m 字符串（字符串排序 = 时间排序）
+        return (
+            "strftime('%Y-%m', datetime(json_extract(data, '$.time.created')"
+            " / 1000, 'unixepoch', 'localtime'))"
+        )
 
     def _query_grouped(
         self,
@@ -407,7 +422,7 @@ def main() -> None:
     parser.add_argument(
         "--by",
         default="total",
-        choices=["total", "day", "model", "provider", "agent"],
+        choices=["total", "day", "month", "model", "provider", "agent"],
         help="分组维度（默认 total 总览）",
     )
     parser.add_argument("--limit", type=int, default=20, help="分组结果行数上限")
@@ -454,6 +469,7 @@ def main() -> None:
         else:
             methods = {
                 "day": db.by_day,
+                "month": db.by_month,
                 "model": db.by_model,
                 "provider": db.by_provider,
                 "agent": db.by_agent,

@@ -2,3 +2,4 @@ PyQt6
 pywin32
 pycryptodome
 websocket-client
+psutil

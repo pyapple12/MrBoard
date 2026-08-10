@@ -1,7 +1,5 @@
 # 主窗口模块：用量总览卡片 + Go 配额进度条 + 分组表格 + 后台加载与定时刷新
 
-import json
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QProgressBar,
@@ -40,7 +39,6 @@ from config.static.static_config import get_static_config
 from modules import browser_creds
 from modules.exporter import export_all
 from modules.go_quota import (
-    CREDENTIALS_FILE,
     DashboardCredentials,
     GoQuotaError,
     GoQuotaInfo,
@@ -56,7 +54,6 @@ from modules.opencode_usage import (
     find_db_path,
 )
 from ui.themes import get_theme, quota_chunk_color
-from utils.file_utils import write_json
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -68,9 +65,10 @@ REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
 AUTO_LOAD_DELAY_MS = int(_SC.base["auto_load_delay_ms"])
 
 # 分组维度与表格列配置（表头文案外置 ui.json，S8.3；维度枚举保留代码内）
-DIMENSIONS = ("total", "day", "model", "provider", "agent")
+DIMENSIONS = ("total", "month", "day", "model", "provider", "agent")
 DIMENSION_LABELS = {
     "total": "总览",
+    "month": "按月份",
     "day": "按日期",
     "model": "按模型",
     "provider": "按 Provider",
@@ -126,6 +124,7 @@ class _UsageTask(QRunnable):
                             cost=summary.recorded_cost,
                         )
                     ],
+                    "month": db.by_month(limit=50),
                     "day": db.by_day(limit=200),
                     "model": db.by_model(limit=50),
                     "provider": db.by_provider(limit=50),
@@ -550,7 +549,7 @@ class MainWindow(QMainWindow):
         self._render_quota(info)
         self.quota_updated.emit(info)
         # 引导卡片显示条件：CDP 可解决的凭据类错误（无 dashboard 凭据/cookie 失效），
-        # 且无缓存（历史成功过则不打扰）；no_key 等阶段 CDP 解决不了，不显示
+        # 且无缓存（历史成功过则不打扰）；其他阶段 CDP 解决不了，不显示
         show_guide = (
             info.error is not None
             and not info.is_cached
@@ -578,31 +577,26 @@ class MainWindow(QMainWindow):
         self._pool.start(_CdpGuideTask(self._guide_signals))
 
     def _manual_guide(self) -> None:
-        # 手动填写入口：生成配置模板并打开配置文件夹
+        # 手动填写入口：弹对话框输入 workspaceId + authCookie，程序加密写入
+        # （P4：不再直接编辑明文文件，所有写入路径统一 DPAPI 加密）
+        workspace_id, ok1 = QInputDialog.getText(
+            self, "手动填写凭据", "workspaceId（浏览器地址栏 /workspace/ 后复制）："
+        )
+        if not ok1 or not workspace_id.strip():
+            return
+        auth_cookie, ok2 = QInputDialog.getText(
+            self,
+            "手动填写凭据",
+            "authCookie（开发者工具 → Application → Cookies → opencode.ai → auth 的值）：",
+        )
+        if not ok2 or not auth_cookie.strip():
+            return
         try:
-            CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            if not CREDENTIALS_FILE.is_file():
-                write_json(CREDENTIALS_FILE, {"workspaceId": "", "authCookie": ""})
-            example_path = CREDENTIALS_FILE.parent / "opencode-go.example.json"
-            if not example_path.is_file():
-                example_path.write_text(
-                    json.dumps(
-                        {
-                            "_说明": "将本文件内容填入 opencode-go.json 后重命名",
-                            "workspaceId": "wrk_xxx（从 opencode.ai 浏览器地址栏 /workspace/ 后复制）",
-                            "authCookie": "xxx（浏览器开发者工具 → Application → Cookies → opencode.ai → auth 的值）",
-                        },
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                    encoding="utf-8",
-                )
-            os.startfile(str(CREDENTIALS_FILE.parent))
-            self._status_bar.showMessage(
-                f"已打开配置文件夹，请填写 opencode-go.json（示例见 opencode-go.example.json）"
-            )
-        except OSError as exc:
-            self._status_bar.showMessage(f"打开配置文件夹失败：{exc}")
+            save_dashboard_credentials(workspace_id.strip(), auth_cookie.strip())
+            self._status_bar.showMessage("凭据已保存（已加密），正在刷新配额…")
+            self.refresh()
+        except Exception as exc:
+            self._status_bar.showMessage(f"凭据保存失败：{exc}")
 
     def _on_guide_success(self, message: str) -> None:
         # 引导成功：提示并立即刷新配额（凭据已落盘，凭据链可读到）
@@ -664,7 +658,7 @@ class MainWindow(QMainWindow):
                 f"QProgressBar::chunk {{ background-color: {quota_chunk_color(percent)}; }}"
             )
             reset_label.setText(
-                f"重置于 {window.reset_date.strftime('%H:%M') if window.reset_date else '-'}"
+                f"重置于 {window.reset_date.strftime('%m-%d %H:%M') if window.reset_date else '-'}"
             )
         if info.is_cached:
             self._set_status_style("status_warn")
@@ -678,7 +672,6 @@ class MainWindow(QMainWindow):
                 f"最紧窗口 {info.overall_used_percent}% / 剩余 {info.remaining_percent}%"
             )
         self._quota_meta.setText(
-            f"模型数：{info.model_count if info.model_count is not None else '未知'} ｜ "
             f"dashboard 凭据：{info.credential_source or '未配置'}"
         )
 
@@ -752,7 +745,8 @@ class MainWindow(QMainWindow):
 #       themes.quota_chunk_color）/表格渲染（内存数据，维度切换不查库）
 #     _on_quota_ready：凭据缺失（错误且无缓存无来源）时显示引导卡片
 #     _start_cdp_guide：后台启动 CDP 一键获取（按钮禁用防重复，状态栏提示）
-#     _manual_guide：生成 opencode-go.json 模板 + 示例文件 + 打开配置文件夹
+#     _manual_guide：QInputDialog 输入 workspaceId + authCookie → save_dashboard_credentials
+#       加密写入（P4：不再直接编辑明文文件）→ 自动刷新
 #     _on_guide_success/_on_guide_failed：引导结果回传（成功自动刷新配额，
 #       失败保留引导卡片供重试/手动填写）
 #     save_state：窗口几何（QByteArray hex）/主题/刷新间隔 → config 持久化
@@ -764,5 +758,4 @@ class MainWindow(QMainWindow):
 # 异常处理：任务内异常转 error/done/failed 信号；配额错误包装为 GoQuotaInfo
 #   携带提示；引导失败仅状态栏提示不弹窗
 # 关联配置：VERSION（main.py）；config.settings（geometry/theme/refresh_interval_ms）；
-#   go_quota.CREDENTIALS_FILE（凭据文件）；OpenCodeDB/fetch_go_quota 均可注入
-#   替换（测试用）
+#   go_quota（fetch_go_quota/save_dashboard_credentials 均可注入替换，测试用）

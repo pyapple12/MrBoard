@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.05（VERSION 单一来源在 config/constants.py）
+> 当前版本：ver 0.08（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -153,6 +153,108 @@ S1-S6 全量回归 **195 项断言全部通过**（verify_s1:17 / verify_s2:30 /
 - [x] S8.7.1 README：项目结构树含 config/static/（S8.5 已更新）+ 新增"配置参数（json 驱动）"小节（base.json/ui.json 全参数清单 + 生效说明）+ Q5 答案修正（用户配置移项目内 config/user_config.json，凭据仍在 ~/.config）
 - [x] S8.7.2 z.plan.md 第五章结构树更新：config/ 展开为 settings.py + static/ 四文件（映射表/base/ui/加载器），VERSION 来源、utils 清单同步
 - 状态：✅ 已完成｜优先级：低
+
+---
+
+## V0.08 P2-P8 整体改造（依据 z.plan.md 第十章）
+
+> 目标：P2-P8 七个问题一次整体改造——凭据/路径治理（P2 目录集中项目内 + P3 删 API key 链路 + P4 凭据加密 + P6 删跨项目探测）+ 展示修正（P5 重置时间 + P7 日期倒序）+ 月度统计（P8）
+> 决策（2026-08-10 已定案，见 z.plan.md 10.4）：D1 目录集中项目内 + utils 层引用配置（方案 C）/ D2 手动填写改 GUI 对话框 / D3 win32crypt 缺失拒绝写入 / D4 连带导出 by_month / D5 提交由用户执行
+> 已定稿的文档层改动（不再重复）：z.plan.md 第十章 ✅、AGENTS.md 分层放宽 + 参数约定 ✅、.gitignore 清理冲突残留 + 增加 data/ 忽略 ✅、base.json 新增 credentials_dir/logs_dir/prices_dir ✅
+> 执行原则：每项完成后运行对应验证；全部完成后全量回归
+
+### V0.08.1 P6 移除跨项目凭据路径探测（最小改动，先做）
+
+- [x] P6.1 `modules/go_quota.py` `_dashboard_config_paths`：sub 循环 `("myboard", "opencode-bar", "opencode-quota")` → 仅 `("myboard",)`（XDG 系列与 `~/.config` 系列两处）
+- [x] P6.2 `_dashboard_config_paths` 函数注释与模块说明区同步（`~/.config/{myboard,opencode-bar,opencode-quota}/` 描述更新）
+- [x] P6.3 验证：verify_s3 凭据探测测试通过（mock 注入路径不受影响）+ 刷新日志不再出现 opencode-bar/opencode-quota 的 WARNING 噪音
+- 状态：✅ 已完成（2026-08-10）｜优先级：中
+
+### V0.08.2 P2 配置与数据目录集中到项目内
+
+- [x] P2.0 文档/配置层（2026-08-10 已定稿）：base.json 三字段 ✅、AGENTS.md 分层放宽与参数约定 ✅、.gitignore 增加 `data/credentials/` `data/logs/` `data/prices/` + 清理 `>>>>>>>` 残留 ✅、z.plan.md 第十章 D1 定案 ✅
+- [x] P2.1 `utils/logger.py`：顶层 `_SC = get_static_config()` + `get_project_root()` 拼接 LOG_DIR/LOG_FILE（`logs_dir` 字段）；模块说明区更新（依赖关系、关联配置）
+- [x] P2.2 `modules/pricing.py`：PRICE_CACHE_DIR 改 `get_project_root() / Path(_SC.base["prices_dir"])`；import 补 `get_project_root`；说明区更新
+- [x] P2.3 `modules/go_quota.py`：CREDENTIALS_FILE 改 `get_project_root() / Path(_SC.base["credentials_dir"]) / "opencode-go.json"`；import 补 `get_project_root`；说明区更新；**关键联动**：`_dashboard_config_paths` 探测链同步收敛为 [$OPENCODE_GO_CONFIG_FILE, CREDENTIALS_FILE]（原 ~/.config/myboard 与 XDG 变体移除，否则保存的凭据探测不到——保存→读取闭环）
+- [x] P2.4 循环依赖验证：全量 import 通过（确认 file_utils/static_config 不依赖 logger，logger 依赖 config.static 无环）
+- [x] P2.5 `.temp/verify_s12.py` 同步：required 字段加 `credentials_dir`/`logs_dir`/`prices_dir`；解包一致性加 LOG_DIR/PRICE_CACHE_DIR/CREDENTIALS_FILE 与 base.json 拼接比对（Path 单独断言，不走 int 比较）；`test_no_hardcoded_params` 加 `Path.home()` 残留检查（logger/go_quota/pricing 三处）
+- [x] P2.6 验证：verify_v0808_p2 13 项 + verify_v0808_p6 复验 9 项 + verify_s12 20 项 + verify_s3 39 项 + verify_s4 29 项 + verify_s7 18 项 + 全量 import + 日志落盘 `data/logs/myboard.log` 全部通过
+- [x] P2.7 凭据迁移提醒（已告知用户 2026-08-10）：旧凭据 `~/.config/myboard/opencode-go.json` 需重新"一键自动获取"或手动复制到 `data/credentials/`
+- 状态：✅ 已完成（2026-08-10）｜优先级：高
+
+### V0.08.3 P3 删除 API key 链路（程序不接触任何 key）
+
+- [x] P3.1 `modules/go_quota.py` 删除常量：`MODELS_URL`、`AUTH_KEY_FIELDS`；文件头说明同步
+- [x] P3.2 `modules/go_quota.py` 删除函数：`find_auth_file` / `read_auth_json` / `strip_json_comments` / `get_opencode_go_key` / `fetch_model_count`
+- [x] P3.3 `GoQuotaInfo` 删除字段：`model_count` / `auth_source`；`error_stage` 注释更新（移除 no_key）
+- [x] P3.4 `fetch_go_quota` 主流程简化：删除 key 校验段（节流 → 凭据 → 三窗口），顺带清理死代码（`_last_quota = info` 未定义变量两行）
+- [x] P3.5 `_build_info` / `_fallback` 签名简化：删 model_count/auth_path 参数
+- [x] P3.6 `main()` CLI 自测：删"API key 来源""模型数"打印
+- [x] P3.7 模块说明区同步（函数清单、常量说明、设计理由补充 P3 原则）
+- [x] P3.8 `ui/main_window.py`：`_render_quota` 元信息删"模型数：未知"；`_on_quota_ready` 注释 no_key 引用更新
+- [x] P3.9 `.temp/verify_s3.py`：删 `test_auth_parsing` 整组；`test_http_and_models` → `test_http_layer`（删 fetch_model_count 断言与 models 分支）；`test_flow_and_cache` 删 auth mock、"模型数 2"、"无 key 降级提示"测试
+- [x] P3.10 verify 同步：verify_s4（构造删 model_count/auth_source + "含模型数"断言改"含凭据来源"）、verify_s5（`GoQuotaInfo(model_count=1)` → 空构造）、verify_s7（构造删 model_count）、verify_s8（删 fetch_model_count 重试测试，保留 auth 不重试）、verify_s9（no_key 引导测试删除）
+- [x] P3.11 残留核验：全源码 grep 无 `fetch_model_count`/`MODELS_URL`/`AUTH_KEY_FIELDS`/`find_auth_file`/`read_auth_json`/`strip_json_comments`/`get_opencode_go_key`/`no_key`/`model_count`/`auth_source`/`auth.json`/`Bearer`/`api key` 任何残留
+- [x] P3.12 文档同步：README FAQ（"不读取 API key，仅使用 dashboard 会话凭据"）、AGENTS.md 数据源说明删 auth.json（"auth.json 已不读取（P3）"）
+- [x] P3.13 检验：verify_v0808_p3 21 项（key 符号不存在/主流程无 key 步骤/无凭据阶段 no_dashboard_creds/失败提示无 key 文案/CLI 输出无 key）+ 回归 verify_s3 24 项 + verify_s4 29 项 + verify_s5 29 项 + verify_s7 18 项 + verify_s8 14 项 + verify_s9 30 项 + verify_v0808_p2 13 项 + verify_s11 4 项 + 全量 import 全部通过
+- 状态：✅ 已完成（2026-08-10）｜优先级：高
+
+### V0.08.4 P4 凭据加密存储（DPAPI，新增 modules/credential_store.py）
+
+- [x] P4.1 新建 `modules/credential_store.py`：`encrypt_credentials` / `decrypt_credentials` / `read_credentials_file`（CryptProtectData/CryptUnprotectData + base64 + 格式标记 `encrypted_v1`）+ 明文旧格式兼容读取 + win32crypt 可选导入 + CredentialEncryptionError + 文件尾说明区
+- [x] P4.2 `modules/go_quota.py` `save_dashboard_credentials`：改为经 credential_store 加密写入（写入 `{"encrypted_v1": ...}`）；win32crypt 缺失拒绝写入并抛错（D3=A 安全优先）
+- [x] P4.3 `modules/go_quota.py` `_read_credentials_json`：改为经 `credential_store.read_credentials_file` 读取（识别加密标记解密 / 明文兼容）；顺带删除 go_quota 中已无用的 `json` import
+- [x] P4.4 `ui/main_window.py` `_manual_guide`：改 QInputDialog 对话框（workspaceId + authCookie 两字段）→ 加密写入 → 自动刷新；删除模板/example 文件生成与"打开文件夹"逻辑；顺带删除无用的 json/os/write_json/CREDENTIALS_FILE import
+- [x] P4.5 核验：日志不打印明文凭据（credential_store 仅打印错误消息，无凭据值；verify_v0808_p4 断言日志不含凭据字样）
+- [x] P4.6 `.temp/verify_s7.py` 同步：test_save_credentials 改加密格式断言（含解密回读）；test_cdp_guide_success 改加密格式断言；test_manual_guide 重写为对话框流程（输入→加密写入→自动刷新；取消路径不写文件）；`.temp/verify_v0808_p2.py` roundtrip 断言改加密格式
+- [x] P4.7 `.temp/verify_v0808_p4.py` 15 项：真实 DPAPI 往返、明文旧格式兼容、go_quota 集成闭环、win32crypt 缺失拒绝写入/宽容读取、日志无明文、现有真实凭据兼容读取
+- [x] P4.8 真实验证：真实本机 DPAPI 往返通过（发现并修复 pywin32 两个怪癖——CryptProtectData 直接返回 bytes 非元组、CryptUnprotectData 解密数据在第二个元素）；现有明文凭据 `data/credentials/opencode-go.json` 兼容读取（结构正确）
+- [x] P4.9 回归：verify_s3 24 项 + s4 29 项 + s5 29 项 + s7 21 项 + s9 30 项 + s12 20 项 + s11 4 项 + v0808_p2 14 项 + v0808_p3 21 项 + v0808_p6 9 项 + 全量 import 全部通过
+- 状态：✅ 已完成（2026-08-10）｜优先级：高
+
+### V0.08.5 P5 配额重置时间显示
+
+- [x] P5.1 `ui/main_window.py` `_render_quota`：`reset_date.strftime('%H:%M')` → `strftime('%m-%d %H:%M')`（"重置于 08-12 06:30"）
+- [x] P5.2 验证：`.temp/verify_v0808_p5.py` 6 项（渲染文本含月-日时分、窗口缺失显示"未获取到"、非纯时分、源码防回归）+ verify_s4 29 项回归通过
+- 状态：✅ 已完成（2026-08-10）｜优先级：低
+
+### V0.08.6 P7 按日期统计由近到远
+
+- [x] P7.1 `modules/opencode_usage.py` `by_day()`：`order="label ASC"` → `"label DESC"`；函数注释与说明区同步
+- [x] P7.2 验证：`.temp/verify_v0808_p7.py` 7 项（3 天数据 by_day 由近到远 + 与升序相反 + 时间过滤后仍倒序 + CLI `--by day` 首行为最新日期）+ verify_s2 30 项回归通过
+- 状态：✅ 已完成（2026-08-10）｜优先级：低
+
+### V0.08.7 P8 月度用量统计
+
+- [x] P8.1 `modules/opencode_usage.py` 新增 `by_month()` + `_month_expr()`：`strftime('%Y-%m', datetime(ts/1000,'unixepoch','localtime'))` 分组，`order="label DESC"`（%Y-%m 字符串排序 = 时间排序）
+- [x] P8.2 CLI：`--by` choices 加 `month`；methods 映射加 `db.by_month`
+- [x] P8.3 `ui/main_window.py`：DIMENSIONS 加 `"month"`（总览后第二位）、DIMENSION_LABELS 加 `"按月份"`、_UsageTask rows 加 `db.by_month(limit=50)`
+- [x] P8.4 `modules/exporter.py`：datasets 加 `by_month`（`by_month.csv` + usage.json 字段），导出计数 5 → 6 个 CSV（D4=A）
+- [x] P8.5 `.temp/verify_s2.py` 加 by_month 断言（跨月数据：msg_4 在 2025-12、其余 2026-01 → 分组 `["2026-01","2025-12"]` + 消息数 + tokens）
+- [x] P8.6 `.temp/verify_s5.py` 导出断言同步（文件列表 6 → 7 个含 by_month.csv；usage.json 结构加 by_month；GUI 导出线程 6 → 7 文件）；`.temp/verify_s4.py` 维度选择改 findText（DIMENSIONS 插入 month 后索引偏移，改用文本查找防回归）
+- [x] P8.7 `.temp/verify_v0808_p8.py` 17 项：跨月库 by_month 分组排序/CLI `--by month`/GUI 维度与导出/**真实 opencode.db 验证**（月份行非空、降序、%Y-%m 格式、月份聚合总 token 与日期聚合一致）
+- [x] P8.8 回归：verify_s2 33 项 + s3 24 项 + s4 29 项 + s5 29 项 + s7 21 项 + s8 14 项 + s9 30 项 + s12 20 项 + s11 4 项 + v0808_p2-p7 共 72 项 + 全量 import + GUI offscreen 全部通过
+- 状态：✅ 已完成（2026-08-10）｜优先级：中
+
+### V0.08.8 验证与文档收尾
+
+- [x] V.1 全量回归：verify_s1-s14 + verify_v0808_p2-p8 共 **409 项断言全部通过**（verify_s1:17 / s2:33 / s3:24 / s4:29 / s5:29 / s6:33 / s7:21 / s8:14 / s9:30 / s10:38 / s11:4 / s12:20 / s13:20 / s14:8 / p2:14 / p3:21 / p4:15 / p5:6 / p6:9 / p7:7 / p8:17）
+- [x] V.2 导入验证 + GUI offscreen 初始化 OK
+- [x] V.3 README 同步：badge ver 0.08、特性（按月份分组 + 6 CSV）、CLI `--by month`、GUI 维度列表、凭据配置（对话框方式 + DPAPI 加密说明 + data/credentials/ 路径）、结构树（credential_store.py + data/ 运行数据 + logger 路径）、配置参数表（version ver 0.08 + 三个 dir 字段）、依赖表（pywin32 加密）、FAQ Q1/Q5
+- [x] V.4 AGENTS.md 残留核验：无过时表述（唯一匹配为正确正文本）
+- [x] V.5 z.plan.md：头部实施状态更新（V0.08 完成）+ 第十章实施标记
+- [x] V.6 `config/static/base.json` `version` 更新为 `ver 0.08`（`main.py --version` 验证输出 ver 0.08）
+- [x] V.7 x.progress.md 完成记录回填（本节 + 验证总览）
+- [x] V.8 交付说明：凭据迁移已完成（旧用户目录 → data/credentials/，P4 后 DPAPI 加密迁移）；提交由用户执行
+- 状态：✅ 已完成（2026-08-10）｜优先级：高
+
+---
+
+## V0.08 验证总览（P2-P8 整体改造）
+
+> V0.08 全量回归 **409 项断言全部通过**（verify_s1-s14 基线 328 项含删改后 + verify_v0808_p2-p8 新增 103 项）——2026-08-10 实施完毕
+> P2-P8 全部完成：P6 删跨项目探测 → P2 目录集中项目内 → P3 删 API key 链路 → P4 凭据 DPAPI 加密 → P5 重置时间 → P7 日期倒序 → P8 月度统计
+> 遗留：P1（多账户区分）、P9（workspace 区分）、P10（二次审计）、P11（明文兼容去留）待评估，见 y.problem.md
 
 ---
 

@@ -1,7 +1,6 @@
-# OpenCode Go 配额监控模块：凭据探测 / key 校验 / dashboard HTML 抓取 / 节流缓存
+# OpenCode Go 配额监控模块：凭据探测 / dashboard HTML 抓取 / 节流缓存
 
 import html
-import json
 import os
 import re
 import time
@@ -13,14 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from config.static.static_config import get_static_config
-from modules import browser_creds
-from utils.file_utils import write_json
+from modules import browser_creds, credential_store
+from utils.file_utils import get_project_root, write_json
 from utils.logger import get_logger
 from utils.retry import retry_call
 
 logger = get_logger(__name__)
 
-MODELS_URL = "https://opencode.ai/zen/go/v1/models"
 DASHBOARD_URL_TEMPLATE = "https://opencode.ai/workspace/{workspace_id}/go"
 DASHBOARD_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 CHROME_UA = (
@@ -32,10 +30,12 @@ _SC = get_static_config()
 MIN_FETCH_INTERVAL = int(_SC.base["min_fetch_interval"])
 RETRY_COUNT = int(_SC.base["retry_count"])
 RETRY_DELAY = float(_SC.base["retry_delay"])
-AUTH_KEY_FIELDS = ("key", "access", "token", "apiKey", "value")
 WORKSPACE_ID_FIELDS = ("workspaceId", "workspaceID", "workspace_id")
 AUTH_COOKIE_FIELDS = ("authCookie", "auth_cookie", "cookie")
-CREDENTIALS_FILE = Path.home() / ".config" / "myboard" / "opencode-go.json"
+# dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
+CREDENTIALS_FILE = (
+    get_project_root() / Path(str(_SC.base["credentials_dir"])) / "opencode-go.json"
+)
 
 # 模块级缓存：上次成功结果与时间戳（网络失败兜底用，z.plan 第四章缓存兜底策略）
 _last_quota: "GoQuotaInfo | None" = None
@@ -43,9 +43,14 @@ _last_success_at: float = 0.0
 
 
 def save_dashboard_credentials(workspace_id: str, auth_cookie: str) -> None:
-    # 保存 dashboard 凭据到配置文件（CDP 一键获取与手动填写共用，key 与探测兼容）
+    # 保存 dashboard 凭据到配置文件（DPAPI 加密写入，P4；win32crypt 缺失拒绝明文写入）
     write_json(
-        CREDENTIALS_FILE, {"workspaceId": workspace_id, "authCookie": auth_cookie}
+        CREDENTIALS_FILE,
+        {
+            credential_store.ENCRYPTED_KEY: credential_store.encrypt_credentials(
+                workspace_id, auth_cookie
+            )
+        },
     )
 
 
@@ -76,14 +81,12 @@ class GoQuotaInfo:
     monthly: GoQuotaWindow | None = None
     overall_used_percent: int = 0
     remaining_percent: int = 0
-    model_count: int | None = None
-    auth_source: str = ""
     credential_source: str = ""
     fetched_at: datetime | None = None
     is_cached: bool = False
     error: str | None = None
     # 错误阶段（UI 按阶段决定处理方式，如 CDP 引导仅对凭据类错误有效）：
-    #   no_key / no_dashboard_creds / auth / network / provider / decoding
+    #   no_dashboard_creds / auth / network / provider / decoding
     error_stage: str | None = None
 
 
@@ -95,93 +98,6 @@ class GoQuotaError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
-
-
-def find_auth_file() -> Path | None:
-    # 多路径探测 auth.json：XDG_DATA_HOME → ~/.local/share/opencode → ~/.config/opencode
-    candidates: list[Path] = []
-    xdg_data = os.environ.get("XDG_DATA_HOME")
-    if xdg_data:
-        candidates.append(Path(xdg_data) / "opencode" / "auth.json")
-    home = Path.home()
-    candidates.append(home / ".local" / "share" / "opencode" / "auth.json")
-    candidates.append(home / ".config" / "opencode" / "auth.json")
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
-
-
-def read_auth_json(path: Path) -> dict[str, Any] | None:
-    # 读取 auth.json（先剥离 jsonc 注释再解析）；解析失败返回 None（宽容降级）
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        logger.warning("读取 auth.json 失败：%s", exc)
-        return None
-    try:
-        data = json.loads(strip_json_comments(text))
-    except json.JSONDecodeError as exc:
-        logger.warning("解析 auth.json 失败：%s", exc)
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def strip_json_comments(text: str) -> str:
-    # 状态机剥离 JSONC 注释（// 与 /* */），字符串字面量内的注释保留
-    result: list[str] = []
-    index = 0
-    length = len(text)
-    in_string = False
-    escape = False
-    while index < length:
-        char = text[index]
-        next_char = text[index + 1] if index + 1 < length else ""
-        if in_string:
-            result.append(char)
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == '"':
-                in_string = False
-            index += 1
-            continue
-        if char == '"':
-            in_string = True
-            result.append(char)
-            index += 1
-            continue
-        if char == "/" and next_char == "/":
-            while index < length and text[index] != "\n":
-                index += 1
-            continue
-        if char == "/" and next_char == "*":
-            index += 2
-            while index + 1 < length and not (
-                text[index] == "*" and text[index + 1] == "/"
-            ):
-                index += 1
-            index += 2
-            continue
-        result.append(char)
-        index += 1
-    return "".join(result)
-
-
-def get_opencode_go_key(auth_data: dict[str, Any] | None) -> str | None:
-    # 从 auth.json 提取 opencode-go API key：dict 多键兼容或裸字符串；无则返回 None
-    if not auth_data:
-        return None
-    entry = auth_data.get("opencode-go")
-    if isinstance(entry, dict):
-        for field in AUTH_KEY_FIELDS:
-            value = entry.get(field)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    elif isinstance(entry, str) and entry.strip():
-        return entry.strip()
-    return None
 
 
 def find_dashboard_credentials() -> list[DashboardCredentials]:
@@ -221,30 +137,19 @@ def find_dashboard_credentials() -> list[DashboardCredentials]:
 
 
 def _dashboard_config_paths() -> list[Path]:
-    # 配置文件候选路径：$OPENCODE_GO_CONFIG_FILE → XDG_CONFIG_HOME 系列 → ~/.config 系列
+    # 配置文件候选路径：$OPENCODE_GO_CONFIG_FILE → 项目内 data/credentials/opencode-go.json
+    # （P2：凭据集中项目目录，不再探测用户目录；P6：不读其他项目配置）
     paths: list[Path] = []
     env_file = os.environ.get("OPENCODE_GO_CONFIG_FILE")
     if env_file:
         paths.append(Path(env_file).expanduser())
-    home = Path.home()
-    xdg_config = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_config:
-        xdg_base = Path(xdg_config)
-        for sub in ("myboard", "opencode-bar", "opencode-quota"):
-            paths.append(xdg_base / sub / "opencode-go.json")
-    for sub in ("myboard", "opencode-bar", "opencode-quota"):
-        paths.append(home / ".config" / sub / "opencode-go.json")
+    paths.append(CREDENTIALS_FILE)
     return paths
 
 
 def _read_credentials_json(path: Path) -> dict[str, Any] | None:
-    # 读取凭据 JSON 文件（宽容解析）；文件不存在/损坏返回 None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        logger.warning("读取凭据配置失败 %s：%s", path, exc)
-        return None
-    return raw if isinstance(raw, dict) else None
+    # 读取凭据 JSON 文件（P4：经 credential_store 识别加密格式解密 / 明文旧格式兼容）
+    return credential_store.read_credentials_file(path)
 
 
 def _first_value(data: dict[str, Any], fields: tuple[str, ...]) -> str:
@@ -254,38 +159,6 @@ def _first_value(data: dict[str, Any], fields: tuple[str, ...]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return ""
-
-
-def fetch_model_count(api_key: str) -> int | None:
-    # 校验 API key 并返回可用模型数；请求失败返回 None（不阻断主流程）
-    try:
-        body = retry_call(
-            _http_get,
-            MODELS_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json",
-            },
-            retries=RETRY_COUNT,
-            exceptions=(urllib.error.URLError, TimeoutError),
-            delay=RETRY_DELAY,
-        )
-    except GoQuotaError:
-        raise
-    except Exception as exc:
-        logger.warning("拉取模型数失败：%s", exc)
-        return None
-    try:
-        data = json.loads(body)
-    except json.JSONDecodeError:
-        return None
-    for key in ("data", "models"):
-        value = data.get(key) if isinstance(data, dict) else None
-        if isinstance(value, list):
-            return len(value)
-    if isinstance(data, list):
-        return len(data)
-    return None
 
 
 def fetch_dashboard_usage(
@@ -460,8 +333,6 @@ def _fetch_usage_with_fallback(
 def _build_info(
     now: datetime,
     usage: dict[str, GoQuotaWindow | None],
-    model_count: int | None,
-    auth_path: Path | None,
     used_source: str,
 ) -> GoQuotaInfo:
     # 组装成功配额信息并更新缓存（overall = max 三窗口）
@@ -482,8 +353,6 @@ def _build_info(
         monthly=usage.get("monthlyUsage"),
         overall_used_percent=int(round(overall)),
         remaining_percent=max(0, 100 - int(round(overall))),
-        model_count=model_count,
-        auth_source=str(auth_path) if auth_path else "",
         credential_source=used_source,
         fetched_at=now,
     )
@@ -493,31 +362,12 @@ def _build_info(
 
 
 def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
-    # 主流程：节流 → key → 模型数 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误
+    # 主流程：节流 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误（P3：无 key 链路）
     global _last_quota, _last_success_at
     now = datetime.now(timezone.utc)
     cached = _throttled_cache(now, force)
     if cached is not None:
         return cached
-
-    auth_path = find_auth_file()
-    auth_data = read_auth_json(auth_path) if auth_path else None
-    api_key = get_opencode_go_key(auth_data)
-    if not api_key:
-        return _fallback(
-            now,
-            "未找到 OpenCode Go API key（检查 auth.json 的 opencode-go 条目）",
-            auth_path,
-            stage="no_key",
-        )
-
-    model_count: int | None = None
-    try:
-        model_count = fetch_model_count(api_key)
-    except GoQuotaError as exc:
-        # key 校验失败不阻断 dashboard 配额：配额走浏览器会话（workspaceId +
-        # authCookie），与 API key 相互独立，key 失效仅降级模型数展示
-        logger.warning("API key 校验失败（降级继续，模型数未知）：%s", exc.message)
 
     credentials = find_dashboard_credentials()
     if not credentials:
@@ -525,7 +375,6 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
             now,
             "未找到 dashboard 凭据（设置 OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE"
             " 或创建 opencode-go.json 配置文件）",
-            auth_path,
             stage="no_dashboard_creds",
         )
 
@@ -534,13 +383,9 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
         return _fallback(
             now,
             f"dashboard 拉取失败：{last_error or '未知错误'}",
-            auth_path,
             stage=last_stage,
         )
-    return _build_info(now, usage, model_count, auth_path, used_source)
-    _last_quota = info
-    _last_success_at = time.time()
-    return info
+    return _build_info(now, usage, used_source)
 
 
 def _mark_cached(info: GoQuotaInfo, message: str) -> GoQuotaInfo:
@@ -548,9 +393,7 @@ def _mark_cached(info: GoQuotaInfo, message: str) -> GoQuotaInfo:
     return replace(info, is_cached=True, error=message)
 
 
-def _fallback(
-    now: datetime, message: str, auth_path: Path | None, stage: str | None = None
-) -> GoQuotaInfo:
+def _fallback(now: datetime, message: str, stage: str | None = None) -> GoQuotaInfo:
     # 失败兜底：返回上次缓存（标注 is_cached）或空白信息（带 error 提示与阶段）
     global _last_quota
     if _last_quota is not None:
@@ -559,7 +402,6 @@ def _fallback(
             marked.error_stage = stage
         return marked
     return GoQuotaInfo(
-        auth_source=str(auth_path) if auth_path else "",
         fetched_at=now,
         error=message,
         error_stage=stage,
@@ -570,9 +412,7 @@ def main() -> None:
     # CLI 自测入口：打印 Go 配额三窗口与状态（不打印任何凭据）
     info = fetch_go_quota()
     print(f"OpenCode Go 配额（获取时间：{info.fetched_at}）")
-    print(f"  API key 来源：{info.auth_source or '未找到'}")
     print(f"  dashboard 凭据来源：{info.credential_source or '未找到'}")
-    print(f"  模型数：{info.model_count if info.model_count is not None else '未知'}")
     for label, window in (
         ("5 小时", info.five_hour),
         ("每周", info.weekly),
@@ -597,11 +437,10 @@ if __name__ == "__main__":
 
 # ===== modules/go_quota.py 模块说明 =====
 # 模块级常量：
-#   MODELS_URL：API key 校验 + 模型数接口
 #   DASHBOARD_URL_TEMPLATE / DASHBOARD_ACCEPT / CHROME_UA：dashboard HTML 请求参数
 #     （Cookie auth= 自动补前缀，参考 opencode-bar OpenCodeGoProvider.swift）
 #   MIN_FETCH_INTERVAL：接口节流 60 秒（z.plan 第四章节流策略）
-#   AUTH_KEY_FIELDS / WORKSPACE_ID_FIELDS / AUTH_COOKIE_FIELDS：凭据字段兼容集合
+#   WORKSPACE_ID_FIELDS / AUTH_COOKIE_FIELDS：凭据字段兼容集合
 # 模块级变量：_last_quota / _last_success_at——成功结果缓存与时间戳（缓存兜底）
 # 类型：
 #   GoQuotaWindow：单窗口（usage_percent/reset_in_sec/reset_date）
@@ -609,29 +448,30 @@ if __name__ == "__main__":
 #   GoQuotaInfo：配额总览（三窗口 + 最紧窗口 + 元信息 + is_cached/error 状态）
 #   GoQuotaError：分类业务错误（auth/network/decoding/provider），UI 只认 code
 # 函数：
-#   find_auth_file()：多路径探测 auth.json（XDG_DATA_HOME → ~/.local/share →
-#     ~/.config/opencode），返回首个存在的文件
-#   read_auth_json()：jsonc 注释剥离 + 宽容解析，失败返回 None
-#   strip_json_comments()：状态机剥离 // 与 /* */（字符串字面量内保留）
-#   get_opencode_go_key()：opencode-go 条目提取（dict 多键兼容 + 裸字符串）
+#   save_dashboard_credentials()：DPAPI 加密写入凭据（P4：经 credential_store，
+#     win32crypt 缺失拒绝明文落盘）
 #   find_dashboard_credentials()：环境变量 → 配置文件多路径收集候选，
 #     去重键 workspace_id::auth_cookie；key 名兼容集合（workspaceId/workspaceID/
 #     workspace_id、authCookie/auth_cookie/cookie）
-#   _dashboard_config_paths()：$OPENCODE_GO_CONFIG_FILE → $XDG_CONFIG_HOME 系列
-#     → ~/.config/{myboard,opencode-bar,opencode-quota}/
-#   fetch_model_count()：Bearer 校验 + data[]/models[]/裸数组三形态取模型数，
-#     失败返回 None 不阻断主流程
+#   _dashboard_config_paths()：$OPENCODE_GO_CONFIG_FILE → 项目内
+#     data/credentials/opencode-go.json（P2：凭据集中项目目录，不探测用户目录；
+#     P6：不读其他项目配置）
+#   _read_credentials_json()：经 credential_store.read_credentials_file 读取
+#     （加密格式解密 / 明文旧格式兼容，P4）
 #   fetch_dashboard_usage()：HTML 抓取 + 解析（HTTP 错误按分类抛 GoQuotaError）
 #   parse_dashboard_html()：纯函数（可测）：实体反转义 → 逐窗口正则解析 →
 #     缺失窗口仅警告、全部缺失抛 decoding 错误
 #   _capture_object_body/_capture_number/_normalize_html：opencode-bar 正则移植
 #     （兼容 "field":$R[12]={...} 赋值形态与字符串/数字双形态值）
-#   fetch_go_quota(force)：主流程——节流检查 → key → 模型数 → 凭据候选逐个
-#     尝试（首成功返回）→ 组装 GoQuotaInfo；任一步失败走 _fallback 缓存兜底
+#   fetch_go_quota(force)：主流程——节流检查 → 凭据候选逐个尝试（首成功返回）→
+#     组装 GoQuotaInfo；任一步失败走 _fallback 缓存兜底（P3：无 API key 链路，
+#     程序不接触任何 key）
 #   _fallback()：失败返回缓存（标注 is_cached + error）或空白信息（带提示）
 #   main()：CLI 自测，仅打印展示数据，绝不打印凭据
 # 设计理由：错误分类统一（z.plan 第四章）；窗口缺失容忍（dashboard 非公开 API，
-#   markup 可能变更）；凭据只在内存流转、日志不打印
+#   markup 可能变更）；凭据只在内存流转、日志不打印；P3 删除 API key 链路——
+#   程序从任何路径（本地读取或网络外发）都不接触 API key，仅使用 dashboard
+#   登录会话凭据（workspaceId + authCookie）
 # 异常处理：网络/解析/凭据错误全部分类化；单凭据失败继续尝试下一个候选
 # 关联配置：OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE/OPENCODE_GO_CONFIG_FILE
-#   环境变量；~/.config/myboard/opencode-go.json 配置文件（含凭据，严禁入库）
+#   环境变量；项目内 data/credentials/opencode-go.json 配置文件（含凭据，严禁入库）
