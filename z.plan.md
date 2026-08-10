@@ -4,7 +4,7 @@
 > 项目定位：Windows 桌面应用，展示 OpenCode 用量统计与 OpenCode Go 配额使用情况的信息窗口
 > 参考基准：AccelWorld 项目结构（utils/ → config/ → modules/ → ui/ → data/ 单向分层）与 AGENTS.md 代码规范；错误策略采用参考项目的当代模式（见第四章）
 > 参考仓库：reference/ 目录下 3 个开源项目（研读笔记见 w.study.md）
-> 实施状态：**S1-S8 + V0.08（P2-P8）全部实现完成**（全量回归通过，V0.08 已就绪）；当前计划见第十章 P2-P8 整体修改方案（已实施）
+> 实施状态：**S1-S8 + V0.08（P2-P8）+ V0.09（P12-P19/P21 UI 改版）全部实现完成**（全量回归 506 项断言通过，V0.09 已就绪）；当前计划见第十一章与 y.problem.md 待评估项
 
 ---
 
@@ -146,82 +146,25 @@ mrboard/
 
 ---
 
-## 十、P2-P8 整体修改方案（V0.08，2026-08-10 研究定稿）
+## 十、V0.08 改造完成（P2-P8，2026-08-10 已实施）
 
-> 范围：y.problem.md 的 P2-P8 七个问题，合并为一次整体改造；决策已定案（见 10.4）
-> **实施状态：✅ 已全部完成（2026-08-10，V0.08）**——实施细节与验证见 x.progress.md V0.08.1-V0.08.8；新增 P11（明文兼容去留）见 y.problem.md
+> 原 P2-P8 详细方案已随实施落地，本节保留决策要点备查；实施细节与验证见 x.progress.md V0.08；遗留 P1/P9/P10/P11 见 y.problem.md
 
-### 10.1 总体判断：三个主题
+- **目录集中项目内**：凭据/日志/价格缓存移至 `data/` 下（base.json 的 `credentials_dir`/`logs_dir`/`prices_dir` 驱动），不再使用用户目录；utils 层（logger）允许 `get_static_config()` 引用（方案 C，AGENTS.md 分层放宽）
+- **凭据安全**：删除 API key 链路（程序不接触任何 key，仅 dashboard 会话凭据）；凭据 DPAPI 加密存储（新增 `modules/credential_store.py`，`encrypted_v1` 格式 + 明文旧格式兼容读取）；手动填写改 GUI 对话框；win32crypt 缺失拒绝明文落盘
+- **展示修正**：配额重置时间"月-日 时:分"；按日期统计由近到远
+- **月度统计**：`by_month()` 分组（GUI 下拉"按月份" / CLI `--by month` / 导出 by_month.csv）
+- **路径收敛**：凭据探测仅 env + 项目内（不读其他项目配置）
+- **决策记录**：D1 目录集中项目内 / D2 手动填写对话框 / D3 win32crypt 缺失拒绝写入 / D4 连带导出 by_month / D5 提交由用户执行
 
-| 主题       | 问题                                                                            | 关联点                                                     |
-| ---------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| 凭据/路径  | P2（目录集中项目内）+ P3（删 API key 链路）+ P4（凭据加密）+ P6（删跨项目探测） | 集中在 go_quota.py / main_window.py / 新加密模块，改动交织 |
-| 展示层修正 | P5（重置时间）+ P7（日期倒序）                                                  | 各一行改动                                                 |
-| 统计层新增 | P8（月度统计）                                                                  | opencode_usage.py + UI + CLI + 导出                        |
+---
 
-### 10.2 逐项方案
+## 十一、V0.09 UI 改版与维护完成（P12-P19/P21，2026-08-10 已实施）
 
-#### P2. 配置与数据目录集中到项目内（不再使用用户目录）
+> 人工审核 V0.08 后的一轮 UI 改版；实施细节与验证见 x.progress.md V0.09；遗留 P1/P9/P10/P11/P20 见 y.problem.md
 
-- **原则（用户定案）**：任何配置和目录都不使用用户目录，全部集中在项目目录；每个模块（含 utils）统一用 `get_static_config()` 引用（对齐 AccelWorld：get config 生成 dataclass，各程序引用）
-- 现状：`go_quota.py` CREDENTIALS_FILE、`pricing.py` PRICE_CACHE_DIR、`utils/logger.py` LOG_DIR 硬编码 `Path.home()/...`
-- 方案：base.json 新增 `credentials_dir` / `logs_dir` / `prices_dir`（相对项目根），代码 `get_project_root() / Path(_SC.base[...])` 拼接：
-  - 凭据 → `data/credentials/opencode-go.json`（目录名经用户确认）
-  - 日志 → `data/logs/myboard.log`
-  - 价格缓存 → `data/prices/prices.json` / `prices.local.json`
-- **utils 层读取配置的结论**：utils 层"不读配置"只是 AGENTS.md 的分层约定（防未来循环依赖），非技术限制；当前已核实无环（file_utils/static_config 均不依赖 logger）。定案为**方案 C**：logger.py 顶层 `_SC = get_static_config()` 直接读 logs_dir——原注入方案 A/B（static_config 自动设置 / main.py 显式调用）全部废弃，不再需要 `set_log_dir()`
-- 保留的用户目录用法（数据源探测，非本程序配置目录）：浏览器 User Data 探测、OPENCODE_DB / OPENCODE_GO_CONFIG_FILE 环境变量
-- 连带：AGENTS.md 分层描述放宽（utils 允许依赖 config.static 读取配置，不依赖其他业务模块）+ 路径约定更新（S8 决策反转）；.gitignore 增加 `data/credentials/` `data/logs/` `data/prices/` 并清理冲突残留（`>>>>>>> origin/main`）；影响文件：base.json、logger.py、pricing.py、go_quota.py、main_window.py（example.json 派生）；verify_s12 同步
-- 注意：迁移后旧凭据（`~/.config/myboard/opencode-go.json`）不再自动读取，需重新走"一键自动获取"或手动复制到 `data/credentials/`
-
-#### P3. 删除 API key 链路（程序不接触任何 key）
-
-- 删除：MODELS_URL/AUTH_KEY_FIELDS 常量；find_auth_file/read_auth_json/strip_json_comments/get_opencode_go_key/fetch_model_count 五函数；GoQuotaInfo.model_count/auth_source 字段；no_key 分支；fetch_go_quota 中 key 校验段
-- 保留：find_dashboard_credentials（workspaceId + authCookie 链路）、_http_get 的 401/403 分类
-- 展示：删"模型数：未知"、CLI 删"API key 来源/模型数"
-- 测试：verify_s3 删 auth 解析整组 + models 断言；verify_s4/s5/s7/s8/s9 相关断言删改；README/AGENTS.md 同步
-
-#### P4. 凭据加密存储（DPAPI，新增 modules/credential_store.py）
-
-- 格式：写入 `{"encrypted_v1": "<base64(DPAPI blob(JSON))>"}`，CryptProtectData 绑定当前 Windows 用户；读取识别格式标记解密，明文旧格式兼容读取
-- 写入点：save_dashboard_credentials（CDP 引导）+ 手动填写统一走加密
-- **决策（2026-08-10）**：手动填写改 GUI 对话框（D2=A，加密写入，删除模板/示例文件逻辑）；win32crypt 缺失时拒绝写入 + 提示（D3=A，安全优先）
-- 局限：同 Windows 用户下恶意软件仍可解密；换机迁移需重新获取凭据（可接受）
-
-#### P5. 配额重置时间显示
-
-- `_render_quota` 中 `strftime('%H:%M')` → `'%m-%d %H:%M'`（"重置于 08-12 06:30"）；CLI 已是完整格式
-
-#### P6. 移除跨项目凭据路径探测
-
-- `_dashboard_config_paths` 的 sub 循环仅保留 `("myboard",)`（删 opencode-bar/opencode-quota）；保留 `$OPENCODE_GO_CONFIG_FILE` 与 XDG 变体；消除 WARNING 噪音
-
-#### P7. 按日期倒序
-
-- `by_day()`：`order="label ASC"` → `"label DESC"`；GUI/CLI/导出自动同步；verify_s2 无需改
-
-#### P8. 月度用量统计
-
-- 数据层：新增 `by_month()`——`strftime('%Y-%m', datetime(ts/1000,'unixepoch','localtime'))` 分组，`order="label DESC"`（%Y-%m 字符串排序 = 时间排序）
-- 展示层：DIMENSIONS 加 "month"（按月份）、_UsageTask 加载 limit=50；CLI `--by` 加 month
-- **决策（2026-08-10）**：连带导出 by_month.csv + usage.json 字段（D4=A，verify_s5 同步为 6 个 CSV）
-
-### 10.3 实施顺序
-
-P6 → P2 → P3 → P4 → P5 → P7 → P8 → 更新 verify（s2/s3/s4/s5/s7/s8/s9/s12）→ 全量回归 → README/AGENTS.md/.gitignore 同步 → 交付代码（提交由用户执行）
-
-### 10.4 用户决策记录（2026-08-10 定案）
-
-| 编号 | 决策项             | 定案                                                                                                                                                                                                                                                                     |
-| ---- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1   | 配置/目录位置      | **所有配置与数据目录集中在项目内**（data/credentials、data/logs、data/prices，目录名经用户确认），不再使用用户目录；utils 层（logger）统一 `get_static_config()` 引用（方案 C，原注入方案 A/B 废弃），放宽 AGENTS.md 分层描述；.gitignore 清理冲突残留并增加运行数据忽略 |
-| D2   | P4 手动填写        | **A**：GUI 对话框 + 加密写入，删除模板/示例文件逻辑                                                                                                                                                                                                                      |
-| D3   | P4 win32crypt 缺失 | **A**：拒绝写入 + 提示（安全优先）                                                                                                                                                                                                                                       |
-| D4   | P8 导出 by_month   | **A**：连带导出 by_month.csv（verify_s5 同步为 6 个 CSV）                                                                                                                                                                                                                |
-| D5   | 提交规划           | 不适用：提交由用户本人执行，不设提交规划                                                                                                                                                                                                                                 |
-
-### 10.5 风险预判
-
-- P3+P4 同时改动 go_quota 主流程与 6 个 verify 脚本，测试改动量最大
-- P8 月份 SQL 需用真实 opencode.db 验证（strftime 本地时区分组）
-- 其余均为低风险
+- **基础修复**：配额重置时间转本地时区（P21，修复前 UTC 直出差 8 小时）；移除"dashboard 凭据"元信息行（P12）；自动更新链路排查确认正常（P14）
+- **卡片区与总览**：卡片栏重排 总 tokens/输入/输出/缓存率/总费用，删除会话数（P17）；总览独立显示（千分位+亿单位）+ 点击弹总量明细，维度下拉移除总览（P15）
+- **明细表格**：列顺序 标签/总 token/调用数/输入/输出/推理/缓存（读+写合并）/缓存率/费用（P13+P18）；"设置"按钮列开关（hidden_columns 持久化）
+- **配额饼图**：原"最紧窗口"文字位改为剩余量饼图（P16，正常显示/异常隐藏让位警告）
+- **会话维度**：`by_session()`（会话标题｜项目目录，LEFT JOIN session 表 + 旧库降级），GUI/CLI/导出齐全（P19）

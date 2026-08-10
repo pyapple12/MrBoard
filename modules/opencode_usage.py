@@ -224,6 +224,52 @@ class OpenCodeDB:
             self._month_expr(), since, until, order="label DESC", limit=limit
         )
 
+    def by_session(
+        self, since: int | None = None, until: int | None = None, limit: int = 100
+    ) -> list[UsageRow]:
+        # 按会话分组聚合：会话标题｜项目目录（P19，LEFT JOIN session 表；
+        # session 表缺 title/directory 列时降级仅显示 session_id，兼容旧库/测试库）
+        if self._has_session_columns():
+            label_expr = "COALESCE(NULLIF(s.title, ''), m.session_id)"
+            dir_expr = "COALESCE(s.directory, '')"
+            join_clause = " LEFT JOIN session s ON s.id = m.session_id"
+        else:
+            label_expr = "m.session_id"
+            dir_expr = "''"
+            join_clause = ""
+        time_clause, params = self._time_clause(since, until)
+        sql = (
+            f"SELECT {label_expr} AS label, {dir_expr} AS directory,"
+            " COUNT(*) AS calls,"
+            + _TOKEN_SUM_SELECT
+            + f" FROM message m{join_clause}"
+            + " WHERE json_extract(m.data, '$.role') = ?"
+            + time_clause
+            + " GROUP BY m.session_id ORDER BY total DESC LIMIT ?"
+        )
+        rows = self.conn.execute(sql, [ASSISTANT_ROLE] + params + [limit]).fetchall()
+        result: list[UsageRow] = []
+        for row in rows:
+            directory = str(row["directory"])
+            label = f"{row['label']}｜{directory}" if directory else str(row["label"])
+            result.append(
+                UsageRow(
+                    label=label,
+                    calls=to_int(row["calls"]),
+                    tokens=self._row_to_tokens(row),
+                    cost=round(to_float(row["recorded_cost"]), 4),
+                )
+            )
+        return result
+
+    def _has_session_columns(self) -> bool:
+        # 检测 session 表是否含 title/directory 列（旧库可能缺表或缺列，by_session 降级用）
+        try:
+            cols = [row[1] for row in self.conn.execute("PRAGMA table_info(session)")]
+        except sqlite3.Error:
+            return False
+        return "title" in cols and "directory" in cols
+
     def by_model(
         self, since: int | None = None, until: int | None = None, limit: int = 100
     ) -> list[UsageRow]:
@@ -422,7 +468,7 @@ def main() -> None:
     parser.add_argument(
         "--by",
         default="total",
-        choices=["total", "day", "month", "model", "provider", "agent"],
+        choices=["total", "day", "month", "model", "provider", "agent", "session"],
         help="分组维度（默认 total 总览）",
     )
     parser.add_argument("--limit", type=int, default=20, help="分组结果行数上限")
@@ -473,6 +519,7 @@ def main() -> None:
                 "model": db.by_model,
                 "provider": db.by_provider,
                 "agent": db.by_agent,
+                "session": db.by_session,
             }
             rows = methods[args.by](since=since_ms, limit=args.limit)
             data = {

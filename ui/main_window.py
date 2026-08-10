@@ -9,13 +9,14 @@ from typing import Any, Callable
 from PyQt6.QtCore import (
     QByteArray,
     QObject,
+    QPoint,
     QRunnable,
     QThreadPool,
     QTimer,
     Qt,
     pyqtSignal,
 )
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtGui import QCloseEvent, QColor, QPaintEvent, QPainter
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -25,6 +26,8 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QStatusBar,
@@ -65,16 +68,29 @@ REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
 AUTO_LOAD_DELAY_MS = int(_SC.base["auto_load_delay_ms"])
 
 # 分组维度与表格列配置（表头文案外置 ui.json，S8.3；维度枚举保留代码内）
-DIMENSIONS = ("total", "month", "day", "model", "provider", "agent")
+# P15：总览已移出维度下拉（独立显示 + 点击弹明细），保留 total 数据供弹窗用
+DIMENSIONS = ("month", "day", "model", "provider", "agent", "session")
 DIMENSION_LABELS = {
-    "total": "总览",
     "month": "按月份",
     "day": "按日期",
     "model": "按模型",
     "provider": "按 Provider",
     "agent": "按 Agent",
+    "session": "按会话",
 }
 TABLE_HEADERS = tuple(_SC.ui["table_headers"])
+# 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
+COLUMN_IDS = (
+    "label",
+    "total",
+    "calls",
+    "input",
+    "output",
+    "reasoning",
+    "cache",
+    "cache_rate",
+    "cost",
+)
 
 
 @dataclass
@@ -129,6 +145,7 @@ class _UsageTask(QRunnable):
                     "model": db.by_model(limit=50),
                     "provider": db.by_provider(limit=50),
                     "agent": db.by_agent(limit=50),
+                    "session": db.by_session(limit=50),
                 }
             finally:
                 db.close()
@@ -177,6 +194,45 @@ class _ExportTask(QRunnable):
             self.signals.done.emit(f"导出完成：{self.out_dir}")
         except Exception as exc:
             self.signals.failed.emit(f"导出失败：{exc}")
+
+
+class _RemainingPieChart(QWidget):
+    # 剩余量饼图：已用/剩余双色圆弧 + 中心"剩余 Y%"标注（P16，替换"最紧窗口"文字位）
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        # 初始化：已用比例为 0，固定小尺寸
+        super().__init__(parent)
+        self._used_percent = 0.0
+        self.setFixedSize(56, 56)
+        self.setToolTip("配额剩余量")
+
+    def set_used_percent(self, percent: float) -> None:
+        # 更新已用比例并重绘（0-100 截断，越界防御）
+        self._used_percent = max(0.0, min(100.0, percent))
+        self.update()
+
+    def used_percent(self) -> float:
+        # 返回当前已用比例（外部读取/测试用）
+        return self._used_percent
+
+    def paintEvent(self, a0: QPaintEvent | None) -> None:
+        # 自绘：浅色底（剩余）→ 分级色圆弧（已用）→ 中心"剩余 Y%"文字
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(3, 3, -3, -3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#d8d8d8"))
+        painter.drawEllipse(rect)
+        used = self._used_percent / 100.0
+        if used > 0:
+            painter.setBrush(QColor(quota_chunk_color(self._used_percent)))
+            painter.drawPie(rect, 90 * 16, -int(used * 360 * 16))
+        painter.setPen(QColor("#404040"))
+        font = painter.font()
+        font.setPointSizeF(7.5)
+        painter.setFont(font)
+        remaining = max(0, 100 - int(round(self._used_percent)))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"剩余 {remaining}%")
 
 
 class _CdpGuideSignals(QObject):
@@ -318,6 +374,26 @@ def _format_cost(cost: float) -> str:
     return f"${cost:.4f}"
 
 
+def _cache_rate_percent(tokens: TokenStats) -> float:
+    # 缓存率计算：(缓存读+缓存写)/总 token 的百分比（P17 卡片与 P18 表格共用）
+    total = tokens.compute_total()
+    if total <= 0:
+        return 0.0
+    return (tokens.cache_read + tokens.cache_write) / total * 100
+
+
+def _format_cache_rate(percent: float) -> str:
+    # 缓存率格式化：一位小数百分比（如 56.2%）
+    return f"{percent:.1f}%"
+
+
+def _format_total_tokens(count: int) -> str:
+    # 总览总 token 显示：个位数精确 + 千分位 + 亿单位（P15，如 12,345,678（0.12 亿））
+    if count >= 1e8:
+        return f"{count:,}（{count / 1e8:.2f} 亿）"
+    return f"{count:,}"
+
+
 class MainWindow(QMainWindow):
     # myboard 主窗口：装配卡片/配额/表格 + 后台加载 + 定时刷新 + 主题切换
 
@@ -354,6 +430,8 @@ class MainWindow(QMainWindow):
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
         self._is_dark = self._config.theme == "dark"
+        # 列开关状态（P13：持久化于用户配置 hidden_columns）
+        self._hidden_columns: set[str] = set(self._config.hidden_columns)
         if self._config.window_geometry:
             self.restoreGeometry(
                 QByteArray.fromHex(self._config.window_geometry.encode())
@@ -384,16 +462,16 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
 
     def _build_cards(self) -> None:
-        # 构建用量总览卡片区（会话/tokens/费用/输入/缓存读）
+        # 构建用量总览卡片区（P17：总 tokens/输入/输出/缓存率/总费用，删除会话数）
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(8)
         self._cards: dict[str, QLabel] = {}
         for key, title in (
-            ("sessions", "会话"),
             ("tokens", "总 tokens"),
-            ("cost", "总费用"),
             ("input", "输入"),
-            ("cache_read", "缓存读"),
+            ("output", "输出"),
+            ("cache_rate", "缓存率"),
+            ("cost", "总费用"),
         ):
             frame = QFrame()
             frame.setObjectName("card")
@@ -411,7 +489,7 @@ class MainWindow(QMainWindow):
         self._layout.addLayout(cards_layout)
 
     def _build_quota_section(self) -> None:
-        # 构建 Go 配额区（标题/状态 + 3 进度条 + 元信息）
+        # 构建 Go 配额区（标题/状态 + 3 进度条 + 重置时间 + 剩余量饼图；P12 已移除凭据元信息行）
         quota_frame = QFrame()
         quota_frame.setObjectName("card")
         quota_box = QVBoxLayout(quota_frame)
@@ -423,6 +501,9 @@ class MainWindow(QMainWindow):
         title_row.addWidget(quota_title)
         title_row.addStretch(1)
         title_row.addWidget(self._quota_status)
+        # P16：剩余量饼图（正常显示；缓存/错误时隐藏让位给警告文字）
+        self._quota_pie = _RemainingPieChart()
+        title_row.addWidget(self._quota_pie)
         quota_box.addLayout(title_row)
         self._quota_bars: dict[str, QProgressBar] = {}
         self._quota_reset: dict[str, QLabel] = {}
@@ -445,10 +526,6 @@ class MainWindow(QMainWindow):
             quota_box.addLayout(row)
             self._quota_bars[key] = bar
             self._quota_reset[key] = reset_label
-        meta_label = QLabel("")
-        meta_label.setObjectName("card_title")
-        quota_box.addWidget(meta_label)
-        self._quota_meta = meta_label
         self._layout.addWidget(quota_frame)
 
     def _build_guide_card(self) -> None:
@@ -478,7 +555,7 @@ class MainWindow(QMainWindow):
         self._guide_frame = guide_frame
 
     def _build_detail_section(self) -> None:
-        # 构建明细区（维度下拉/刷新/导出/主题按钮 + 分组表格）
+        # 构建明细区（总览按钮/维度下拉/刷新/导出/主题/设置按钮 + 分组表格）
         section_row = QHBoxLayout()
         detail_title = QLabel("用量明细")
         detail_title.setObjectName("section_title")
@@ -492,11 +569,23 @@ class MainWindow(QMainWindow):
         self._export_button.clicked.connect(self._export_data)
         self._theme_button = QPushButton("主题")
         self._theme_button.clicked.connect(self.toggle_theme)
+        # P15：总览独立显示在明细旁（点击弹出总量明细）
+        self._total_button = QPushButton("总 token：-")
+        self._total_button.setFlat(True)
+        self._total_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._total_button.setToolTip("点击查看总量明细")
+        self._total_button.clicked.connect(self._show_total_detail)
+        # P13：列显示开关设置按钮（按下显示/未按下隐藏）
+        self._columns_button = QPushButton("设置")
+        self._columns_button.setToolTip("列显示开关（勾选 = 显示，取消 = 隐藏）")
+        self._columns_button.clicked.connect(self._show_columns_menu)
         section_row.addWidget(detail_title)
+        section_row.addWidget(self._total_button)
         section_row.addStretch(1)
         section_row.addWidget(self._dimension_combo)
         section_row.addWidget(self._refresh_button)
         section_row.addWidget(self._export_button)
+        section_row.addWidget(self._columns_button)
         section_row.addWidget(self._theme_button)
         self._layout.addLayout(section_row)
 
@@ -504,6 +593,10 @@ class MainWindow(QMainWindow):
         self._table.setHorizontalHeaderLabels(TABLE_HEADERS)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
+        # 恢复持久化的隐藏列（P13）
+        for col, col_id in enumerate(COLUMN_IDS):
+            if col_id in self._hidden_columns:
+                self._table.setColumnHidden(col, True)
         self._layout.addWidget(self._table, 1)
 
     def _trigger_auto_load(self) -> None:
@@ -535,16 +628,41 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(get_theme("dark" if self._is_dark else "light"))
 
     def _on_usage_ready(self, data: UsageData) -> None:
-        # 用量加载完成：渲染卡片与表格（成功后视图才替换，失败保留旧 view）
+        # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view）
         self._usage_data = data
         self._render_cards(data.summary)
+        self._total_button.setText(
+            f"总 token：{_format_total_tokens(data.summary.tokens.total)}"
+        )
         self._render_table()
         self._status_bar.showMessage(
             f"用量已更新（{datetime.now().strftime('%H:%M:%S')}）"
         )
 
+    def _show_total_detail(self) -> None:
+        # 点击总览弹出总量明细：会话/消息/天数/tokens 分解/缓存率/费用（P15）
+        if self._usage_data is None:
+            self._status_bar.showMessage("用量数据尚未加载")
+            return
+        summary = self._usage_data.summary
+        tokens = summary.tokens
+        lines = [
+            f"会话数：{summary.sessions}",
+            f"消息数：{summary.messages}",
+            f"活动天数：{summary.days}",
+            f"输入：{tokens.input:,}",
+            f"输出：{tokens.output:,}",
+            f"推理：{tokens.reasoning:,}",
+            f"缓存读：{tokens.cache_read:,}",
+            f"缓存写：{tokens.cache_write:,}",
+            f"总 token：{_format_total_tokens(tokens.total)}",
+            f"缓存率：{_format_cache_rate(_cache_rate_percent(tokens))}",
+            f"总费用：${summary.recorded_cost:.4f}",
+        ]
+        QMessageBox.information(self, "总量明细", "\n".join(lines))
+
     def _on_quota_ready(self, info: GoQuotaInfo) -> None:
-        # 配额加载完成：渲染进度条与元信息；凭据类错误时显示引导卡片；发射更新信号
+        # 配额加载完成：渲染进度条与状态；凭据类错误时显示引导卡片；发射更新信号
         self._quota_info = info
         self._render_quota(info)
         self.quota_updated.emit(info)
@@ -622,12 +740,14 @@ class MainWindow(QMainWindow):
         self._pool.start(_ExportTask(self.db_path, Path(out_dir), self._export_signals))
 
     def _render_cards(self, summary: UsageSummary) -> None:
-        # 渲染用量总览卡片值
-        self._cards["sessions"].setText(str(summary.sessions))
+        # 渲染用量总览卡片值（P17 新顺序）
         self._cards["tokens"].setText(_format_tokens(summary.tokens.total))
-        self._cards["cost"].setText(_format_cost(summary.recorded_cost))
         self._cards["input"].setText(_format_tokens(summary.tokens.input))
-        self._cards["cache_read"].setText(_format_tokens(summary.tokens.cache_read))
+        self._cards["output"].setText(_format_tokens(summary.tokens.output))
+        self._cards["cache_rate"].setText(
+            _format_cache_rate(_cache_rate_percent(summary.tokens))
+        )
+        self._cards["cost"].setText(_format_cost(summary.recorded_cost))
 
     def _set_status_style(self, object_name: str) -> None:
         # 设置配额状态标签样式名并强制 QSS 重算（setObjectName 后不重算颜色不生效）
@@ -658,49 +778,78 @@ class MainWindow(QMainWindow):
                 f"QProgressBar::chunk {{ background-color: {quota_chunk_color(percent)}; }}"
             )
             reset_label.setText(
-                f"重置于 {window.reset_date.strftime('%m-%d %H:%M') if window.reset_date else '-'}"
+                f"重置于 {window.reset_date.astimezone().strftime('%m-%d %H:%M') if window.reset_date else '-'}"
             )
         if info.is_cached:
             self._set_status_style("status_warn")
+            self._quota_pie.hide()
             self._quota_status.setText(f"⚠ 缓存数据：{info.error or ''}")
         elif info.error:
             self._set_status_style("status_warn")
+            self._quota_pie.hide()
             self._quota_status.setText(f"⚠ {info.error}")
         else:
+            # P16：正常时剩余量饼图（最紧窗口文字已删除；overall 内部保留供托盘预警）
             self._set_status_style("status_ok")
-            self._quota_status.setText(
-                f"最紧窗口 {info.overall_used_percent}% / 剩余 {info.remaining_percent}%"
+            self._quota_pie.show()
+            self._quota_pie.set_used_percent(info.overall_used_percent)
+            self._quota_status.clear()
+
+    def _show_columns_menu(self) -> None:
+        # 弹出列显示开关菜单（P13：勾选 = 显示，取消 = 隐藏）
+        menu = QMenu(self)
+        for col, col_id in enumerate(COLUMN_IDS):
+            action = menu.addAction(TABLE_HEADERS[col])
+            action.setCheckable(True)
+            action.setChecked(col_id not in self._hidden_columns)
+            action.toggled.connect(
+                lambda checked, c=col, cid=col_id: self._on_column_toggle(
+                    c, cid, checked
+                )
             )
-        self._quota_meta.setText(
-            f"dashboard 凭据：{info.credential_source or '未配置'}"
+        menu.popup(
+            self._columns_button.mapToGlobal(QPoint(0, self._columns_button.height()))
         )
 
+    def _on_column_toggle(self, col: int, col_id: str, checked: bool) -> None:
+        # 列开关回调：按下显示/未按下隐藏，并持久化到用户配置（P13）
+        self._table.setColumnHidden(col, not checked)
+        if checked:
+            self._hidden_columns.discard(col_id)
+        else:
+            self._hidden_columns.add(col_id)
+        config = load_config()
+        config.hidden_columns = tuple(sorted(self._hidden_columns))
+        save_config(config)
+
     def _render_table(self) -> None:
-        # 按当前维度渲染分组表格（数据已在内存，不查库）
+        # 按当前维度渲染分组表格（P13 新列顺序：标签/总token/调用数/输入/输出/推理/缓存合并/缓存率/费用）
         dimension = self._dimension_combo.currentData()
         rows = self._usage_data.rows.get(dimension, []) if self._usage_data else []
         self._table.setRowCount(len(rows))
         for index, row in enumerate(rows):
-            values = (
-                str(row.label),
-                str(row.calls),
-                _format_tokens(row.tokens.input),
-                _format_tokens(row.tokens.output),
-                _format_tokens(row.tokens.reasoning),
-                _format_tokens(row.tokens.cache_read),
-                _format_tokens(row.tokens.cache_write),
-                _format_tokens(row.tokens.total),
-                _format_cost(row.cost),
-            )
-            for col, value in enumerate(values):
-                self._table.setItem(index, col, QTableWidgetItem(value))
+            cache_sum = row.tokens.cache_read + row.tokens.cache_write
+            values = {
+                "label": str(row.label),
+                "total": _format_tokens(row.tokens.total),
+                "calls": str(row.calls),
+                "input": _format_tokens(row.tokens.input),
+                "output": _format_tokens(row.tokens.output),
+                "reasoning": _format_tokens(row.tokens.reasoning),
+                "cache": _format_tokens(cache_sum),
+                "cache_rate": _format_cache_rate(_cache_rate_percent(row.tokens)),
+                "cost": _format_cost(row.cost),
+            }
+            for col, col_id in enumerate(COLUMN_IDS):
+                self._table.setItem(index, col, QTableWidgetItem(values[col_id]))
 
     def save_state(self) -> None:
-        # 保存窗口状态：几何/主题/刷新间隔到配置文件（托盘退出与关闭时调用）
+        # 保存窗口状态：几何/主题/刷新间隔/隐藏列到配置文件（托盘退出与关闭时调用）
         config = load_config()
         config.window_geometry = bytes(self.saveGeometry().toHex().data()).decode()
         config.theme = "dark" if self._is_dark else "light"
         config.refresh_interval_ms = self._refresh_timer.interval()
+        config.hidden_columns = tuple(sorted(self._hidden_columns))
         save_config(config)
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:
@@ -734,15 +883,17 @@ class MainWindow(QMainWindow):
 #       （QTimer.singleShot(10) + _pending_auto_load 标志，手动刷新取消防双加载，
 #       参考 OpenCode-Token 的 after(10)+after_cancel 模式）；QTimer 定时刷新
 #     quota_updated 信号：配额加载完成发射（main.py 接线托盘图标/预警）
-#     _build_ui：卡片区（会话/tokens/费用/输入/缓存读）+ Go 配额区（3 进度条 +
-#       状态与元信息）+ 明细区（维度下拉/刷新/导出/主题按钮 + QTableWidget）+ 状态栏
+#     _build_ui：卡片区（P17：总 tokens/输入/输出/缓存率/总费用）+ Go 配额区（3 进度条 +
+#       状态）+ 明细区（总览按钮[P15]/维度下拉/刷新/导出/主题按钮 + QTableWidget）+ 状态栏
 #     refresh：手动/定时入口——取消自动加载标志，QThreadPool 并行启动两个任务
 #     toggle_theme/_apply_theme：亮暗主题切换（QApplication.setStyleSheet）
 #     _on_usage_ready/_on_quota_ready/_on_load_error：结果渲染；失败仅状态栏提示，
 #       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗
+#     _show_total_detail：点击总览按钮弹出总量明细（QMessageBox，P15）
 #     _export_data：QFileDialog 选目录 → 后台 _ExportTask（状态栏提示导出中）
-#     _render_cards/_render_quota/_render_table：卡片/进度条（颜色分级，使用
-#       themes.quota_chunk_color）/表格渲染（内存数据，维度切换不查库）
+#     _render_cards/_render_quota/_render_table：卡片（P17 新顺序 + 缓存率）/进度条（颜色
+#       分级，使用 themes.quota_chunk_color）与剩余量饼图（P16，正常显示/异常隐藏）/
+#       表格渲染（内存数据，维度切换不查库）
 #     _on_quota_ready：凭据缺失（错误且无缓存无来源）时显示引导卡片
 #     _start_cdp_guide：后台启动 CDP 一键获取（按钮禁用防重复，状态栏提示）
 #     _manual_guide：QInputDialog 输入 workspaceId + authCookie → save_dashboard_credentials

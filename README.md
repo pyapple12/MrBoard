@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.08-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.09-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -25,19 +25,19 @@ Windows 桌面信息窗口应用，一站式监控 **OpenCode 用量统计** 与
 
 启动应用即可同时查看用量总览卡片、Go 配额进度条与分组明细表格。
 
-| 用量统计                                      | Go 配额                                   |
-| --------------------------------------------- | ----------------------------------------- |
-| 会话数 / 总 tokens / 总费用 / 输入 / 缓存读取 | 5 小时 / 每周 / 每月使用百分比 + 重置时间 |
+| 用量统计                                  | Go 配额                                                |
+| ----------------------------------------- | ------------------------------------------------------ |
+| 总 tokens / 输入 / 输出 / 缓存率 / 总费用 | 5 小时 / 每周 / 每月使用百分比 + 重置时间 + 剩余量饼图 |
 
 ---
 
 ## 特性
 
-- **用量统计**：读取本地 opencode.db（只读连接防误写），展示会话/消息/活动天数/tokens/费用，支持按月份、日期、模型、Provider、Agent 分组（与 `opencode stats` 输出一致）
+- **用量统计**：读取本地 opencode.db（只读连接防误写），展示会话/消息/活动天数/tokens/费用，支持按月份、日期、模型、Provider、Agent、会话分组（与 `opencode stats` 输出一致）
 - **Go 配额监控**：5 小时/每周/每月三个窗口的已用百分比与重置时间，颜色分级（绿/黄/红），`max` 取最紧窗口
 - **配额预警**：最紧窗口 ≥80% 时托盘图标变红 + 系统气泡通知
 - **凭据三路径配置**：v10 自动探测（老 Chrome）→ CDP 一键获取（新 Chrome 一键登录）→ 手动填写，凭据缺失时主窗口引导
-- **数据导出**：一键导出 6 个 CSV（UTF-8 BOM，Excel 直接打开）+ JSON
+- **数据导出**：一键导出 8 个 CSV（UTF-8 BOM，Excel 直接打开）+ JSON
 - **常驻托盘**：关闭按钮最小化到托盘，双击图标显示窗口，配额状态一眼可见
 - **主题切换**：浅色/深色双主题一键切换
 - **配置持久化**：自动保存窗口位置、主题、刷新间隔（5 分钟定时刷新）
@@ -89,19 +89,22 @@ python -m venv .venv
 
 ### 命令行参数
 
-| 参数              | 说明                                                       |
-| ----------------- | ---------------------------------------------------------- |
-| `--version`, `-V` | 显示版本信息                                               |
-| `--db`            | 指定 opencode.db 路径（默认自动探测）                      |
-| `--since`         | 时间范围：`7d`/`2w`/`3h` 或 ISO 日期                       |
-| `--by`            | 分组维度：`total`/`month`/`day`/`model`/`provider`/`agent` |
-| `--json`          | JSON 输出                                                  |
-| `--estimate`      | 对库 cost 缺失的消息做定价估算                             |
+| 参数              | 说明                                                                 |
+| ----------------- | -------------------------------------------------------------------- |
+| `--version`, `-V` | 显示版本信息                                                         |
+| `--db`            | 指定 opencode.db 路径（默认自动探测）                                |
+| `--since`         | 时间范围：`7d`/`2w`/`3h` 或 ISO 日期                                 |
+| `--by`            | 分组维度：`total`/`month`/`day`/`model`/`provider`/`agent`/`session` |
+| `--json`          | JSON 输出                                                            |
+| `--estimate`      | 对库 cost 缺失的消息做定价估算                                       |
 
 ### GUI 操作说明
 
 - **刷新**：点击"刷新"按钮或等待 5 分钟定时自动刷新（刷新失败保留旧数据）
-- **切换维度**：明细区下拉框切换 总览/按月份/按日期/按模型/按 Provider/按 Agent
+- **总量总览**：明细区"总 token"按钮显示千分位 + 亿单位总量，点击弹出总量明细（会话/消息/天数/tokens 分解）
+- **切换维度**：明细区下拉框切换 按月份/按日期/按模型/按 Provider/按 Agent/按会话（会话显示"标题｜项目目录"）
+- **列显示开关**：点击"设置"按钮勾选表格列（取消勾选 = 隐藏该列，状态自动保存）
+- **配额剩余量**：配额区右侧饼图直观显示最紧窗口剩余量（缓存/错误时显示警告文字）
 - **导出数据**：点击"导出"选择目录，生成 CSV + JSON
 - **切换主题**：点击"主题"按钮切换浅色/深色
 - **配置凭据**：凭据缺失时配额区显示引导卡片——"一键自动获取"或"手动填写"
@@ -159,7 +162,7 @@ mrboard/
 | 文件                        | 参数                                                                                           | 说明                                 |
 | --------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `config/static/config.json` | 引导映射表                                                                                     | `base.json` / `ui.json` 分类对应关系 |
-| `config/static/base.json`   | `version`                                                                                      | 版本号唯一来源（ver 0.08）           |
+| `config/static/base.json`   | `version`                                                                                      | 版本号唯一来源（ver 0.09）           |
 |                             | `window_width/height`、`refresh_interval_ms`、`auto_load_delay_ms`                             | 窗口尺寸与刷新调度                   |
 |                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                             | 配额接口节流与重试                   |
 |                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval` | 浏览器/CDP 引导参数                  |

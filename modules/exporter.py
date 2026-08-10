@@ -42,7 +42,7 @@ GROUP_CSV_COLUMNS = (
 
 
 def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
-    # 导出全部用量数据到 out_dir：summary + 五维度 CSV（UTF-8 BOM）+ usage.json（P8 含月份）
+    # 导出全部用量数据到 out_dir：summary + 六维度 CSV（UTF-8 BOM）+ usage.json（P8 月份、P19 会话）
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = db.totals()
@@ -53,9 +53,17 @@ def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
         "by_model": [_group_to_row(r) for r in db.by_model(limit=EXPORT_LIMIT)],
         "by_provider": [_group_to_row(r) for r in db.by_provider(limit=EXPORT_LIMIT)],
         "by_agent": [_group_to_row(r) for r in db.by_agent(limit=EXPORT_LIMIT)],
+        "by_session": [_group_to_row(r) for r in db.by_session(limit=EXPORT_LIMIT)],
     }
     _write_csv(out_dir / "summary.csv", SUMMARY_CSV_COLUMNS, datasets["summary"])
-    for name in ("by_month", "by_day", "by_model", "by_provider", "by_agent"):
+    for name in (
+        "by_month",
+        "by_day",
+        "by_model",
+        "by_provider",
+        "by_agent",
+        "by_session",
+    ):
         _write_csv(out_dir / f"{name}.csv", GROUP_CSV_COLUMNS, datasets[name])
     write_json(
         out_dir / "usage.json",
@@ -67,9 +75,10 @@ def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
             "by_model": datasets["by_model"],
             "by_provider": datasets["by_provider"],
             "by_agent": datasets["by_agent"],
+            "by_session": datasets["by_session"],
         },
     )
-    logger.info("导出完成：%s（6 个 CSV + 1 个 JSON）", out_dir)
+    logger.info("导出完成：%s（7 个 CSV + 1 个 JSON）", out_dir)
     return out_dir
 
 
@@ -109,9 +118,9 @@ def _write_csv(
 #   EXPORT_LIMIT：分组导出行数上限（10 万行，防超长表）
 #   SUMMARY_CSV_COLUMNS / GROUP_CSV_COLUMNS：CSV 固定列顺序（手写维护）
 # 函数：
-#   export_all(db, out_dir)：主入口——查询 totals + 五维度分组 → 写 6 个 CSV
-#     （summary/by_month/by_day/by_model/by_provider/by_agent，P8 新增月份）+ usage.json
-#     → 返回输出目录
+#   export_all(db, out_dir)：主入口——查询 totals + 六维度分组 → 写 7 个 CSV
+#     （summary/by_month/by_day/by_model/by_provider/by_agent/by_session，P8 月份、
+#     P19 会话）+ usage.json → 返回输出目录
 #   _summary_to_row / _group_to_row：dataclass 转平铺 dict（复用
 #     opencode_usage.flatten_tokens(prefix="tokens_") + cost 等扩展字段）
 #   _write_csv：utf-8-sig（UTF-8 BOM）——Excel 按 UTF-8 识别中文不乱码

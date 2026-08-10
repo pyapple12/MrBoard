@@ -421,7 +421,7 @@ def main() -> None:
         if window:
             print(
                 f"  {label}：已用 {window.usage_percent:.0f}%"
-                f"，重置于 {window.reset_date.strftime('%Y-%m-%d %H:%M:%S')}"
+                f"，重置于 {window.reset_date.astimezone().strftime('%Y-%m-%d %H:%M:%S')}"
             )
         else:
             print(f"  {label}：未获取到")

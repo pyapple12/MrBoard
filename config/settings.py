@@ -17,11 +17,12 @@ DEFAULT_THEME = str(_SC.base["default_theme"])
 
 @dataclass
 class AppConfig:
-    # 应用配置聚合：窗口几何 / 主题 / 刷新间隔（默认值从静态配置现取，零硬编码）
+    # 应用配置聚合：窗口几何 / 主题 / 刷新间隔 / 隐藏列（默认值从静态配置现取，零硬编码）
 
     window_geometry: str = ""  # QByteArray.toHex 的字符串（config 层不依赖 PyQt）
     theme: str = DEFAULT_THEME
     refresh_interval_ms: int = DEFAULT_REFRESH_INTERVAL_MS
+    hidden_columns: tuple[str, ...] = ()  # 明细表格隐藏列 id（P13 列开关持久化）
 
     def to_dict(self) -> dict[str, Any]:
         # 转为可 JSON 序列化的 dict
@@ -29,6 +30,7 @@ class AppConfig:
             "window_geometry": self.window_geometry,
             "theme": self.theme,
             "refresh_interval_ms": self.refresh_interval_ms,
+            "hidden_columns": list(self.hidden_columns),
         }
 
     @classmethod
@@ -44,6 +46,9 @@ class AppConfig:
         interval = raw.get("refresh_interval_ms")
         if isinstance(interval, int) and interval > 0:
             config.refresh_interval_ms = interval
+        hidden = raw.get("hidden_columns")
+        if isinstance(hidden, list):
+            config.hidden_columns = tuple(str(item) for item in hidden if item)
         return config
 
 
@@ -68,9 +73,10 @@ def save_config(config: AppConfig) -> None:
 #     （S8 决策：敏感数据不随项目走）
 #   DEFAULT_REFRESH_INTERVAL_MS / DEFAULT_THEME：默认值从静态配置现取（零硬编码）
 # 类型：
-#   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms）
+#   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms/hidden_columns）
 #     ——window_geometry 存 QByteArray.toHex 字符串，避免 config 层依赖 PyQt
-#     （对齐 AccelWorld 修复 D3 的 base64 存储思路）
+#     （对齐 AccelWorld 修复 D3 的 base64 存储思路）；hidden_columns 为明细表格
+#     隐藏列 id 元组（P13 列开关持久化，宽容解析非法项跳过）
 # 函数：
 #   load_config()：read_json（use_cache=False 强制读最新，用户手改配置可生效）
 #     → 宽容解析（非 dict/坏数据返回默认 AppConfig）
