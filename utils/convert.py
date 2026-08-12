@@ -52,6 +52,7 @@ def round_cost(value: Any, digits: int = 4) -> float:
 #   to_optional_float(value)：None 与非法值返回 None——None 语义为"未记录"
 #     （与 0 区分，对齐 z.plan 第四章宽容解析）
 #   round_cost(value, digits=4)：成本舍入（to_float 后 round，聚合口径统一）
+#     （5A.3 C11 评估：digits 参数保留——调用方统一默认 4 位口径，参数提供灵活性）
 # 设计理由：opencode.db 的 token/cost 字段可能是字符串（真实库新旧格式混合），
 #   pricing.py 原有私有 _to_float/_to_optional_float，本模块提升为公共 utils
 #   层（无业务依赖，符合分层），opencode_usage 与 pricing 共同复用

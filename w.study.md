@@ -243,3 +243,29 @@ UTF-8 BOM（`encoding="utf-8-sig"`）让 Excel 中文不乱码；5 个文件（s
 3. **GUI 架构** → OpenCode-Token 的管道分层 + `*_display` 追加字段 + 启动线程化 + 失败警告不阻塞
 4. **通用健壮性** → auth.json 多路径 + 弹性解析（String/Int/毫秒启发式/lossy 解码）、数字字段可能是字符串、窗口缺失仅警告
 5. **代码规范** → 本仓库 AGENTS.md 已对齐主流实践（line-length 100、dataclass、`_` 私有前缀、`from __future__` 可选）；OpenCode-Token 的"测试锁定行为"模式值得在 S7 测试阶段采纳
+
+---
+
+## 五、任务执行过程中学到的审计方法
+
+> 来源：2026-08-11 起多轮全量审计任务的执行总结（P10 二次审计 → 第三轮 → 第四轮 → 第五轮）
+
+### 5.1 全量审计执行清单（每次审计按此执行）
+
+- **范围**：根据 AGENTS.md 的规则，对整个项目再次进行一次**全量、全部、全文**的审计
+- **检查项**：
+  1. **优化的可能性**：重复逻辑可抽函数、过长函数可拆分、可简化的分支
+  2. **错漏**：逻辑错误、边界（除零/空列表/min_ts=0/None 语义）、未用 import、失效注释、错误消息不准确
+  3. **防御性编程**：冗余 try/except、永真判断、不可达分支、多余 None 检查
+  4. **默认值**：不合理默认值、可变默认参数、魔法默认数字（如 limit=100 第三套无来源数字）
+  5. **硬编码**：可走 config/static json 的魔法数字/路径/文案（SQL 表达式/正则/URL 接口常量除外）
+  6. **跨模块复用**：各程序文件之间**不得重复生成已有函数方法的代码**——utils 层已存在 read_json/write_json/http_get/retry_call/to_int/to_float/to_optional_float/round_cost/get_logger/RETRY_NETWORK_ERRORS 等公共工具，业务模块不得自写第二份
+  7. **函数体内不得再有 import 或再次 def 定义函数**：函数内延迟 import 与嵌套 def/class 均需排查（AST 扫描辅助：遍历 FunctionDef 检查直接子节点中的 Import/FunctionDef/ClassDef）
+- **交付**：不修改任何代码——审计完成后先生成报告（按文件分组、给行号证据、分类统计），由用户决策后再实施整改
+
+### 5.2 执行要点（多轮实践总结）
+
+- 并行 3 个审计代理（utils/config/main / modules 业务 / ui+browser），各自交叉核对公共工具复用情况
+- AST 精确扫描（函数内 import/嵌套 def）先行，避免纯文本误判
+- 报告给出"宁缺毋滥 + 行号证据"，并对可疑项抽查核实后再汇总
+- 审计建议经实测证伪时以行为验证为准（历轮教训：H1 except GoQuotaError 非死代码、M11 信号直连受初始化顺序限制）

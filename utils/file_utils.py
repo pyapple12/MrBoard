@@ -21,13 +21,12 @@ def get_project_root() -> Path:
 
 def read_json(path: Path | str, default: Any = None, use_cache: bool = True) -> Any:
     # 读取 JSON 文件（默认带内存缓存；use_cache=False 强制读最新文件），文件不存在或解析失败时返回 default
-    # （E4：解析失败不写缓存，防坏 JSON 毒化——文件修复后默认调用即可读到新值）
+    # （E4：解析失败不写缓存，防坏 JSON 毒化——文件修复后默认调用即可读到新值；
+    #   5A.3 C8：文件不存在同样不写缓存——文件创建后默认调用即可读到新值）
     path = Path(path)
     if use_cache and path in _json_cache:
         return _json_cache[path]
     if not path.is_file():
-        if use_cache:
-            _json_cache[path] = default
         return default
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

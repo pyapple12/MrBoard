@@ -1,6 +1,5 @@
 # 主题样式模块：QSS 模板 + 双调色板（浅/深），配额阈值/颜色外置 ui.json
 
-from config.settings import THEMES
 from config.static.static_config import get_static_config
 
 # ===== QSS 模板（{占位符} 由调色板替换；QSS 自身的 {} 保持不变） =====
@@ -99,19 +98,22 @@ LIGHT_THEME = _build_theme(_LIGHT_PALETTE)
 DARK_THEME = _build_theme(_DARK_PALETTE)
 
 
-# 深色主题名（C13：替代 THEMES[1] 魔法索引，THEMES 顺序变更不再静默错位）
+# 主题名常量（C13/C2：替代 THEMES[1] 魔法索引与 "dark"/"light" 魔法字符串，
+# THEMES 顺序变更不再静默错位；main_window 持久化与切换共用）
 DARK_THEME_NAME = "dark"
+LIGHT_THEME_NAME = "light"
 
 
 def get_theme(name: str) -> str:
-    # 按主题名返回 QSS 样式字符串（THEMES 枚举见 config.settings，未知返回浅色）
+    # 按主题名返回 QSS 样式字符串（未知返回浅色）
     if name == DARK_THEME_NAME:
         return DARK_THEME
     return LIGHT_THEME
 
 
 def quota_chunk_color(percent: int) -> str:
-    # 按配额使用百分比返回进度条颜色：<50 绿、50-80 黄、>80 红
+    # 按配额使用百分比返回进度条颜色：>=QUOTA_DANGER_PERCENT 红、
+    # >=QUOTA_WARN_PERCENT 黄、其余绿（阈值来自 ui.json）
     if percent >= QUOTA_DANGER_PERCENT:
         return QUOTA_COLOR_DANGER
     if percent >= QUOTA_WARN_PERCENT:
@@ -126,6 +128,7 @@ def quota_chunk_color(percent: int) -> str:
 #   QUOTA_WARN_PERCENT / QUOTA_DANGER_PERCENT：配额阈值（ui.json quota_warn/danger_percent 驱动）
 #   QUOTA_COLOR_OK / WARN / DANGER：配额三档颜色
 #   LIGHT_THEME / DARK_THEME：由模板 + 调色板构建的最终 QSS
+#   LIGHT_THEME_NAME / DARK_THEME_NAME：主题名常量（main_window 切换/持久化共用）
 # 函数：
 #   _build_theme(palette)：str.replace 注入占位符（审计 D10：消除两套 QSS 60 行
 #     重复，改一处样式只需改模板或调色板）

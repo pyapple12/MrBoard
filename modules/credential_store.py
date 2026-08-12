@@ -54,7 +54,8 @@ def decrypt_credentials(encrypted_text: str) -> dict[str, Any] | None:
         if plaintext is None:
             return None
         raw = json.loads(plaintext.decode("utf-8"))
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+    except (ValueError, TypeError) as exc:
+        # JSONDecodeError 是 ValueError 子类，无需重复列举（5A.3 C10）
         logger.warning("解密凭据失败：%s", exc)
         return None
     return raw if isinstance(raw, dict) else None
@@ -78,6 +79,8 @@ def read_credentials_file(path: Path) -> dict[str, Any] | None:
 # ===== modules/credential_store.py 模块说明 =====
 # 模块级常量：
 #   ENCRYPTED_KEY：加密格式标记（文件 dict 含该键 = DPAPI 加密 blob）
+#   WORKSPACE_ID_KEY / AUTH_COOKIE_KEY：凭据 JSON 字段键（workspaceId/authCookie，
+#     go_quota 字段兼容集合共用，D4 消除重复字面量）
 # 模块级导入：DPAPI 能力来自 utils.windows（WIN32CRYPT_AVAILABLE/dpapi_protect/dpapi_unprotect，
 #   4A.2 D2 收敛 win32crypt 降级；写入路径拒绝明文落盘，读取路径返回 None）
 # 类型：

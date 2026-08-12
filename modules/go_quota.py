@@ -45,6 +45,18 @@ AUTH_COOKIE_FIELDS = (
 OAUTH_REDIRECT_MARKER = "OpenAuth"
 # dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
 CREDENTIALS_FILE = get_project_root() / _SC.base["credentials_dir"] / "opencode-go.json"
+# 窗口键映射：GoQuotaInfo 字段名 → dashboard HTML 窗口键（解析与组装共用；
+# 字段名与 ui.json quota_window_labels 的 key 对齐，CLI 文案直接复用，5A.2 R2）
+QUOTA_WINDOW_KEYS = {
+    "five_hour": "rollingUsage",
+    "weekly": "weeklyUsage",
+    "monthly": "monthlyUsage",
+}
+# 错误阶段常量（UI 按阶段决定处理方式；避免 error_stage 字符串耦合，5A.3 C9）
+ERROR_STAGE_NO_CREDS = "no_dashboard_creds"
+ERROR_STAGE_AUTH = "auth"
+ERROR_STAGE_NETWORK = "network"
+ERROR_STAGE_PROVIDER = "provider"
 
 # 模块级缓存：上次成功结果与时间戳（网络失败兜底用，z.plan 第四章缓存兜底策略）
 _last_quota: "GoQuotaInfo | None" = None
@@ -91,7 +103,8 @@ class GoQuotaInfo:
     is_cached: bool = False
     error: str | None = None
     # 错误阶段（UI 按阶段决定处理方式，如 CDP 引导仅对凭据类错误有效）：
-    #   no_dashboard_creds / auth / network / provider / decoding
+    #   ERROR_STAGE_NO_CREDS / ERROR_STAGE_AUTH / ERROR_STAGE_NETWORK /
+    #   ERROR_STAGE_PROVIDER（decoding 归一为 provider）
     error_stage: str | None = None
 
 
@@ -215,7 +228,7 @@ def parse_dashboard_html(
     # 纯函数解析 dashboard HTML：返回三窗口 dict 与缺失窗口名列表（全部缺失抛 GoQuotaError）
     text = _normalize_html(raw_html)
     usage: dict[str, GoQuotaWindow | None] = {}
-    for name in ("rollingUsage", "weeklyUsage", "monthlyUsage"):
+    for name in QUOTA_WINDOW_KEYS.values():
         usage[name] = _parse_window(name, text, now)
     missing = [name for name, window in usage.items() if window is None]
     if len(missing) == len(usage):
@@ -307,7 +320,7 @@ def _fetch_usage_with_fallback(
 ) -> tuple[dict[str, GoQuotaWindow | None] | None, str, str, str]:
     # 逐个尝试凭据候选拉取 dashboard 用量；返回 (usage, used_source, last_stage, last_error)
     last_error = ""
-    last_stage = "network"
+    last_stage = ERROR_STAGE_NETWORK
     for credentials_item in credentials:
         try:
             usage = fetch_dashboard_usage(credentials_item)
@@ -316,7 +329,10 @@ def _fetch_usage_with_fallback(
         except GoQuotaError as exc:
             last_error = exc.message
             last_stage = (
-                exc.code if exc.code in ("auth", "network", "provider") else "provider"
+                exc.code
+                if exc.code
+                in (ERROR_STAGE_AUTH, ERROR_STAGE_NETWORK, ERROR_STAGE_PROVIDER)
+                else ERROR_STAGE_PROVIDER
             )
             logger.warning(
                 "dashboard 凭据 %s 失败：%s", credentials_item.source, exc.message
@@ -333,18 +349,12 @@ def _build_info(
     global _last_quota, _last_success_at
     windows = [
         window
-        for window in (
-            usage.get("rollingUsage"),
-            usage.get("weeklyUsage"),
-            usage.get("monthlyUsage"),
-        )
+        for window in (usage.get(key) for key in QUOTA_WINDOW_KEYS.values())
         if window is not None
     ]
     overall = max((w.usage_percent for w in windows), default=0.0)
     info = GoQuotaInfo(
-        five_hour=usage.get("rollingUsage"),
-        weekly=usage.get("weeklyUsage"),
-        monthly=usage.get("monthlyUsage"),
+        **{field: usage.get(key) for field, key in QUOTA_WINDOW_KEYS.items()},
         overall_used_percent=int(round(overall)),
         remaining_percent=max(0, 100 - int(round(overall))),
         credential_source=used_source,
@@ -368,7 +378,7 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
             now,
             "未找到 dashboard 凭据（设置 OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE"
             " 或创建 opencode-go.json 配置文件）",
-            stage="no_dashboard_creds",
+            stage=ERROR_STAGE_NO_CREDS,
         )
 
     usage, used_source, last_stage, last_error = _fetch_usage_with_fallback(credentials)
@@ -406,11 +416,10 @@ def main() -> None:
     info = fetch_go_quota()
     print(f"OpenCode Go 配额（获取时间：{info.fetched_at}）")
     print(f"  dashboard 凭据来源：{info.credential_source or '未找到'}")
-    for label, window in (
-        ("5 小时", info.five_hour),
-        ("每周", info.weekly),
-        ("每月", info.monthly),
-    ):
+    # R2：窗口标签与键统一来自 ui.json（quota_window_labels，字段名与 GoQuotaInfo 对齐）
+    window_labels = dict(_SC.ui["quota_window_labels"])
+    for field, label in window_labels.items():
+        window = getattr(info, field)
         if window:
             print(
                 f"  {label}：已用 {window.usage_percent:.0f}%"

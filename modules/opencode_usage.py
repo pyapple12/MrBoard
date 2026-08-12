@@ -23,9 +23,7 @@ logger = get_logger(__name__)
 
 UNKNOWN_LABEL = "未知"
 # C19：默认库路径由 base.json 驱动（~ 展开），消除代码内硬编码
-DEFAULT_DB_PATH = Path(
-    os.path.expanduser(str(get_static_config().base["db_default_path"]))
-)
+DEFAULT_DB_PATH = Path(str(get_static_config().base["db_default_path"])).expanduser()
 ASSISTANT_ROLE = "assistant"
 _EPOCH_MS = 1000
 _DAY_MS = _EPOCH_MS * 86400  # 天毫秒数（3A.1 R12 派生，消除魔法数字）
@@ -230,8 +228,10 @@ class OpenCodeDB:
         return summary
 
     def by_day(
-        self, since: int | None = None, until: int | None = None,
-        limit: int = TABLE_LIMIT_DAY
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_DAY,
     ) -> list[UsageRow]:
         # 按日期分组聚合（日期降序，最近日期在前，本地时区；P7 由近到远）
         return self._query_grouped(
@@ -239,8 +239,10 @@ class OpenCodeDB:
         )
 
     def by_month(
-        self, since: int | None = None, until: int | None = None,
-        limit: int = TABLE_LIMIT_GROUP
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 按月份分组聚合（%Y-%m 降序，最新月在前；P8 月度统计）
         return self._query_grouped(
@@ -248,8 +250,10 @@ class OpenCodeDB:
         )
 
     def by_session(
-        self, since: int | None = None, until: int | None = None,
-        limit: int = TABLE_LIMIT_GROUP
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 按会话分组聚合：会话标题｜项目目录（P19，LEFT JOIN session 表；
         # session 表缺 title/directory 列时降级仅显示 session_id，兼容旧库/测试库）
@@ -296,8 +300,10 @@ class OpenCodeDB:
         return self._session_columns
 
     def by_model(
-        self, since: int | None = None, until: int | None = None,
-        limit: int = TABLE_LIMIT_GROUP
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 按模型分组聚合（按总 token 降序）
         return self._by_field(
@@ -308,8 +314,10 @@ class OpenCodeDB:
         )
 
     def by_provider(
-        self, since: int | None = None, until: int | None = None,
-        limit: int = TABLE_LIMIT_GROUP
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 按 provider 分组聚合（按总 token 降序）
         return self._by_field(
@@ -320,8 +328,10 @@ class OpenCodeDB:
         )
 
     def by_agent(
-        self, since: int | None = None, until: int | None = None,
-        limit: int = TABLE_LIMIT_GROUP
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 按 agent 分组聚合（含子 agent；缺失显示未知，按总 token 降序）
         return self._by_field(
@@ -606,6 +616,8 @@ if __name__ == "__main__":
 #   _EPOCH_MS：毫秒换算基数（时间戳/分组表达式共用）
 #   _DAY_MS：天毫秒数（_EPOCH_MS * 86400 派生）
 #   SUBPROCESS_TIMEOUT：子进程探测超时（base.json subprocess_timeout）
+#   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：分组/按日查询行数上限（base.json 驱动，
+#     各分组查询的默认 limit）
 #   _TOKEN_SUM_SELECT：聚合列 SQL 模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
 # 类型：
 #   TokenStats：token 五字段 + compute_total()（total 优先，五字段和兜底，兼容新旧格式）

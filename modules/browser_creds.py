@@ -58,12 +58,19 @@ _SC = get_static_config()
 HISTORY_LIMIT = int(_SC.base["history_limit"])
 CDP_PORT = int(_SC.base["cdp_port"])
 ESENTUTL_TIMEOUT = int(_SC.base["esentutl_timeout"])
+SUBPROCESS_TIMEOUT = int(_SC.base["subprocess_timeout"])  # 5A.3 C6：子进程超时统一
 V10_PREFIX = b"v10"
 V20_PREFIX = b"v20"
 CDP_HOST = "127.0.0.1"
+# 5A.3 C6：CDP 探测族魔法值收敛（命名常量）
+CDP_HTTP_TIMEOUT = 5.0  # /json 端点探测超时
+CDP_POLL_DELAY = 0.5  # wait_cdp_ready 轮询间隔
+CDP_PORT_CHECK_TIMEOUT = 1.0  # launch 前端口占用快速探测
 
 # 模块级状态：CDP 引导用的临时 profile 目录（launch 创建，shutdown 清理）
 _cdp_profile_dir: Path | None = None
+# 模块级状态：v20 提示会话级去重（5A.1 E1：首次探测到才提示，防刷新/多 profile 刷屏）
+_v20_warned = False
 
 
 @dataclass
@@ -153,7 +160,7 @@ def _load_aes_key(local_state_path: Path) -> bytes | None:
     if not local_state:
         return None
     try:
-        encrypted_key_b64 = local_state.get("os_crypt", {}).get("encrypted_key")
+        encrypted_key_b64 = (local_state.get("os_crypt") or {}).get("encrypted_key")
         if not isinstance(encrypted_key_b64, str) or not encrypted_key_b64.startswith(
             "DPAPI"
         ):
@@ -193,11 +200,13 @@ def _read_auth_cookies_query(
 
 def _read_auth_cookies(cookie_db_path: Path, aes_key: bytes) -> list[str]:
     # 读取 opencode.ai 的 auth cookie 并解密（v10 解密 / v20 跳过；
-    # v20 提示每探测会话仅一次防多 profile 多 cookie 刷屏，E10）
+    # v20 提示每进程会话仅一次防多 profile 多 cookie 刷屏，E10/E1）
+    global _v20_warned
     result, has_v20 = _with_copied_db(
         cookie_db_path, _read_auth_cookies_query, aes_key
     ) or ([], False)
-    if has_v20:
+    if has_v20 and not _v20_warned:
+        _v20_warned = True
         logger.warning(
             "检测到 Chrome v127+ app-bound 加密 cookie（v20），"
             "暂不支持自动解密，请手动配置凭据（见配置引导）"
@@ -236,7 +245,8 @@ def _workspace_ids_query(conn: sqlite3.Connection) -> list[str]:
 
 
 def read_workspace_ids(history_db_path: Path) -> list[str]:
-    # 从 History 数据库的浏览记录正则提取 workspaceID（去重，limit 200；对外公开 R13）
+    # 从 History 数据库的浏览记录正则提取 workspaceID（去重，limit 200；对外公开 R13；
+    # v10 离线探测路径专用——CDP 引导已改从登录后页面 URL 提取，5A.1 E4 改案）
     return _with_copied_db(history_db_path, _workspace_ids_query) or []
 
 
@@ -307,7 +317,9 @@ def has_v20_cookies(user_data: Path) -> bool:
     if not user_data.is_dir():
         return False
     local_state = _read_local_state_json(user_data / "Local State")
-    if local_state and local_state.get("os_crypt", {}).get("app_bound_encrypted_key"):
+    if local_state and (local_state.get("os_crypt") or {}).get(
+        "app_bound_encrypted_key"
+    ):
         return True
     return _scan_cookie_db_for_v20(user_data)
 
@@ -344,7 +356,7 @@ def launch_chrome_debug(
 ) -> subprocess.Popen | None:
     # 以远程调试模式启动 Chrome（独立临时 profile，全新环境需重新登录，
     # --restore-last-session 对空 profile 无效已移除，M16）
-    if wait_cdp_ready(port=port, timeout=1.0):
+    if wait_cdp_ready(port=port, timeout=CDP_PORT_CHECK_TIMEOUT):
         logger.warning("CDP 端口 %d 已被占用（可能已有调试实例），放弃启动", port)
         return None
     global _cdp_profile_dir
@@ -388,59 +400,93 @@ def wait_cdp_ready(port: int = CDP_PORT, timeout: float = 30.0) -> bool:
             )
             return True
         except (OSError, urllib.error.URLError, TimeoutError):
-            time.sleep(0.5)
+            time.sleep(CDP_POLL_DELAY)
     return False
 
 
-def fetch_auth_cookie_via_cdp(
+def fetch_login_state_via_cdp(
     port: int = CDP_PORT, timeout: float = 30.0
-) -> str | None:
-    # 通过 CDP 获取 opencode.ai 的 auth cookie 明文（Chrome 自行解密，v10/v20 通吃）
+) -> tuple[str | None, str | None]:
+    # 通过 CDP 一次会话获取登录态 (auth cookie, workspaceID)：
+    # Network.getAllCookies 拿 cookie + Runtime.evaluate 读当前页面 URL 提取 workspaceID；
+    # workspaceID 来自登录后页面 URL 而非浏览历史（5A.1 E4 改案），
+    # 不依赖用户真实 Chrome 的 profile 与历史记录
     if websocket is None:
         logger.warning("缺少 websocket-client，无法使用 CDP 获取凭据")
-        return None
+        return None, None
     try:
         targets = json.loads(
-            http_get(f"http://{CDP_HOST}:{port}/json", timeout=5).decode("utf-8")
+            http_get(f"http://{CDP_HOST}:{port}/json", timeout=CDP_HTTP_TIMEOUT).decode(
+                "utf-8"
+            )
         )
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         logger.warning("连接 CDP 端点失败：%s", exc)
-        return None
+        return None, None
     if not isinstance(targets, list):
         # E11：端点返回非列表结构时提前退出（防迭代非 dict 抛 AttributeError 逃逸）
         logger.warning("CDP 端点返回异常结构（非列表）")
-        return None
+        return None, None
     page = next(
         (
             t
             for t in targets
-            if t.get("type") == "page" and t.get("webSocketDebuggerUrl")
+            if isinstance(t, dict)
+            and t.get("type") == "page"
+            and t.get("webSocketDebuggerUrl")
         ),
         None,
     )
     if page is None:
         logger.warning("CDP 未找到可用的页面 target")
-        return None
+        return None, None
     try:
         ws = websocket.create_connection(page["webSocketDebuggerUrl"], timeout=timeout)
         try:
             ws.send(json.dumps({"id": 1, "method": "Network.getAllCookies"}))
-            response = json.loads(ws.recv())
+            cookie_response = json.loads(ws.recv())
+            ws.send(
+                json.dumps(
+                    {
+                        "id": 2,
+                        "method": "Runtime.evaluate",
+                        "params": {
+                            "expression": "location.href",
+                            "returnByValue": True,
+                        },
+                    }
+                )
+            )
+            url_response = json.loads(ws.recv())
         finally:
             ws.close()
     except Exception as exc:
         logger.warning("CDP 会话失败：%s", exc)
-        return None
-    cookies = response.get("result", {}).get("cookies", [])
-    for cookie in cookies:
+        return None, None
+    auth_cookie = None
+    for cookie in cookie_response.get("result", {}).get("cookies", []):
         if cookie.get("name") in COOKIE_NAMES and OPENCODE_HOST in cookie.get(
             "domain", ""
         ):
             value = cookie.get("value")
             if isinstance(value, str) and value:
-                return value
-    logger.warning("CDP 未找到 opencode.ai 的 auth cookie（请确认已登录 opencode.ai）")
-    return None
+                auth_cookie = value
+                break
+    workspace_id = None
+    page_url = url_response.get("result", {}).get("result", {}).get("value")
+    if isinstance(page_url, str):
+        match = WORKSPACE_ID_RE.search(page_url)
+        if match:
+            workspace_id = match.group(1)
+    if auth_cookie is None:
+        logger.warning(
+            "CDP 未找到 opencode.ai 的 auth cookie（请确认已登录 opencode.ai）"
+        )
+    elif workspace_id is None:
+        logger.warning(
+            "已获取 cookie 但当前页面尚未跳转到 workspace（等待页面跳转后重试）"
+        )
+    return auth_cookie, workspace_id
 
 
 def shutdown_chrome_debug(proc: subprocess.Popen | None) -> None:
@@ -449,7 +495,7 @@ def shutdown_chrome_debug(proc: subprocess.Popen | None) -> None:
     if proc is not None:
         try:
             proc.terminate()
-            proc.wait(timeout=10)
+            proc.wait(timeout=SUBPROCESS_TIMEOUT)
             logger.info("Chrome 调试实例已关闭")
         except (OSError, subprocess.TimeoutExpired) as exc:
             logger.warning("关闭 Chrome 调试实例失败：%s", exc)
@@ -504,7 +550,7 @@ def psutil_process_iter() -> list[Any]:
             ["tasklist", "/FO", "CSV", "/NH"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=SUBPROCESS_TIMEOUT,
         ).stdout
         return [
             _TaskProcess(line.split('","')[0].strip('"'))
@@ -522,9 +568,12 @@ def psutil_process_iter() -> list[Any]:
 #   HISTORY_LIMIT：历史记录查询上限（参考 opencode-bar limit 200）
 #   V10_PREFIX / V20_PREFIX：cookie 加密版本前缀
 #   CDP_HOST / CDP_PORT：Chrome 远程调试端点（仅引导流程临时开放）
-#   ESENTUTL_TIMEOUT / CDP_PROBE_TIMEOUT / DEFAULT_LOGIN_URL：esentutl 超时、
-#     CDP 探测超时、默认登录页（base.json/OPENCODE_HOST 驱动，C14 补列）
-# 模块级变量：_cdp_profile_dir——CDP 引导临时 profile（launch 创建，shutdown 清理）
+#   ESENTUTL_TIMEOUT / SUBPROCESS_TIMEOUT / CDP_PROBE_TIMEOUT / CDP_HTTP_TIMEOUT /
+#     CDP_POLL_DELAY / CDP_PORT_CHECK_TIMEOUT / DEFAULT_LOGIN_URL：esentutl 超时、
+#     子进程超时、CDP 探测族超时/轮询间隔、默认登录页（base.json/OPENCODE_HOST 驱动，
+#     C14 补列，5A.3 C6 魔法值收敛）
+# 模块级变量：_cdp_profile_dir——CDP 引导临时 profile（launch 创建，shutdown 清理）；
+#   _v20_warned——v20 提示会话级去重标志（5A.1 E1：首测才提示）
 # 模块级导入：AES/websocket/psutil 缺失时降级为 None；DPAPI 能力来自 utils.windows
 #   （WIN32CRYPT_AVAILABLE/dpapi_unprotect，4A.2 D2 收敛 win32crypt 降级）
 # 类型：BrowserCredential（workspace_id + auth_cookie + 来源标注）、
@@ -542,11 +591,11 @@ def psutil_process_iter() -> list[Any]:
 #     base64 解码）→ dpapi_unprotect 得到 AES-256 key
 #   _read_auth_cookies_query()：查询并解密 auth cookie（返回列表与是否含 v20，C4 模块级）
 #   _read_auth_cookies()：复制库 → 查 opencode.ai 的 auth cookie → 逐条解密；
-#     v20 提示每探测会话一次
+#     v20 提示每进程会话一次（_v20_warned 去重，E10/E1）
 #   _decrypt_cookie_value()：v10 = AES-GCM（nonce 12 + tag 16）；v20 无法离线解密
 #     （app-bound encryption），返回 None 由 CDP 路径兜底
 #   _workspace_ids_query() / read_workspace_ids()：History.urls 正则提取
-#     workspaceID（去重，公开 R13；查询函数 C4 模块级）
+#     workspaceID（去重，公开 R13；v10 离线探测路径专用，查询函数 C4 模块级）
 #   _with_copied_db()：复制库到临时目录执行查询（*query_args 透传，C4）
 #   _safe_copy_db()：复制到临时文件；浏览器运行中独占锁定时尝试 esentutl /y
 #     兜底，仍失败则返回 None（降级提示关闭浏览器）
@@ -556,10 +605,11 @@ def psutil_process_iter() -> list[Any]:
 #     调试参数不生效）
 #   launch_chrome_debug()：以 --remote-debugging-port 启动 Chrome（独立临时
 #     profile，全新环境需重新登录；--remote-allow-origins=* 防 403）
-#   wait_cdp_ready()：轮询 http://127.0.0.1:9222/json/version 直到调试端口就绪
-#   fetch_auth_cookie_via_cdp()：CDP Network.getAllCookies 获取 opencode.ai
-#     auth cookie 明文——**Chrome 自行解密，v10/v20/v30 通吃、跨版本稳定**
-#     （S6.1 调研结论：比 SYSTEM DPAPI 逆向 / DLL 注入更适合产品化）
+#   wait_cdp_ready()：轮询 http://{CDP_HOST}:{CDP_PORT}/json/version 直到调试端口就绪
+#   fetch_login_state_via_cdp()：CDP 一次会话获取登录态 (auth cookie, workspaceID)——
+#     Network.getAllCookies 拿 cookie + Runtime.evaluate 读当前页面 URL 提取 workspaceID；
+#     **Chrome 自行解密，v10/v20/v30 通吃、跨版本稳定**（S6.1 调研结论：比 SYSTEM
+#     DPAPI 逆向 / DLL 注入更适合产品化）；workspaceID 不依赖浏览历史（5A.1 E4 改案）
 #   shutdown_chrome_debug()：终止调试实例（用户后续自行正常启动 Chrome）
 #   chrome_user_data_dir()：Chrome User Data 目录（公开入口，R13）
 #   _chrome_executable()：chrome.exe 三路径定位

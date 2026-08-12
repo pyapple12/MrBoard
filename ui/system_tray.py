@@ -14,6 +14,8 @@ ICON_SIZE = int(_SC.ui["icon_size"])
 NOTIFY_DURATION_MS = int(_SC.ui["notify_duration_ms"])
 QUOTA_GRAY = str(_SC.ui["colors"]["quota_gray"])
 PIE_DOT_COLOR = str(_SC.ui["colors"]["quota_pie_dot"])  # C23：白点色值外置
+APP_SUBTITLE = str(_SC.ui["app_subtitle"])  # R5：tooltip 标题中段（ui.json 单一来源）
+MENU_LABELS = dict(_SC.ui["menu_labels"])  # 5A.3 C5：菜单文案外置 ui.json
 
 
 class SystemTray(QSystemTrayIcon):
@@ -26,13 +28,13 @@ class SystemTray(QSystemTrayIcon):
         # 初始化托盘：构建图标与菜单，连接激活信号（C12 补类型注解）
         super().__init__(parent)
         self.setIcon(self._build_icon(QUOTA_COLOR_OK))
-        self.setToolTip(f"{APP_NAME} 用量与配额")
+        self.setToolTip(f"{APP_NAME} {APP_SUBTITLE}")
         menu = QMenu()
-        show_action = QAction("显示窗口", menu)
+        show_action = QAction(MENU_LABELS["show_window"], menu)
         show_action.triggered.connect(self.show_requested)
-        refresh_action = QAction("刷新", menu)
+        refresh_action = QAction(MENU_LABELS["refresh"], menu)
         refresh_action.triggered.connect(self.refresh_requested)
-        quit_action = QAction("退出", menu)
+        quit_action = QAction(MENU_LABELS["quit"], menu)
         quit_action.triggered.connect(self.quit_requested)
         menu.addAction(show_action)
         menu.addAction(refresh_action)
@@ -96,7 +98,8 @@ class SystemTray(QSystemTrayIcon):
 # ===== ui/system_tray.py 模块说明 =====
 # 模块级常量：ICON_SIZE（图标像素尺寸）、NOTIFY_DURATION_MS（气泡通知时长）、
 #   QUOTA_GRAY（托盘灰色，错误/未知态）、PIE_DOT_COLOR（中心圆点白色）、
-#   APP_NAME（应用名，来自 utils.logger 单一来源）
+#   APP_NAME（应用名，来自 utils.logger 单一来源）、APP_SUBTITLE（tooltip 标题中段）、
+#   MENU_LABELS（菜单文案，ui.json 外置，5A.3 C5）
 # 类：SystemTray(QSystemTrayIcon)
 #   信号：
 #     refresh_requested / quit_requested：菜单触发，由 main.py 装配连接

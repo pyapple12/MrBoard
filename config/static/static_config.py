@@ -33,6 +33,9 @@ def _load_static_config() -> StaticConfig:
         data = read_json(STATIC_DIR / rel_path, default=None, use_cache=False)
         if data is None:
             raise RuntimeError(f"静态配置文件缺失或损坏: {rel_path}")
+        # 5A.3 C8：分类文件结构非法（非对象）时统一抛错（防后续裸 KeyError）
+        if not isinstance(data, dict):
+            raise RuntimeError(f"静态配置文件结构非法（应为对象）: {rel_path}")
         result[key] = data
     # L7：映射缺分类键与文件缺失同策略（不静默兜底，避免调用方后续 KeyError）
     for key in ("base", "ui"):

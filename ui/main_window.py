@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 from PyQt6.QtCore import (
     QByteArray,
@@ -42,6 +42,8 @@ from config.static.static_config import get_static_config
 from modules import browser_creds
 from modules.exporter import export_all
 from modules.go_quota import (
+    ERROR_STAGE_AUTH,
+    ERROR_STAGE_NO_CREDS,
     DashboardCredentials,
     GoQuotaError,
     GoQuotaInfo,
@@ -56,7 +58,7 @@ from modules.opencode_usage import (
     UsageSummary,
     find_db_path,
 )
-from ui.themes import get_theme, quota_chunk_color
+from ui.themes import DARK_THEME_NAME, LIGHT_THEME_NAME, get_theme, quota_chunk_color
 from utils.logger import APP_NAME, get_logger
 
 logger = get_logger(__name__)
@@ -97,6 +99,21 @@ QUOTA_WINDOW_LABELS = dict(_SC.ui["quota_window_labels"])
 GUIDE_CARD_TEXT = str(_SC.ui["guide_card_text"])
 GUIDE_AUTO_BUTTON = str(_SC.ui["guide_auto_button"])
 GUIDE_MANUAL_BUTTON = str(_SC.ui["guide_manual_button"])
+# R5：窗口标题中段统一来自 ui.json（主窗口标题与托盘 tooltip 共用）
+APP_SUBTITLE = str(_SC.ui["app_subtitle"])
+# 5A.3 C3/C4/C5：文案外置（卡片标题/区域标题/按钮/tooltip/状态栏/对话框/前缀）
+TOTAL_TOKEN_PREFIX = str(_SC.ui["total_token_prefix"])
+CARD_TITLES = dict(_SC.ui["card_titles"])
+QUOTA_SECTION_TITLE = str(_SC.ui["quota_section_title"])
+DETAIL_SECTION_TITLE = str(_SC.ui["detail_section_title"])
+BUTTON_LABELS = dict(_SC.ui["button_labels"])
+TOOLTIPS = dict(_SC.ui["tooltips"])
+STATUS_MESSAGES = dict(_SC.ui["status_messages"])
+DIALOG_TITLES = dict(_SC.ui["dialog_titles"])
+DIALOG_PROMPTS = dict(_SC.ui["dialog_prompts"])
+PIE_REMAINING_TEMPLATE = str(_SC.ui["pie_remaining_template"])
+GUIDE_MESSAGES = dict(_SC.ui["guide_messages"])
+DETAIL_LINE_TEMPLATES = dict(_SC.ui["detail_line_templates"])
 TABLE_HEADERS = tuple(_SC.ui["table_headers"])
 # 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
 COLUMN_IDS = (
@@ -151,13 +168,12 @@ class _UsageTask(QRunnable):
             try:
                 summary = db.totals()
                 # C1：rows 不含 total 伪维度（从未消费；总量明细弹窗直接读 summary）
+                # R1：按 DIMENSIONS 推导构建（day 特例 TABLE_LIMIT_DAY），新增维度只改 DIMENSIONS
                 rows = {
-                    "month": db.by_month(limit=TABLE_LIMIT_GROUP),
-                    "day": db.by_day(limit=TABLE_LIMIT_DAY),
-                    "model": db.by_model(limit=TABLE_LIMIT_GROUP),
-                    "provider": db.by_provider(limit=TABLE_LIMIT_GROUP),
-                    "agent": db.by_agent(limit=TABLE_LIMIT_GROUP),
-                    "session": db.by_session(limit=TABLE_LIMIT_GROUP),
+                    dim: getattr(db, f"by_{dim}")(
+                        limit=TABLE_LIMIT_DAY if dim == "day" else TABLE_LIMIT_GROUP
+                    )
+                    for dim in DIMENSIONS
                 }
             finally:
                 db.close()
@@ -216,7 +232,7 @@ class _RemainingPieChart(QWidget):
         super().__init__(parent)
         self._used_percent = 0.0
         self.setFixedSize(PIE_SIZE, PIE_SIZE)
-        self.setToolTip("配额剩余量")
+        self.setToolTip(TOOLTIPS["pie_remaining"])
 
     def set_used_percent(self, percent: float) -> None:
         # 更新已用比例并重绘（0-100 截断，越界防御）
@@ -236,15 +252,21 @@ class _RemainingPieChart(QWidget):
         painter.setBrush(QColor(PIE_COLOR_BG))
         painter.drawEllipse(rect)
         used = self._used_percent / 100.0
+        # C10：int(round()) 提局部变量（圆弧颜色/剩余文字共用同一口径）
+        used_percent_int = int(round(self._used_percent))
         if used > 0:
-            painter.setBrush(QColor(quota_chunk_color(int(round(self._used_percent)))))
+            painter.setBrush(QColor(quota_chunk_color(used_percent_int)))
             painter.drawPie(rect, PIE_START_ANGLE, -int(used * FULL_CIRCLE_16))
         painter.setPen(QColor(PIE_COLOR_TEXT))
         font = painter.font()
         font.setPointSizeF(PIE_FONT_SIZE)
         painter.setFont(font)
-        remaining = max(0, 100 - int(round(self._used_percent)))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"剩余 {remaining}%")
+        remaining = max(0, 100 - used_percent_int)
+        painter.drawText(
+            rect,
+            Qt.AlignmentFlag.AlignCenter,
+            PIE_REMAINING_TEMPLATE.format(percent=remaining),
+        )
 
 
 class _CdpGuideSignals(QObject):
@@ -254,37 +276,27 @@ class _CdpGuideSignals(QObject):
     failed = pyqtSignal(str)
 
 
-def _wait_for_login_cookie(
-    deadline: float, workspace_ids: list[str]
-) -> tuple[str | None, str | None]:
-    # 端到端轮询：拿 cookie 后实测 dashboard 可解析才算登录完成
-    # （防占位 cookie 误判：打开登录页时页面会种匿名 auth cookie）
+def _wait_for_login_cookie(deadline: float) -> tuple[str | None, str | None]:
+    # 端到端轮询：CDP 拿 cookie + 登录后当前页面 URL 提取 workspaceID，实测 dashboard
+    # 可解析才算登录完成（防占位 cookie 误判：打开登录页时页面会种匿名 auth cookie）
     # 返回 (cookie, 验证通过的 workspace_id)——多账户场景保存时须用验证通过的
-    auth_cookie = None
-    valid_workspace_id = None
-    while time.time() < deadline and auth_cookie is None:
-        candidate = browser_creds.fetch_auth_cookie_via_cdp(timeout=CDP_FETCH_TIMEOUT)
-        if candidate:
-            if not workspace_ids:
-                # 无 workspace 可验证：直接返回，交由上层"无 workspaceID"分支提示
-                auth_cookie = candidate
-                break
-            for workspace_id in workspace_ids:
-                try:
-                    usage = fetch_dashboard_usage(
-                        DashboardCredentials(workspace_id, candidate, "cdp验证")
-                    )
-                    if usage:
-                        auth_cookie = candidate
-                        valid_workspace_id = workspace_id
-                        logger.info("cookie 验证通过（dashboard 可解析）")
-                        break
-                except GoQuotaError:
-                    # 占位 cookie/未登录：dashboard 返回登录页或解析失败，继续轮询
-                    continue
-        if auth_cookie is None:
-            time.sleep(CDP_POLL_INTERVAL)
-    return auth_cookie, valid_workspace_id
+    while time.time() < deadline:
+        candidate, workspace_id = browser_creds.fetch_login_state_via_cdp(
+            timeout=CDP_FETCH_TIMEOUT
+        )
+        if candidate and workspace_id:
+            try:
+                usage = fetch_dashboard_usage(
+                    DashboardCredentials(workspace_id, candidate, "cdp验证")
+                )
+                if usage:
+                    logger.info("cookie 验证通过（dashboard 可解析）")
+                    return candidate, workspace_id
+            except GoQuotaError:
+                # 占位 cookie/页面未跳转：dashboard 返回登录页或解析失败，继续轮询
+                pass
+        time.sleep(CDP_POLL_INTERVAL)
+    return None, None
 
 
 class _CdpGuideTask(QRunnable):
@@ -301,52 +313,43 @@ class _CdpGuideTask(QRunnable):
         )
 
     def run(self) -> None:
-        # 后台执行：环境预检 → 快照 workspaceID → 启动调试 Chrome → 轮询登录 → 写凭据 → 清理
+        # 后台执行：环境预检 → 启动调试 Chrome → 轮询登录（CDP 拿 cookie + 页面 URL
+        # 提取 workspaceID）→ 写凭据 → 清理
         proc = None
         try:
             user_data = browser_creds.chrome_user_data_dir()
             if browser_creds.is_chrome_running():
                 logger.info("检测到用户 Chrome 正在运行（独立临时 profile 不冲突）")
             if not browser_creds.has_v20_cookies(user_data):
-                self.signals.failed.emit(
-                    "检测到旧版浏览器加密（v10），凭据可自动探测："
-                    "请关闭浏览器后重启应用自动获取，无需 CDP 引导"
-                )
+                self.signals.failed.emit(GUIDE_MESSAGES["v10_detect"])
                 return
-            workspace_ids = browser_creds.read_workspace_ids(
-                user_data / "Default" / "History"
-            )
             proc = browser_creds.launch_chrome_debug()
             if proc is None:
-                self.signals.failed.emit(
-                    "无法启动 Chrome 调试模式（未找到 chrome.exe，或调试端口已被占用）"
-                )
+                self.signals.failed.emit(GUIDE_MESSAGES["launch_failed"])
                 return
             if not browser_creds.wait_cdp_ready(timeout=CDP_WAIT_TIMEOUT):
-                self.signals.failed.emit("Chrome 调试端口未就绪，请重试或使用手动填写")
+                self.signals.failed.emit(GUIDE_MESSAGES["cdp_not_ready"])
                 return
-            auth_cookie, valid_workspace_id = _wait_for_login_cookie(
-                time.time() + self.login_wait_seconds, workspace_ids
+            auth_cookie, workspace_id = _wait_for_login_cookie(
+                time.time() + self.login_wait_seconds
             )
-            if not auth_cookie:
+            if not auth_cookie or not workspace_id:
                 self.signals.failed.emit(
-                    f"等待登录超时（{self.login_wait_seconds // 60} 分钟）。"
-                    "请确认已在新窗口登录 opencode.ai 后重试，或使用手动填写"
+                    GUIDE_MESSAGES["login_timeout_template"].format(
+                        minutes=self.login_wait_seconds // 60
+                    )
                 )
                 return
-            if not workspace_ids:
-                self.signals.failed.emit(
-                    "已获取 cookie 但未在浏览历史中找到 workspaceID，请使用手动填写"
-                )
-                return
-            # 保存验证通过的 workspace（多账户场景：不能固定取第一个）
-            saved_workspace_id = valid_workspace_id or workspace_ids[0]
-            save_dashboard_credentials(saved_workspace_id, auth_cookie)
+            save_dashboard_credentials(workspace_id, auth_cookie)
             self.signals.success.emit(
-                f"凭据已保存（workspaceId: {saved_workspace_id[:16]}…），正在刷新配额"
+                GUIDE_MESSAGES["creds_saved_template"].format(
+                    workspace_id=workspace_id[:16]
+                )
             )
         except Exception as exc:
-            self.signals.failed.emit(f"自动获取失败：{exc}")
+            self.signals.failed.emit(
+                GUIDE_MESSAGES["auto_fetch_failed"].format(error=exc)
+            )
         finally:
             if proc is not None:
                 browser_creds.shutdown_chrome_debug(proc)
@@ -364,8 +367,8 @@ def _format_tokens(count: int) -> str:
 
 
 def _format_cost(cost: float) -> str:
-    # 费用格式化：≥1 保留 2 位，<1 保留 4 位；为 0 显示 -
-    if cost == 0:
+    # 费用格式化：≥1 保留 2 位，<1 保留 4 位；近零显示 -（浮点容差，5A.1 E5）
+    if cost < 0.00005:
         return "-"
     if cost >= 1:
         return f"${cost:.2f}"
@@ -407,7 +410,6 @@ class MainWindow(QMainWindow):
         self.db_path = db_path if db_path is not None else find_db_path()
         self.quota_fetcher = quota_fetcher
         self._usage_data: UsageData | None = None
-        self._is_dark = False
         self._pending_auto_load = False
         # globalInstance 可能返回 None（PyQt6 stub Optional），兜底新建实例
         self._pool = QThreadPool.globalInstance() or QThreadPool()
@@ -427,11 +429,11 @@ class MainWindow(QMainWindow):
         self._guide_signals.success.connect(self._on_guide_success)
         self._guide_signals.failed.connect(self._on_guide_failed)
 
-        self.setWindowTitle(f"{APP_NAME} 用量与配额 {VERSION}")
+        self.setWindowTitle(f"{APP_NAME} {APP_SUBTITLE} {VERSION}")
         self.resize(int(_SC.base["window_width"]), int(_SC.base["window_height"]))
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
-        self._is_dark = self._config.theme == "dark"
+        self._is_dark = self._config.theme == DARK_THEME_NAME
         # 列开关状态（P13：持久化于用户配置 hidden_columns）
         self._hidden_columns: set[str] = set(self._config.hidden_columns)
         if self._config.window_geometry:
@@ -440,7 +442,7 @@ class MainWindow(QMainWindow):
             )
         self._build_ui()
         self._apply_theme()
-        self._status_bar.showMessage("正在加载…")
+        self._status_bar.showMessage(STATUS_MESSAGES["loading"])
 
         # 启动延迟加载（手动刷新会取消该调度，防双加载）
         self._pending_auto_load = True
@@ -467,13 +469,7 @@ class MainWindow(QMainWindow):
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(CARDS_SPACING)
         self._cards: dict[str, QLabel] = {}
-        for key, title in (
-            ("tokens", "总 tokens"),
-            ("input", "输入"),
-            ("output", "输出"),
-            ("cache_rate", "缓存率"),
-            ("cost", "总费用"),
-        ):
+        for key, title in CARD_TITLES.items():
             frame = QFrame()
             frame.setObjectName("card")
             card_box = QVBoxLayout(frame)
@@ -495,7 +491,7 @@ class MainWindow(QMainWindow):
         quota_frame.setObjectName("card")
         quota_box = QVBoxLayout(quota_frame)
         title_row = QHBoxLayout()
-        quota_title = QLabel("OpenCode Go 配额")
+        quota_title = QLabel(QUOTA_SECTION_TITLE)
         quota_title.setObjectName("section_title")
         self._quota_status = QLabel("")
         self._quota_status.setObjectName("status_ok")
@@ -550,27 +546,27 @@ class MainWindow(QMainWindow):
     def _build_detail_section(self) -> None:
         # 构建明细区（总览按钮/维度下拉/刷新/导出/主题/设置按钮 + 分组表格）
         section_row = QHBoxLayout()
-        detail_title = QLabel("用量明细")
+        detail_title = QLabel(DETAIL_SECTION_TITLE)
         detail_title.setObjectName("section_title")
         self._dimension_combo = QComboBox()
         for dim in DIMENSIONS:
             self._dimension_combo.addItem(DIMENSION_LABELS[dim], dim)
         self._dimension_combo.currentIndexChanged.connect(self._render_table)
-        self._refresh_button = QPushButton("刷新")
+        self._refresh_button = QPushButton(BUTTON_LABELS["refresh"])
         self._refresh_button.clicked.connect(self.refresh)
-        self._export_button = QPushButton("导出")
+        self._export_button = QPushButton(BUTTON_LABELS["export"])
         self._export_button.clicked.connect(self._export_data)
-        self._theme_button = QPushButton("主题")
+        self._theme_button = QPushButton(BUTTON_LABELS["theme"])
         self._theme_button.clicked.connect(self.toggle_theme)
         # P15：总览独立显示在明细旁（点击弹出总量明细）
-        self._total_button = QPushButton("总 token：-")
+        self._total_button = QPushButton(f"{TOTAL_TOKEN_PREFIX}-")
         self._total_button.setFlat(True)
         self._total_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._total_button.setToolTip("点击查看总量明细")
+        self._total_button.setToolTip(TOOLTIPS["total_detail"])
         self._total_button.clicked.connect(self._show_total_detail)
         # P13：列显示开关设置按钮（按下显示/未按下隐藏）
-        self._columns_button = QPushButton("设置")
-        self._columns_button.setToolTip("列显示开关（勾选 = 显示，取消 = 隐藏）")
+        self._columns_button = QPushButton(BUTTON_LABELS["settings"])
+        self._columns_button.setToolTip(TOOLTIPS["columns"])
         self._columns_button.clicked.connect(self._show_columns_menu)
         section_row.addWidget(detail_title)
         section_row.addWidget(self._total_button)
@@ -600,13 +596,11 @@ class MainWindow(QMainWindow):
     def refresh(self) -> None:
         # 手动/定时刷新入口：取消待执行自动加载，后台并行拉用量与配额
         self._pending_auto_load = False
-        self._status_bar.showMessage("刷新中…")
+        self._status_bar.showMessage(STATUS_MESSAGES["refreshing"])
         if self.db_path is not None:
             self._pool.start(_UsageTask(self.db_path, self._signals))
         else:
-            self._status_bar.showMessage(
-                "未找到 opencode.db（可用 OPENCODE_DB 环境变量指定）"
-            )
+            self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
         self._pool.start(_QuotaTask(self._signals, self.quota_fetcher))
 
     def toggle_theme(self) -> None:
@@ -618,41 +612,48 @@ class MainWindow(QMainWindow):
         # 应用当前主题 QSS 到应用级样式（isinstance 收窄 QCoreApplication → QApplication）
         app = QApplication.instance()
         if isinstance(app, QApplication):
-            app.setStyleSheet(get_theme("dark" if self._is_dark else "light"))
+            app.setStyleSheet(
+                get_theme(DARK_THEME_NAME if self._is_dark else LIGHT_THEME_NAME)
+            )
 
     def _on_usage_ready(self, data: UsageData) -> None:
         # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view）
         self._usage_data = data
         self._render_cards(data.summary)
         self._total_button.setText(
-            f"总 token：{_format_total_tokens(data.summary.tokens.total)}"
+            f"{TOTAL_TOKEN_PREFIX}{_format_total_tokens(data.summary.tokens.total)}"
         )
         self._render_table()
         self._status_bar.showMessage(
-            f"用量已更新（{datetime.now().strftime('%H:%M:%S')}）"
+            STATUS_MESSAGES["updated_template"].format(
+                time=datetime.now().strftime("%H:%M:%S")
+            )
         )
 
     def _show_total_detail(self) -> None:
         # 点击总览弹出总量明细：会话/消息/天数/tokens 分解/缓存率/费用（P15）
         if self._usage_data is None:
-            self._status_bar.showMessage("用量数据尚未加载")
+            self._status_bar.showMessage(STATUS_MESSAGES["usage_not_loaded"])
             return
         summary = self._usage_data.summary
         tokens = summary.tokens
+        dlt = DETAIL_LINE_TEMPLATES
         lines = [
-            f"会话数：{summary.sessions}",
-            f"消息数：{summary.messages}",
-            f"活动天数：{summary.days}",
-            f"输入：{tokens.input:,}",
-            f"输出：{tokens.output:,}",
-            f"推理：{tokens.reasoning:,}",
-            f"缓存读：{tokens.cache_read:,}",
-            f"缓存写：{tokens.cache_write:,}",
-            f"总 token：{_format_total_tokens(tokens.total)}",
-            f"缓存率：{_format_cache_rate(_cache_rate_percent(tokens))}",
-            f"总费用：{_format_cost(summary.recorded_cost)}",
+            dlt["sessions"].format(value=summary.sessions),
+            dlt["messages"].format(value=summary.messages),
+            dlt["days"].format(value=summary.days),
+            dlt["input"].format(value=f"{tokens.input:,}"),
+            dlt["output"].format(value=f"{tokens.output:,}"),
+            dlt["reasoning"].format(value=f"{tokens.reasoning:,}"),
+            dlt["cache_read"].format(value=f"{tokens.cache_read:,}"),
+            dlt["cache_write"].format(value=f"{tokens.cache_write:,}"),
+            f"{TOTAL_TOKEN_PREFIX}{_format_total_tokens(tokens.total)}",
+            dlt["cache_rate"].format(
+                value=_format_cache_rate(_cache_rate_percent(tokens))
+            ),
+            dlt["cost"].format(value=_format_cost(summary.recorded_cost)),
         ]
-        QMessageBox.information(self, "总量明细", "\n".join(lines))
+        QMessageBox.information(self, DIALOG_TITLES["total_detail"], "\n".join(lines))
 
     def _on_quota_ready(self, info: GoQuotaInfo) -> None:
         # 配额加载完成：渲染进度条与状态；凭据类错误时显示引导卡片；发射更新信号
@@ -664,7 +665,7 @@ class MainWindow(QMainWindow):
         show_guide = (
             info.error is not None
             and not info.is_cached
-            and info.error_stage in ("no_dashboard_creds", "auth")
+            and info.error_stage in (ERROR_STAGE_NO_CREDS, ERROR_STAGE_AUTH)
         )
         self._guide_frame.setVisible(show_guide)
 
@@ -676,32 +677,30 @@ class MainWindow(QMainWindow):
         # 一键自动获取：后台执行 CDP 引导流程（独立临时 Chrome，不影响用户浏览器）
         self._guide_frame.hide()
         self._auto_guide_button.setEnabled(False)
-        self._status_bar.showMessage(
-            "正在启动临时 Chrome，请在弹出的窗口登录 opencode.ai…"
-        )
+        self._status_bar.showMessage(STATUS_MESSAGES["guide_starting"])
         self._pool.start(_CdpGuideTask(self._guide_signals))
 
     def _manual_guide(self) -> None:
         # 手动填写入口：弹对话框输入 workspaceId + authCookie，程序加密写入
         # （P4：不再直接编辑明文文件，所有写入路径统一 DPAPI 加密）
         workspace_id, ok1 = QInputDialog.getText(
-            self, "手动填写凭据", "workspaceId（浏览器地址栏 /workspace/ 后复制）："
+            self, DIALOG_TITLES["manual_creds"], DIALOG_PROMPTS["workspace_id"]
         )
         if not ok1 or not workspace_id.strip():
             return
         auth_cookie, ok2 = QInputDialog.getText(
-            self,
-            "手动填写凭据",
-            "authCookie（开发者工具 → Application → Cookies → opencode.ai → auth 的值）：",
+            self, DIALOG_TITLES["manual_creds"], DIALOG_PROMPTS["auth_cookie"]
         )
         if not ok2 or not auth_cookie.strip():
             return
         try:
             save_dashboard_credentials(workspace_id.strip(), auth_cookie.strip())
-            self._status_bar.showMessage("凭据已保存（已加密），正在刷新配额…")
+            self._status_bar.showMessage(STATUS_MESSAGES["creds_saved"])
             self.refresh()
         except Exception as exc:
-            self._status_bar.showMessage(f"凭据保存失败：{exc}")
+            self._status_bar.showMessage(
+                STATUS_MESSAGES["creds_save_failed"].format(error=exc)
+            )
 
     def _on_guide_success(self, message: str) -> None:
         # 引导成功：提示并立即刷新配额（凭据已落盘，凭据链可读到）
@@ -718,12 +717,12 @@ class MainWindow(QMainWindow):
     def _export_data(self) -> None:
         # 选择导出目录并后台导出全部数据（CSV + JSON）
         if self.db_path is None:
-            self._status_bar.showMessage("无数据库可导出")
+            self._status_bar.showMessage(STATUS_MESSAGES["no_db_export"])
             return
-        out_dir = QFileDialog.getExistingDirectory(self, "选择导出目录")
+        out_dir = QFileDialog.getExistingDirectory(self, DIALOG_TITLES["export_dir"])
         if not out_dir:
             return
-        self._status_bar.showMessage("导出中…")
+        self._status_bar.showMessage(STATUS_MESSAGES["exporting"])
         self._pool.start(_ExportTask(self.db_path, Path(out_dir), self._export_signals))
 
     def _render_cards(self, summary: UsageSummary) -> None:
@@ -756,7 +755,7 @@ class MainWindow(QMainWindow):
             reset_label = self._quota_reset[key]
             if window is None:
                 bar.setValue(0)
-                reset_label.setText("未获取到")
+                reset_label.setText(STATUS_MESSAGES["not_fetched"])
                 continue
             percent = int(round(window.usage_percent))
             bar.setValue(percent)
@@ -765,18 +764,22 @@ class MainWindow(QMainWindow):
                 f"QProgressBar::chunk {{ background-color: {quota_chunk_color(percent)}; }}"
             )
             reset_label.setText(
-                f"重置于 {window.reset_date.astimezone().strftime(RESET_TIME_FORMAT)}"
+                STATUS_MESSAGES["reset_template"].format(
+                    time=window.reset_date.astimezone().strftime(RESET_TIME_FORMAT)
+                )
                 if window.reset_date
                 else "-"
             )
         if info.is_cached:
             self._set_status_style("status_warn")
             self._quota_pie.hide()
-            self._quota_status.setText(f"⚠ 缓存数据：{info.error or ''}")
+            self._quota_status.setText(
+                f"{STATUS_MESSAGES['cached_prefix']}{info.error or ''}"
+            )
         elif info.error:
             self._set_status_style("status_warn")
             self._quota_pie.hide()
-            self._quota_status.setText(f"⚠ {info.error}")
+            self._quota_status.setText(f"{STATUS_MESSAGES['warn_prefix']}{info.error}")
         else:
             # P16：正常时剩余量饼图（最紧窗口文字已删除；overall 内部保留供托盘预警）
             self._set_status_style("status_ok")
@@ -836,7 +839,7 @@ class MainWindow(QMainWindow):
         # 保存窗口状态：几何/主题/刷新间隔/隐藏列到配置文件（托盘退出与关闭时调用）
         config = load_config()
         config.window_geometry = bytes(self.saveGeometry().toHex().data()).decode()
-        config.theme = "dark" if self._is_dark else "light"
+        config.theme = DARK_THEME_NAME if self._is_dark else LIGHT_THEME_NAME
         config.refresh_interval_ms = self._refresh_timer.interval()
         config.hidden_columns = tuple(sorted(self._hidden_columns))
         save_config(config)
@@ -861,6 +864,9 @@ class MainWindow(QMainWindow):
 #     布局参数（ui.json）；RESET_TIME_FORMAT：重置时间显示格式（ui.json）
 #   DIMENSIONS / DIMENSION_LABELS / QUOTA_WINDOW_LABELS / GUIDE_* / TABLE_HEADERS /
 #     COLUMN_IDS：维度与文案配置（标签外置 ui.json，列模型代码内）
+#   TOTAL_TOKEN_PREFIX / CARD_TITLES / QUOTA_SECTION_TITLE / DETAIL_SECTION_TITLE /
+#     BUTTON_LABELS / TOOLTIPS / STATUS_MESSAGES / DIALOG_TITLES / DIALOG_PROMPTS：
+#     界面文案外置 ui.json（5A.3 C3/C4：卡片/区域/按钮/状态栏/对话框文案单一来源）
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
 #   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）
@@ -869,9 +875,9 @@ class MainWindow(QMainWindow):
 #   _UsageTask：用量统计后台任务（独立打开只读连接，规避 sqlite 跨线程限制）
 #   _QuotaTask：配额拉取后台任务（网络不阻塞 UI，支持注入 fetcher）
 #   _ExportTask：导出后台任务（独立连接 + exporter.export_all 落盘）
-#   _CdpGuideTask：CDP 一键获取凭据任务（快照 workspaceID → 启动临时调试
-#     Chrome → 轮询登录 → 写凭据文件 → 关闭清理；不影响用户浏览器；
-#     login_wait_seconds 默认 None 从 base.json 读）
+#   _CdpGuideTask：CDP 一键获取凭据任务（启动临时调试 Chrome → 轮询登录[CDP 拿
+#     cookie + 页面 URL 提取 workspaceID，E4 改案] → 写凭据文件 → 关闭清理；
+#     不影响用户浏览器；login_wait_seconds 默认 None 从 base.json 读）
 #   _RemainingPieChart：剩余量饼图控件（QPainter 双色圆弧 + 中心"剩余 Y%"，P16）
 # 函数：
 #   _format_tokens()：K/M/B/G 缩写格式化

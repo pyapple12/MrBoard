@@ -26,6 +26,14 @@ PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效�
 HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
 RETRY_COUNT = int(_SC.base["retry_count"])  # 3A.1 C8：重试参数走 base.json
 RETRY_DELAY = float(_SC.base["retry_delay"])
+# models.dev pricing 字段 → RateInfo 字段键映射（5A.2 R3：远程响应映射后复用
+# _rate_from_raw，消除手写 RateInfo 构造；currency 同名字段单独透传）
+PRICE_KEY_MAP = {
+    "input": "input_price",
+    "output": "output_price",
+    "cache_read": "cache_read_price",
+    "cache_write": "cache_write_price",
+}
 
 # 内置常见模型价格表（单位：美元/百万 token，cache 价格缺省为 None 表示按无折扣计）
 # 来源：models.dev 快照与 opencode-bar 测试数据，仅作无网络/无缓存时的回退
@@ -270,13 +278,15 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
         provider, _, model = model_key.partition("/")
         if not provider or not model:
             continue
-        result[canonical_key(provider, model)] = RateInfo(
-            input_price=to_float(pricing.get("input"), 0.0),
-            output_price=to_float(pricing.get("output"), 0.0),
-            cache_read_price=to_optional_float(pricing.get("cache_read")),
-            cache_write_price=to_optional_float(pricing.get("cache_write")),
-            currency=str(pricing.get("currency", "USD")),
-            source="remote",
+        result[canonical_key(provider, model)] = _rate_from_raw(
+            {
+                **{
+                    target: pricing.get(source)
+                    for source, target in PRICE_KEY_MAP.items()
+                },
+                "currency": pricing.get("currency", "USD"),
+            },
+            "remote",
         )
     return result or None
 
