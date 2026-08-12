@@ -2,7 +2,6 @@
 
 import urllib.error
 import urllib.request
-from typing import Any
 
 # 网络类可重试异常元组（retry_call 的 exceptions 参数共用，R8）
 RETRY_NETWORK_ERRORS: tuple[type[Exception], ...] = (
@@ -37,4 +36,5 @@ def http_get(
 #       捕获 HTTPError 处理（utils 层不依赖业务异常类型）
 # 异常处理：非 2xx 抛 urllib.error.HTTPError；网络/超时异常原样传播，均交调用方
 #   重试或分类（z.plan 第四章错误策略）
-# 关联配置：无（超时由调用方从 base.json http_timeout 传入）
+# 关联配置：签名默认 timeout=15.0 仅为兜底（6A.1 E7：与说明区一致）——调用方
+#   一律从 base.json http_timeout 显式传入（go_quota/pricing 的 HTTP_TIMEOUT）

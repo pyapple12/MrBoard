@@ -219,6 +219,10 @@ __marimo__/
 
 # 参考项目（外部 clone，不纳入版本控制）
 reference/
+.reference/
+
+# 编辑器自动备份（z.plan/x.progress 历史快照）
+.history/
 
 # opencode 项目级配置（机器绑定解释器路径）
 .opencode/

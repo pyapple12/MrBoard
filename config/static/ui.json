@@ -1,5 +1,13 @@
 {
   "app_subtitle": "用量与配额",
+  "unknown_label": "未知",
+  "cost_zero_epsilon": 0.00005,
+  "total_tokens_unit": "亿",
+  "total_tokens_unit_threshold": 100000000,
+  "status_time_format": "%H:%M:%S",
+  "go_quota_error_messages": {
+    "no_credentials": "未找到 dashboard 凭据（设置 OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE 或创建 opencode-go.json 配置文件）"
+  },
   "colors": {
     "quota_ok": "#4caf50",
     "quota_warn": "#ff9800",
@@ -95,7 +103,11 @@
     "not_fetched": "未获取到",
     "reset_template": "重置于 {time}",
     "cached_prefix": "⚠ 缓存数据：",
-    "warn_prefix": "⚠ "
+    "warn_prefix": "⚠ ",
+    "usage_failed_template": "用量统计失败：{error}",
+    "quota_failed_template": "配额拉取异常：{error}",
+    "export_done_template": "导出完成：{dir}",
+    "export_failed_template": "导出失败：{error}"
   },
   "dialog_titles": {
     "total_detail": "总量明细",
@@ -124,6 +136,7 @@
       "status_warn": "#e65100",
       "progress_border": "#cccccc",
       "progress_bg": "#eeeeee",
+      "chunk_ok": "#1976d2",
       "table_bg": "#ffffff",
       "table_grid": "#eeeeee",
       "header_bg": "#f0f1f3",
@@ -149,6 +162,7 @@
       "status_warn": "#ffb74d",
       "progress_border": "#444444",
       "progress_bg": "#333333",
+      "chunk_ok": "#64b5f6",
       "table_bg": "#262626",
       "table_grid": "#333333",
       "header_bg": "#333333",

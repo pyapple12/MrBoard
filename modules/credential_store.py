@@ -65,7 +65,8 @@ def read_credentials_file(path: Path) -> dict[str, Any] | None:
     # 读取凭据文件（宽容解析，复用 read_json 原子读；加密格式识别标记解密；
     # 明文旧格式原样返回；缺失打 WARNING 便于排查，损坏返回 None）
     if not path.is_file():
-        logger.warning("读取凭据配置失败 %s：文件不存在", path)
+        # 6A.2 D6：文件缺失是无凭据用户常态（每轮刷新都会走到），降级 DEBUG 防日志噪音
+        logger.debug("读取凭据配置失败 %s：文件不存在", path)
         return None
     raw = read_json(path, default=None, use_cache=False)
     if not isinstance(raw, dict):

@@ -1,7 +1,6 @@
 # 配置管理模块：用户配置 AppConfig dataclass + JSON 持久化（项目内 config/user_config.json，对齐 AccelWorld S9.5）
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from config.static.static_config import get_static_config
@@ -11,6 +10,8 @@ from utils.file_utils import get_project_root, read_json, write_json
 _SC = get_static_config()
 CONFIG_FILE = get_project_root() / _SC.base["user_config_path"]
 DEFAULT_REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
+# 6A.2 D3：刷新间隔最小下限（base.json 驱动，防手改 1ms 疯狂刷新）
+MIN_REFRESH_INTERVAL_MS = int(_SC.base["min_refresh_interval_ms"])
 DEFAULT_THEME = str(_SC.base["default_theme"])
 # 主题枚举单一来源（C6：外置 ui.json；themes.py 引用本常量，防两处定义不同步）
 THEMES = tuple(str(item) for item in _SC.ui["themes"])
@@ -45,8 +46,9 @@ class AppConfig:
         if theme in THEMES:
             config.theme = theme
         interval = raw.get("refresh_interval_ms")
-        # type() is int 排除 bool（bool 是 int 子类，防 true → 1ms，S2）
-        if type(interval) is int and interval > 0:
+        # type() is int 排除 bool（bool 是 int 子类，防 true → 1ms，S2）；
+        # 6A.2 D3：低于下限的非法值丢弃（防手改 1ms 每秒千次刷新）
+        if type(interval) is int and interval >= MIN_REFRESH_INTERVAL_MS:
             config.refresh_interval_ms = interval
         hidden = raw.get("hidden_columns")
         if isinstance(hidden, list):
@@ -76,7 +78,8 @@ def save_config(config: AppConfig) -> None:
 #     对齐 AccelWorld S9.5 定案；路径由 base.json user_config_path 指定，
 #     get_project_root() 拼接）；凭据 opencode-go.json 在项目内
 #     data/credentials/（P2 定案：所有数据目录集中项目内，不使用用户目录）
-#   DEFAULT_REFRESH_INTERVAL_MS / DEFAULT_THEME：默认值从静态配置现取（零硬编码）
+#   DEFAULT_REFRESH_INTERVAL_MS / MIN_REFRESH_INTERVAL_MS / DEFAULT_THEME：默认值与
+#     刷新间隔下限从静态配置现取（零硬编码；下限防手改 1ms 疯狂刷新，6A.2 D3）
 # 类型：
 #   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms/hidden_columns）
 #     ——window_geometry 存 QByteArray.toHex 字符串，避免 config 层依赖 PyQt

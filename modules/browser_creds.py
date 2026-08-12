@@ -10,7 +10,6 @@ import subprocess
 import tempfile
 import time
 import urllib.error
-import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
@@ -34,6 +33,7 @@ from config.static.static_config import get_static_config
 from utils.file_utils import read_json
 from utils.logger import get_logger
 from utils.network import http_get
+from utils.sqlite_utils import open_readonly
 from utils.windows import WIN32CRYPT_AVAILABLE, dpapi_unprotect
 
 logger = get_logger(__name__)
@@ -59,11 +59,15 @@ HISTORY_LIMIT = int(_SC.base["history_limit"])
 CDP_PORT = int(_SC.base["cdp_port"])
 ESENTUTL_TIMEOUT = int(_SC.base["esentutl_timeout"])
 SUBPROCESS_TIMEOUT = int(_SC.base["subprocess_timeout"])  # 5A.3 C6：子进程超时统一
+CDP_FETCH_TIMEOUT = int(
+    _SC.base["cdp_fetch_timeout"]
+)  # 6A.1 E3：/json 端点与登录会话超时
+CDP_WAIT_TIMEOUT = int(_SC.base["cdp_wait_timeout"])  # 6A.1 E3：CDP 就绪/会话轮询总超时
 V10_PREFIX = b"v10"
 V20_PREFIX = b"v20"
 CDP_HOST = "127.0.0.1"
-# 5A.3 C6：CDP 探测族魔法值收敛（命名常量）
-CDP_HTTP_TIMEOUT = 5.0  # /json 端点探测超时
+# 5A.3 C6：CDP 探测族固定值（base.json 无对应字段，说明区如实标注；6A.1 E3 修正失实）
+CDP_PROBE_TIMEOUT = 2.0  # 单次 /json/version 探测超时
 CDP_POLL_DELAY = 0.5  # wait_cdp_ready 轮询间隔
 CDP_PORT_CHECK_TIMEOUT = 1.0  # launch 前端口占用快速探测
 
@@ -259,10 +263,8 @@ def _with_copied_db(
     if copy_path is None:
         return None
     try:
-        # E7：URI 路径转义（临时目录名可能含 #/?），Windows 反斜杠统一为正斜杠
-        uri_path = urllib.parse.quote(str(copy_path).replace("\\", "/"))
-        conn = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
+        # URI 转义与只读连接统一在 utils（6A.3 R1；临时目录名可能含 #/?）
+        conn = open_readonly(copy_path)
         try:
             return query(conn, *query_args)
         finally:
@@ -365,6 +367,9 @@ def launch_chrome_debug(
     executable = _chrome_executable()
     if executable is None:
         logger.warning("未找到 Chrome 可执行文件，无法启动调试模式")
+        # 6A.1 E4：mkdtemp 后失败提前 return 前清理临时目录（防泄漏残留复用）
+        shutil.rmtree(_cdp_profile_dir, ignore_errors=True)
+        _cdp_profile_dir = None
         return None
     try:
         proc = subprocess.Popen(
@@ -390,7 +395,7 @@ def launch_chrome_debug(
         return None
 
 
-def wait_cdp_ready(port: int = CDP_PORT, timeout: float = 30.0) -> bool:
+def wait_cdp_ready(port: int = CDP_PORT, timeout: float = CDP_WAIT_TIMEOUT) -> bool:
     # 轮询 CDP 端点直到就绪（Chrome 启动后调试端口开放）
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -405,7 +410,7 @@ def wait_cdp_ready(port: int = CDP_PORT, timeout: float = 30.0) -> bool:
 
 
 def fetch_login_state_via_cdp(
-    port: int = CDP_PORT, timeout: float = 30.0
+    port: int = CDP_PORT, timeout: float = CDP_WAIT_TIMEOUT
 ) -> tuple[str | None, str | None]:
     # 通过 CDP 一次会话获取登录态 (auth cookie, workspaceID)：
     # Network.getAllCookies 拿 cookie + Runtime.evaluate 读当前页面 URL 提取 workspaceID；
@@ -416,9 +421,9 @@ def fetch_login_state_via_cdp(
         return None, None
     try:
         targets = json.loads(
-            http_get(f"http://{CDP_HOST}:{port}/json", timeout=CDP_HTTP_TIMEOUT).decode(
-                "utf-8"
-            )
+            http_get(
+                f"http://{CDP_HOST}:{port}/json", timeout=CDP_FETCH_TIMEOUT
+            ).decode("utf-8")
         )
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         logger.warning("连接 CDP 端点失败：%s", exc)
@@ -568,10 +573,10 @@ def psutil_process_iter() -> list[Any]:
 #   HISTORY_LIMIT：历史记录查询上限（参考 opencode-bar limit 200）
 #   V10_PREFIX / V20_PREFIX：cookie 加密版本前缀
 #   CDP_HOST / CDP_PORT：Chrome 远程调试端点（仅引导流程临时开放）
-#   ESENTUTL_TIMEOUT / SUBPROCESS_TIMEOUT / CDP_PROBE_TIMEOUT / CDP_HTTP_TIMEOUT /
-#     CDP_POLL_DELAY / CDP_PORT_CHECK_TIMEOUT / DEFAULT_LOGIN_URL：esentutl 超时、
-#     子进程超时、CDP 探测族超时/轮询间隔、默认登录页（base.json/OPENCODE_HOST 驱动，
-#     C14 补列，5A.3 C6 魔法值收敛）
+#   ESENTUTL_TIMEOUT / SUBPROCESS_TIMEOUT / CDP_FETCH_TIMEOUT / CDP_WAIT_TIMEOUT /
+#     CDP_PROBE_TIMEOUT / CDP_POLL_DELAY / CDP_PORT_CHECK_TIMEOUT / DEFAULT_LOGIN_URL：
+#     esentutl 超时、子进程超时、CDP 会话/就绪超时（base.json cdp_fetch/wait_timeout 驱动）、
+#     探测族固定值（3 个，base.json 无对应字段）、默认登录页（C14 补列，6A.1 E3 修正失实）
 # 模块级变量：_cdp_profile_dir——CDP 引导临时 profile（launch 创建，shutdown 清理）；
 #   _v20_warned——v20 提示会话级去重标志（5A.1 E1：首测才提示）
 # 模块级导入：AES/websocket/psutil 缺失时降级为 None；DPAPI 能力来自 utils.windows

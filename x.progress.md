@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.12（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.13（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -92,6 +92,63 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 第三批清理规范：未用 import 删除；dark/light 与"总 token："收敛（LIGHT_THEME_NAME/TOTAL_TOKEN_PREFIX）；main_window 文案全量外置 ui.json（卡片/区域/按钮/状态栏/对话框/引导消息/明细行）+ 托盘菜单；timeout 族常量（SUBPROCESS_TIMEOUT + CDP 探测 3 个）；Path.expanduser；防御补强（文件不存在不写缓存、static_config data 非 dict 抛错、os_crypt 容错两处、error_stage 常量导出去字符串耦合）；异常元组去冗余、int(round) 提局部变量；DPAPI 描述串常量；说明区失实修正（9222→CDP_PORT、阈值注释引用配置）。round_cost digits 评估**保留**（口径稳定，说明区记录结论）。
 
 ---
+
+## 第六轮审计整改完成（2026-08-13 审计，2026-08-13 已实施）
+
+> 目标：38 条发现按四批整改（错漏 7 → 防御性 6 → 硬编码/清理 13 → 重复/优化 10 + 确认保留 2）；基线回归按批次验证
+> 依据：z.plan.md 第十六章；执行原则：每项完成后运行对应验证
+> 结果：四批全部完成——全量回归 43 个验证脚本零失败（s1-s14 + v0808/v0809/v1010/3A/4A/5A/6A 全系列）；同步修复 5A.1 遗留脚本欠账（s6/s7/s9/s10/v4a1 旧函数名）与 8 处历史脚本过期断言；README/AGENTS.md/z.plan.md 同步
+
+### 6A.1 第一批：错漏（7 条）
+
+- [x] E1 themes {chunk_ok} 占位符残留：QSS 模板注入无效值——移除模板占位或调色板补键（行为验证：apply 后无无效规则）
+- [x] E2 convert.to_int 补 OverflowError 捕获（"inf"/"1e999" 崩溃逃逸，行为验证）
+- [x] E3 browser_creds CDP 探测族走 base.json：CDP_HTTP_TIMEOUT/CDP_WAIT 复用 cdp_fetch_timeout/cdp_wait_timeout，说明区修正
+- [x] E4 launch_chrome_debug 提前 return 前清理临时 profile（mkdtemp 后失败路径 rmtree）
+- [x] E5 parse_time_arg 注释/help 与正则一致（支持 m 或注明）
+- [x] E6 find_db_path CLI 分支失败补 warning（与 env 分支一致）
+- [x] E7 network.py 说明区与 timeout 默认值一致（注明 15.0 兜底语义）
+- 状态：✅ 完成（2026-08-13，验证：verify_6a1 27 项 + 全回归 verify_5a1/5a2/5a3/s11 + GUI offscreen；同步 verify_5a3 常量名断言）｜优先级：高
+
+### 6A.2 第二批：防御性（6 条）
+
+- [x] D1 by_session _has_session_columns 补 id 列校验（缺列时降级 session_id 不 JOIN）
+- [x] D2 system_tray QMenu 防 GC：QSystemTrayIcon 非 QWidget 不能挂父——菜单存实例属性 `self._menu`（setContextMenu 不接管所有权）
+- [x] D3 settings refresh_interval_ms 加最小下限（如 >= 1000ms，防手改 1ms 疯狂刷新）
+- [x] D4 logger _configured 竞态防护（锁或幂等重入检查）
+- [x] D5 retry retries<0/delay<0 参数校验（clamp 或 ValueError）
+- [x] D6 credential_store 缺文件 WARNING 降级 DEBUG（无凭据用户常态噪音）
+- 状态：✅ 完成（2026-08-13，验证：verify_6a2 18 项 + 全回归 verify_6a1 27/s5a3 26/s11 4 + GUI offscreen）｜优先级：高
+
+### 6A.3 第三批：硬编码/清理（13 条）
+
+- [x] H1 pricing round(cost, 10) 魔法 10 命名常量（如 COST_COMPARE_DIGITS，说明用途）
+- [x] H2 UNKNOWN_LABEL = "未知" 外置 ui.json
+- [x] H3 go_quota 凭据缺失提示文案外置 ui.json
+- [x] H4 windows DPAPI_DESCRIPTION 改从 base.json app_name 派生（消除双源）
+- [x] H5 main_window 0.00005 容差命名常量或外置
+- [x] H6 "亿"/1e8 与 %H:%M:%S 格式收敛（RESET_TIME_FORMAT 同源）
+- [x] H7 main_window 任务错误文案 4 处评估外置（上轮争议项，决策后执行）
+- [x] U1-U5 未用 import 删除：settings Path、opencode_usage to_float、pricing Path、logger Path、network Any
+- 状态：✅ 完成（2026-08-13，验证：verify_6a3 32 项 + 全回归 verify_6a1 27/6a2 18/5a3 26/s11 4 + GUI offscreen）｜优先级：中
+
+### 6A.4 第四批：重复/优化（10 条）
+
+- [x] R1 sqlite 只读 URI 连接构造提 utils 公共函数（opencode_usage/browser_creds 两处收敛）
+- [x] R2 main_window 配额窗口键引用 go_quota.QUOTA_WINDOW_KEYS（507/749-751）
+- [x] R3 主题名双源决策：DARK_THEME_NAME/LIGHT_THEME_NAME 单一来源（settings 校验引用或反向）
+- [x] R4 窗口标题/tooltip 拼接统一（VERSION 段一致性决策）
+- [x] O1 opencode_usage _base_sql 与 totals 共用 time_clause 生成
+- [x] O2 pricing estimate_cost 四段重复抽取公共小函数
+- [x] O3 main_window 缓存率复合函数（_format_cache_rate(_cache_rate_percent) 3 处）
+- [x] O4 main.py 配额预警去重（已通知标志，持续超限不重复弹）
+- [x] O5 logger 文件日志轮转（RotatingFileHandler）
+- [x] O6 to_float/to_optional_float 合并评估（动调用方，收益存疑——评估后决策）
+- 状态：✅ 完成（2026-08-13，验证：verify_6a4 30 项 + 全回归 verify_6a1-3/s12/s5a2/s5a3/s11 + GUI offscreen；同步 verify_5a2 tooltip 断言）｜优先级：低
+
+### 确认保留
+
+> go_quota add 闭包（第五轮确认项）；network RETRY_NETWORK_ERRORS 含 URLError 为有意设计（5xx/429 重试，401/403 已分类）——不整改
 
 ## 阶段验证命令速查（AGENTS.md 运行与验证）
 

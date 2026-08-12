@@ -9,11 +9,13 @@ from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
 from ui.themes import QUOTA_DANGER_PERCENT
-from utils.logger import APP_NAME
+from utils.logger import APP_NAME, VERSION
 
-# 版本号单一来源（S8.5：外置 base.json version 字段）；APP_NAME 由 utils.logger 统一导出（D1）
+# 静态配置解包（S8：参数外置 base.json；版本号单点导出 utils.logger，6A.3 R4）
 _SC = get_static_config()
-VERSION = str(_SC.base["version"])
+
+# 6A.3 O4：配额预警去重标志（持续超限只在首次触发时通知，状态回落复位）
+_notified_danger = False
 
 
 def main() -> None:
@@ -39,19 +41,26 @@ def run_gui() -> None:
 
 
 def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
-    # 配额加载完成：更新托盘图标状态色；≥80% 时气泡预警（错误时图标置灰）
+    # 配额加载完成：更新托盘图标状态色；≥80% 时气泡预警（错误时图标置灰；
+    # 6A.3 O4：去重——持续超限不重复弹，回落后再次超限才重新通知）
+    global _notified_danger
     if info.error is None:
         tray.update_quota_status(info.overall_used_percent)
         if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
-            # C21：气泡文案外置 ui.json（notify_title/notify_message_template）
-            tray.notify_quota(
-                str(_SC.ui["notify_title"]),
-                str(_SC.ui["notify_message_template"]).format(
-                    used=info.overall_used_percent,
-                    remaining=info.remaining_percent,
-                ),
-            )
+            if not _notified_danger:
+                _notified_danger = True
+                # C21：气泡文案外置 ui.json（notify_title/notify_message_template）
+                tray.notify_quota(
+                    str(_SC.ui["notify_title"]),
+                    str(_SC.ui["notify_message_template"]).format(
+                        used=info.overall_used_percent,
+                        remaining=info.remaining_percent,
+                    ),
+                )
+        else:
+            _notified_danger = False
     else:
+        _notified_danger = False
         tray.update_quota_status(None)
 
 

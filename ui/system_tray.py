@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from config.static.static_config import get_static_config
 from ui.themes import QUOTA_COLOR_OK, quota_chunk_color
-from utils.logger import APP_NAME
+from utils.logger import APP_NAME, VERSION
 
 # 图标/通知参数（S8.3：外置 ui.json，静态配置解包）
 _SC = get_static_config()
@@ -28,19 +28,21 @@ class SystemTray(QSystemTrayIcon):
         # 初始化托盘：构建图标与菜单，连接激活信号（C12 补类型注解）
         super().__init__(parent)
         self.setIcon(self._build_icon(QUOTA_COLOR_OK))
-        self.setToolTip(f"{APP_NAME} {APP_SUBTITLE}")
-        menu = QMenu()
-        show_action = QAction(MENU_LABELS["show_window"], menu)
+        self.setToolTip(f"{APP_NAME} {APP_SUBTITLE} {VERSION}")
+        # 6A.2 D2：QSystemTrayIcon 非 QWidget 不能挂父，菜单存实例属性防 GC
+        # （setContextMenu 不接管所有权，局部变量在 Python 引用消失后会被销毁）
+        self._menu = QMenu()
+        show_action = QAction(MENU_LABELS["show_window"], self._menu)
         show_action.triggered.connect(self.show_requested)
-        refresh_action = QAction(MENU_LABELS["refresh"], menu)
+        refresh_action = QAction(MENU_LABELS["refresh"], self._menu)
         refresh_action.triggered.connect(self.refresh_requested)
-        quit_action = QAction(MENU_LABELS["quit"], menu)
+        quit_action = QAction(MENU_LABELS["quit"], self._menu)
         quit_action.triggered.connect(self.quit_requested)
-        menu.addAction(show_action)
-        menu.addAction(refresh_action)
-        menu.addSeparator()
-        menu.addAction(quit_action)
-        self.setContextMenu(menu)
+        self._menu.addAction(show_action)
+        self._menu.addAction(refresh_action)
+        self._menu.addSeparator()
+        self._menu.addAction(quit_action)
+        self.setContextMenu(self._menu)
         self.activated.connect(self._on_activated)
 
     def show_requested(self) -> None:

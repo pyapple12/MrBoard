@@ -3,7 +3,6 @@
 import json
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from config.static.static_config import get_static_config
@@ -26,6 +25,8 @@ PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效�
 HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
 RETRY_COUNT = int(_SC.base["retry_count"])  # 3A.1 C8：重试参数走 base.json
 RETRY_DELAY = float(_SC.base["retry_delay"])
+# 6A.3 H1：估算成本舍入位数（浮点误差容差，非展示精度——展示精度由 UI 格式化控制）
+COST_COMPARE_DIGITS = 10
 # models.dev pricing 字段 → RateInfo 字段键映射（5A.2 R3：远程响应映射后复用
 # _rate_from_raw，消除手写 RateInfo 构造；currency 同名字段单独透传）
 PRICE_KEY_MAP = {
@@ -125,6 +126,12 @@ def load_price_map(refresh: bool = False) -> dict[str, RateInfo]:
     return price_map
 
 
+def _price_line(count: int, price: float | None) -> float:
+    # 单费率行成本：count/1e6 * price；费率缺失（None）计 0
+    # （6A.3 O2：estimate_cost 四段重复抽取）
+    return count / 1e6 * price if price is not None else 0.0
+
+
 def estimate_cost(
     price_map: dict[str, RateInfo],
     provider: str,
@@ -140,21 +147,13 @@ def estimate_cost(
     cache_read_count = tokens.get("cache_read", 0)
     cache_write_count = tokens.get("cache_write", 0)
     cost = (
-        input_count / 1e6 * rate.input_price
-        + output_count / 1e6 * rate.output_price
-        + (
-            cache_read_count / 1e6 * rate.cache_read_price
-            if rate.cache_read_price is not None
-            else 0.0
-        )
-        + (
-            cache_write_count / 1e6 * rate.cache_write_price
-            if rate.cache_write_price is not None
-            else 0.0
-        )
+        _price_line(input_count, rate.input_price)
+        + _price_line(output_count, rate.output_price)
+        + _price_line(cache_read_count, rate.cache_read_price)
+        + _price_line(cache_write_count, rate.cache_write_price)
     )
     return CostEstimate(
-        estimated_cost=round(cost, 10),
+        estimated_cost=round(cost, COST_COMPARE_DIGITS),
         currency=rate.currency,
         price_status="priced",
         price_source=rate.source,
@@ -172,7 +171,7 @@ def aggregate_estimated_costs(
     if not totals:
         return {}, None
     if len(totals) == 1:
-        return totals, round(next(iter(totals.values())), 10)
+        return totals, round(next(iter(totals.values())), COST_COMPARE_DIGITS)
     return totals, None
 
 
@@ -298,6 +297,7 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 #     （项目内 data/prices/，P2：集中项目内，不使用用户目录）
 #   PRICE_CACHE_TTL：远程缓存有效期 1 天
 #   HTTP_TIMEOUT / RETRY_COUNT / RETRY_DELAY：网络超时与重试（base.json 驱动）
+#   COST_COMPARE_DIGITS：估算成本舍入位数（浮点容差，6A.3 H1）
 #   BUNDLED_PRICES：内置常见模型价格（无网络回退，仅机制兜底）
 # 类型：
 #   RateInfo：单价 dataclass（input/output/cache_read/cache_write + currency + source）

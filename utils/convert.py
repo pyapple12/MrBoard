@@ -5,15 +5,16 @@ from typing import Any
 
 def to_int(value: Any, default: int = 0) -> int:
     # 弹性整数转换：数字/数字字符串均可（str→float→int 两级），失败返回 default
+    # （6A.1 E2：OverflowError 兜底——"inf"/"1e999" 转 float 后 int() 溢出逃逸）
     try:
         if isinstance(value, bool):
             return default
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass
     try:
         return int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -51,6 +52,8 @@ def round_cost(value: Any, digits: int = 4) -> float:
 #   to_float(value, default=0.0)：单级 float() 兜底
 #   to_optional_float(value)：None 与非法值返回 None——None 语义为"未记录"
 #     （与 0 区分，对齐 z.plan 第四章宽容解析）
+#     （6A.3 O6 评估：与 to_float 不合并——两者语义不同（0 兜底 vs None 兜底），
+#       合并需改全部调用点且丢失"未记录"区分，收益低）
 #   round_cost(value, digits=4)：成本舍入（to_float 后 round，聚合口径统一）
 #     （5A.3 C11 评估：digits 参数保留——调用方统一默认 4 位口径，参数提供灵活性）
 # 设计理由：opencode.db 的 token/cost 字段可能是字符串（真实库新旧格式混合），

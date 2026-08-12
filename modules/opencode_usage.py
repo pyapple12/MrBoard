@@ -8,7 +8,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,12 +15,15 @@ from typing import Any
 
 from config.static.static_config import get_static_config
 from modules import pricing
-from utils.convert import round_cost, to_float, to_int
+from utils.convert import round_cost, to_int
 from utils.logger import get_logger
+from utils.sqlite_utils import open_readonly
 
 logger = get_logger(__name__)
 
-UNKNOWN_LABEL = "未知"
+UNKNOWN_LABEL = str(
+    get_static_config().ui["unknown_label"]
+)  # 6A.3 H2：分组缺失标签外置
 # C19：默认库路径由 base.json 驱动（~ 展开），消除代码内硬编码
 DEFAULT_DB_PATH = Path(str(get_static_config().base["db_default_path"])).expanduser()
 ASSISTANT_ROLE = "assistant"
@@ -120,6 +122,9 @@ def find_db_path() -> Path | None:
     cli_path = _query_db_path_from_cli()
     if cli_path is not None and cli_path.is_file():
         return cli_path
+    if cli_path is not None:
+        # 6A.1 E6：子进程返回了路径但文件不存在——补 warning 与 env 分支一致
+        logger.warning("opencode db path 返回的路径不存在：%s", cli_path)
     if DEFAULT_DB_PATH.is_file():
         return DEFAULT_DB_PATH
     return None
@@ -149,10 +154,8 @@ class OpenCodeDB:
     # opencode.db 只读访问封装：持有一个连接，提供多维度聚合查询
 
     def __init__(self, db_path: Path) -> None:
-        # 只读连接防误写（z.plan 第四章：只读防误写策略；E7：URI 路径转义防 #/? 解析错误）
-        uri_path = urllib.parse.quote(str(db_path).replace("\\", "/"))
-        self.conn = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
-        self.conn.row_factory = sqlite3.Row
+        # 只读连接防误写（z.plan 第四章：只读防误写策略；URI 转义统一在 utils，6A.3 R1）
+        self.conn = open_readonly(db_path)
         self.db_path = db_path
         # PRAGMA 检测结果缓存（by_session 周期调用避免重复查表结构，M14）
         self._session_columns: bool | None = None
@@ -195,7 +198,7 @@ class OpenCodeDB:
             # 活动跨度天数 = 跨度毫秒转天向下取整 + 1（对齐 opencode stats 的 Days 口径）
             summary.days = int((to_int(max_ts) - to_int(min_ts)) / _DAY_MS) + 1
         agg = self._fetch_one(
-            self._base_sql(since, until),
+            self._base_sql(time_clause),
             [ASSISTANT_ROLE] + time_params,
         )
         # 消息数按全量统计（含 user，对齐 opencode stats 的 Messages 口径）
@@ -256,7 +259,7 @@ class OpenCodeDB:
         limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 按会话分组聚合：会话标题｜项目目录（P19，LEFT JOIN session 表；
-        # session 表缺 title/directory 列时降级仅显示 session_id，兼容旧库/测试库）
+        # session 表缺 id/title/directory 列时降级仅显示 session_id，兼容旧库/测试库）
         if self._has_session_columns():
             label_expr = "COALESCE(NULLIF(s.title, ''), m.session_id)"
             dir_expr = "COALESCE(s.directory, '')"
@@ -286,7 +289,8 @@ class OpenCodeDB:
         return result
 
     def _has_session_columns(self) -> bool:
-        # 检测 session 表是否含 title/directory 列（旧库可能缺表或缺列，by_session 降级用；
+        # 检测 session 表是否含 id/title/directory 列（旧库可能缺表或缺列，
+        # by_session 降级用；6A.1 D1：缺 id 列时 JOIN 会崩，一并校验；
         # 结果缓存于实例属性，只读连接生命周期内表结构不变）
         if self._session_columns is None:
             try:
@@ -294,7 +298,9 @@ class OpenCodeDB:
                     row["name"]
                     for row in self.conn.execute("PRAGMA table_info(session)")
                 ]
-                self._session_columns = "title" in cols and "directory" in cols
+                self._session_columns = (
+                    "id" in cols and "title" in cols and "directory" in cols
+                )
             except sqlite3.Error:
                 self._session_columns = False
         return self._session_columns
@@ -353,13 +359,14 @@ class OpenCodeDB:
             json_expr, since, until, order="total DESC", limit=limit
         )
 
-    def _base_sql(self, since: int | None = None, until: int | None = None) -> str:
-        # 构造基础聚合 SQL：只统计 assistant 消息，时间条件由 _time_clause 拼接
+    def _base_sql(self, time_clause: str = "") -> str:
+        # 构造基础聚合 SQL：只统计 assistant 消息；时间片段由调用方传入
+        # （6A.3 O1：totals 已生成 time_clause，消除内部重复生成，改字段只改一处）
         return (
             "SELECT COUNT(*) AS calls,"
             + _TOKEN_SUM_SELECT
             + " FROM message WHERE json_extract(data, '$.role') = ?"
-            + self._time_clause(since, until)[0]
+            + time_clause
         )
 
     def _time_clause(
@@ -479,7 +486,8 @@ class OpenCodeDB:
 
 
 def parse_time_arg(spec: str) -> datetime:
-    # 解析时间参数：支持 '7d'/'2w'/'3h' 相对时长或 ISO 日期；非法输入抛 ValueError（E6 统一 strip）
+    # 解析时间参数：支持 '7d'/'2w'/'3h'/'5m' 相对时长或 ISO 日期；非法输入抛 ValueError
+    # （E6 统一 strip；6A.1 E5：正则支持 m，注释/help 同步）
     spec = spec.strip()
     match = re.fullmatch(r"(\d+)([dhwm])", spec)
     if match:
@@ -498,7 +506,7 @@ def parse_time_arg(spec: str) -> datetime:
         return datetime.fromisoformat(spec)
     except ValueError:
         raise ValueError(
-            f"无法解析时间参数：{spec}（支持 7d/2w/3h 或 ISO 日期）"
+            f"无法解析时间参数：{spec}（支持 7d/2w/3h/5m 或 ISO 日期）"
         ) from None
 
 
@@ -514,7 +522,7 @@ def main() -> None:
     )
     parser.add_argument("--db", default=None, help="opencode.db 路径（默认自动探测）")
     parser.add_argument(
-        "--since", default=None, help="起始时间：7d/2w/3h 或 ISO 日期（默认全部）"
+        "--since", default=None, help="起始时间：7d/2w/3h/5m 或 ISO 日期（默认全部）"
     )
     parser.add_argument(
         "--by",
@@ -610,7 +618,7 @@ if __name__ == "__main__":
 
 # ===== modules/opencode_usage.py 模块说明 =====
 # 模块级常量：
-#   UNKNOWN_LABEL：分组缺失值显示（未知）
+#   UNKNOWN_LABEL：分组缺失值显示（ui.json unknown_label 驱动，6A.3 H2）
 #   DEFAULT_DB_PATH：XDG 默认数据库路径（%USERPROFILE%\.local\share\opencode\opencode.db）
 #   ASSISTANT_ROLE：只统计 assistant 消息（user 消息无 token 数据）
 #   _EPOCH_MS：毫秒换算基数（时间戳/分组表达式共用）
@@ -636,7 +644,7 @@ if __name__ == "__main__":
 #     estimate=True 时对 cost=0 且 token 非零的消息逐条走 pricing.estimate_cost
 #     （多币种分桶）；_row_to_tokens/_row_to_usage_row/_fetch_one/_estimate_missing_costs
 #     为行转换与查询辅助
-#   parse_time_arg()：时间参数解析（7d/2w/3h 相对或 ISO 日期）
+#   parse_time_arg()：时间参数解析（7d/2w/3h/5m 相对或 ISO 日期）
 #   _to_epoch_ms()：datetime 转毫秒时间戳（时间过滤用）
 #   main()：CLI 自测（--db/--since/--by/--limit/--json/--estimate），供对照
 #     `opencode stats` 验证数字一致性

@@ -21,6 +21,11 @@ def retry_call(
     **kwargs: Any,
 ) -> Any:
     # 执行 func 并捕获指定异常时按指数退避重试，重试耗尽后抛出最后一次异常
+    # （6A.2 D5：负值参数 clamp——retries<0 会空循环触发 assert，delay/backoff 负值
+    #   time.sleep 抛 ValueError）
+    retries = max(0, int(retries))
+    delay = max(0.0, float(delay))
+    backoff = max(1.0, float(backoff))
     log = logger or _logger
     last_error: Exception | None = None
     for attempt in range(retries + 1):

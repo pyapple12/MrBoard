@@ -374,10 +374,10 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
 
     credentials = find_dashboard_credentials()
     if not credentials:
+        # 6A.3 H3：错误提示文案外置 ui.json（与 status_messages 体系一致）
         return _fallback(
             now,
-            "未找到 dashboard 凭据（设置 OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE"
-            " 或创建 opencode-go.json 配置文件）",
+            str(_SC.ui["go_quota_error_messages"]["no_credentials"]),
             stage=ERROR_STAGE_NO_CREDS,
         )
 

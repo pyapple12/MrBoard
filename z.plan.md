@@ -139,9 +139,9 @@ mrboard/
 
 - **真实 Bug（B1-B4）**：retry 未生效 / 托盘预警未接线 / 估算混入范围外消息 / 日志目录异常崩溃 —— 全部已修复 ✅
 - **中危问题（M1-M8）**：循环依赖、宽容解析、QSS 不重算、引导卡误导、CDP 端口抢占等 —— 全部已整改 ✅
-- **消重抽取（D1-D14）**：flatten_tokens、SQL 模板、_with_copied_db、fetch_go_quota 拆分、QSS 模板化等 —— 全部已落地 ✅
+- **消重抽取（D1-D14）**：flatten_tokens、SQL 模板、\_with_copied_db、fetch_go_quota 拆分、QSS 模板化等 —— 全部已落地 ✅
 - **规范口径**：函数 `#` 注释 + 文件尾说明区已定案（verify_s11 自动检测，docstring 不承担注释职责）
-- **CDP 真实闭环（2026-08-09）**：WebSocket 403（--remote-allow-origins=*）、占位 cookie 误判（端到端验证）、多账户 workspace 保存错误、OpenAuth 登录页误报 decoding、API key 失效降级 —— 5 项修复并验证 ✅
+- **CDP 真实闭环（2026-08-09）**：WebSocket 403（--remote-allow-origins=\*）、占位 cookie 误判（端到端验证）、多账户 workspace 保存错误、OpenAuth 登录页误报 decoding、API key 失效降级 —— 5 项修复并验证 ✅
 - **二次审计**：排期在 V0.08 之后（P10）
 
 ---
@@ -178,7 +178,7 @@ mrboard/
 > 实施明细见 x.progress.md V0.10；H1/M11 两项审计建议经实测证伪（以行为验证为准）
 
 - **高价值 10 条**：审计误判证伪 1 项（`except GoQuotaError: raise` 必要——401/403 分类错误会被外层包装破坏，传播测试证实）；OpenAuth 死条件/`_add_seconds` 冗余/不可达 2xx 检查删除；`login_wait_seconds` 默认 None 走 base.json；refresh 网络失败回退 TTL 内旧缓存；UA 去硬编码；临时目录清理补全；预警阈值单一来源；说明区凭据路径修正
-- **中价值 20 条**：8 处死代码删除（clear_cache/CONFIG_DIR/不可达 raise/REFRESH_INTERVAL_MS/_quota_info/_quota_status/调试与截断注释）；未用参数清理；3 处一行转发内联（`_status_bar_show` 为结构性整改：状态栏提前创建、信号连接统一前部）；重复逻辑抽取（Local State 读取/PRAGMA 缓存/维度名收敛）；`--restore-last-session` 无效参数移除；import 分组修正；说明区补齐 4 文件
+- **中价值 20 条**：8 处死代码删除（clear_cache/CONFIG_DIR/不可达 raise/REFRESH_INTERVAL_MS/\_quota_info/\_quota_status/调试与截断注释）；未用参数清理；3 处一行转发内联（`_status_bar_show` 为结构性整改：状态栏提前创建、信号连接统一前部）；重复逻辑抽取（Local State 读取/PRAGMA 缓存/维度名收敛）；`--restore-last-session` 无效参数移除；import 分组修正；说明区补齐 4 文件
 - **低价值 22 条**：行宽/Path 冗余/缓存写入收敛单处；THEMES 单一来源；表格 limit/饼图参数/CDP 超时/图标几何/超时统一/app_name/日志级别等硬编码外置 base.json/ui.json；静默兜底改失败策略；`row["name"]` 数字索引修正
 
 ---
@@ -203,7 +203,7 @@ mrboard/
 > 实施明细见 x.progress.md 第四轮章节（4A.1-4A.3）
 
 - **重复实现 5 条（重点）**：APP_NAME 四处重复解包统一（utils.logger 导出）；win32crypt try-import 降级提取 `utils/windows.py` 公共模块；DPAPI 解密同款调用收敛（真实往返验证）；去重键共享；UI 文案与 20+ 色调色板整体外置 ui.json（S8.3 颜色外置补齐）
-- **函数内嵌套 def 4 处**：browser_creds 三处 `_with_copied_db` 回调闭包参数化提取（*query_args 透传，163 捕获 aes_key 可传参保留亦正当）；go_quota add 闭包**保留合理**（累加器语义）；`_TaskProcess` 嵌套类提模块级
+- **函数内嵌套 def 4 处**：browser_creds 三处 `_with_copied_db` 回调闭包参数化提取（\*query_args 透传，163 捕获 aes_key 可传参保留亦正当）；go_quota add 闭包**保留合理**（累加器语义）；`_TaskProcess` 嵌套类提模块级
 - **错漏 11 条**：exporter CSV 计数修正；3 处未用 import；to_optional_float bool 排除；缓存毒化修复 + unlink 竞态；parse strip 统一；sqlite URI 转义两处；show_guide 永真精简；v20 提示每会话一次；CDP 响应结构校验
 - **硬编码 10 条**：调色板与 THEMES 枚举外置；login_url/CDP 探测超时收敛；cards_spacing/重置时间格式/角度魔法数/类型对齐；limit=100 第三套收敛；system_tray 注解补齐
 - **防御性/可优化/死代码 13 条**：mapping 非 dict 抛 RuntimeError、retry assert、except 收窄；cost_source 分支合并、by_session 行构造复用、hidden 空白项 strip；rows 伪维度删除、used_percent getter **保留并记录**（测试专用）；说明区不符 8 处补齐
@@ -222,3 +222,65 @@ mrboard/
 - **防御性 7 条**：文件不存在不写缓存（与 E4 一致）；static_config data 非 dict 抛错；os_crypt 容错两处；error_stage 常量导出去字符串耦合；JSONDecodeError 冗余列举删除
 - **硬编码/文案 10 条**：main_window 文案全量外置 ui.json（卡片/区域/按钮/状态栏/对话框/引导消息/明细行）；dark/light 与"总 token："收敛；timeout 族常量（subprocess/cdp）；DPAPI 描述串；Path.expanduser
 - **死代码/说明区 7 条**：未用 import 删除；9222 与阈值注释失实修正；常量缺项补齐；add 闭包**确认保留**（去重键已共享，提模块级收益低）
+
+## 十六、第六轮全量审计问题汇总（2026-08-13 审计完成）
+
+> 范围：全部 24 个 .py 文件（4124 行）+ 2 个静态配置 JSON，AST 扫描 + 三代理全文审读 + 行为验证
+> 结果：**38 条发现**（错漏 7 / 优化 6 / 防御性 6 / 硬编码 8 / 未用 import 5 / 重复实现 4 / 默认值 2）
+> 质量趋势：函数内 import 零、嵌套 def 仅 1 处确认保留、docstring 零、timeout/sleep 魔法值零——但 C6"命名收敛"遗留说明区失实 + base.json 已定义字段未引用
+> **整改状态：✅ 全部完成（2026-08-13）**——实施明细见 x.progress.md 第六轮章节（6A.1-6A.4 按批次执行）；新增 utils/sqlite_utils.py（只读连接收敛）、VERSION 单点导出 utils.logger、主题名/文案/容差/单位全量外置
+
+### 错漏（7 条）
+
+- **themes.py:41 `{chunk_ok}` 占位符残留**（真实缺陷，行为验证）：\_build_theme 只注入调色板键，ui.json 两套 palettes 均无 chunk_ok，最终 QSS 残留字面量——仅靠 main_window 动态 setStyleSheet 掩盖
+- **convert.py:11-17 `to_int("inf")`/`"1e999"` 抛 OverflowError 逃逸**（行为验证崩溃）：int(float()) 的 OverflowError 不在 except (TypeError, ValueError) 内——违反宽容解析绝不外抛
+- **browser_creds.py:573 说明区失实**（CDP 探测族标称 base.json 驱动）：实际 4 常量全为字面量，base.json 已有 cdp_fetch_timeout(10)/cdp_wait_timeout(30) 未引用（数值冲突 5.0 vs 10）
+- browser_creds.py:362-368 launch_chrome_debug 未找到 chrome.exe 提前 return 时临时 profile 目录泄漏
+- opencode_usage.py:482 parse_time_arg 注释/help 写 "7d/2w/3h" 但正则实际支持 m（分钟）
+- opencode_usage.py:120-124 find_db_path CLI 探测分支失败静默落到默认路径（env 分支有 warning）
+- utils/network.py:40 说明区"超时由调用方传入"与签名默认 timeout=15.0 兜底并存（声明失实）
+
+### 防御性（6 条）
+
+- **opencode_usage.py:262-266 by_session 降级缺口**：\_has_session_columns 只查 title/directory，旧库缺 s.id 列时 LEFT JOIN 抛 sqlite3.OperationalError 直接崩溃
+- **system_tray.py:32 QMenu() 无父对象**：setContextMenu 不接管所有权（对比 main_window QMenu(self)），Python 引用消失后菜单可能被 GC
+- settings.py:49 refresh_interval_ms 仅 >0 无下限：手改 1ms → 定时器每秒约 1000 次查库+网络刷新
+- logger.py:26-28 \_configured 无锁竞态：并发首次 get_logger 时 handler 双挂日志翻倍
+- retry.py:44 retries<0 时空循环 → assert 崩溃（参数无校验）
+- credential_store.py:66-68 无凭据用户每轮刷新打"文件不存在" WARNING（日志噪音）
+
+### 硬编码（8 条）
+
+- browser_creds CDP 探测族 4 常量（CDP_PROBE_TIMEOUT/CDP_HTTP_TIMEOUT/CDP_POLL_DELAY/CDP_PORT_CHECK_TIMEOUT，与 base.json 数值冲突）
+- pricing.py:157/175 round(cost, 10) 两处魔法数字 10（无说明）
+- opencode_usage.py:24 UNKNOWN_LABEL = "未知" 未入 ui.json 外置体系
+- go_quota.py:379-381 凭据缺失错误提示文案硬编码（同类已在 ui.json status_messages）
+- windows.py:13 DPAPI_DESCRIPTION = "myboard" 与 base.json app_name 双源（改 app_name 后已存凭据无法解密）
+- main_window.py:371 0.00005 容差（E5 引入无配置来源）；:393-394 "亿"/1e8
+- main_window.py:629 "%H:%M:%S" 与已外置 RESET_TIME_FORMAT 不一致
+- main_window.py:182/201/222/224 任务错误文案 4 处（上轮 C4 有意保留项，标注争议可外置）
+
+### 未用 import（5 条，AST+行扫描双重确认）
+
+- config/settings.py:4 Path；modules/opencode_usage.py:19 to_float（R6 收敛后残留）；modules/pricing.py:6 Path（L2 后残留）；utils/logger.py:5 Path；utils/network.py:5 Any
+
+### 重复实现（4 条）
+
+- **sqlite 只读 URI 连接构造两处同构**：opencode_usage.py:153-154 vs browser_creds.py:263-264（quote 转义 + mode=ro + row_factory）——提 utils 公共函数
+- main_window.py:507 + 749-751 配额窗口键字面量两处（5A.2 R2 只收敛 go_quota 侧）——引用 QUOTA_WINDOW_KEYS
+- themes.py:103 DARK_THEME_NAME 与 settings.py:16 ui.json themes 数组主题名双源（改名后 main_window 判断静默失效）
+- main_window.py:432 标题带 VERSION vs system_tray.py:31 tooltip 不带（格式不一致）
+
+### 优化（6 条）
+
+- opencode_usage \_base_sql 内部重算 \_time_clause 而 totals() 外部已生成（SQL 与参数两处独立，改字段易漏同步）
+- pricing.py:142-155 estimate_cost 四段相同 count/1e6\*rate 复制粘贴可抽取
+- main_window 733/651/832 \_format_cache_rate(\_cache_rate_percent()) 组合 3 处可抽复合函数
+- main.py:45-53 配额预警无去重：持续超限每 5 分钟弹气泡
+- logger.py:41-43 FileHandler 无轮转，常驻应用日志无限增长
+- convert.py to_float/to_optional_float 几乎完全重复可合并（动调用方，收益存疑）
+
+### 确认保留（2 条）
+
+- go_quota.py:126 add 闭包（第五轮确认项无变化）
+- network.py RETRY_NETWORK_ERRORS 含 URLError：**核实为有意设计**（\_http_get 注释明确 5xx/429 抛原异常重试，401/403 已转 auth 分类）

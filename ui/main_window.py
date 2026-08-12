@@ -44,6 +44,7 @@ from modules.exporter import export_all
 from modules.go_quota import (
     ERROR_STAGE_AUTH,
     ERROR_STAGE_NO_CREDS,
+    QUOTA_WINDOW_KEYS,
     DashboardCredentials,
     GoQuotaError,
     GoQuotaInfo,
@@ -59,13 +60,12 @@ from modules.opencode_usage import (
     find_db_path,
 )
 from ui.themes import DARK_THEME_NAME, LIGHT_THEME_NAME, get_theme, quota_chunk_color
-from utils.logger import APP_NAME, get_logger
+from utils.logger import APP_NAME, VERSION, get_logger
 
 logger = get_logger(__name__)
 
 # 静态配置解包（S8：参数外置 base.json，运行时零 IO）
 _SC = get_static_config()
-VERSION = str(_SC.base["version"])
 AUTO_LOAD_DELAY_MS = int(_SC.base["auto_load_delay_ms"])
 # L8/L10：表格行数上限与 CDP 超时（base.json 驱动）
 TABLE_LIMIT_GROUP = int(_SC.base["table_limit_group"])
@@ -114,6 +114,11 @@ DIALOG_PROMPTS = dict(_SC.ui["dialog_prompts"])
 PIE_REMAINING_TEMPLATE = str(_SC.ui["pie_remaining_template"])
 GUIDE_MESSAGES = dict(_SC.ui["guide_messages"])
 DETAIL_LINE_TEMPLATES = dict(_SC.ui["detail_line_templates"])
+# 6A.3 H5/H6：容差/单位/时间格式外置（ui.json 单一来源）
+COST_ZERO_EPSILON = float(_SC.ui["cost_zero_epsilon"])
+TOTAL_TOKENS_UNIT = str(_SC.ui["total_tokens_unit"])
+TOTAL_TOKENS_UNIT_THRESHOLD = float(_SC.ui["total_tokens_unit_threshold"])
+STATUS_TIME_FORMAT = str(_SC.ui["status_time_format"])
 TABLE_HEADERS = tuple(_SC.ui["table_headers"])
 # 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
 COLUMN_IDS = (
@@ -179,7 +184,9 @@ class _UsageTask(QRunnable):
                 db.close()
             self.signals.usage_ready.emit(UsageData(summary=summary, rows=rows))
         except Exception as exc:
-            self.signals.error.emit(f"用量统计失败：{exc}")
+            self.signals.error.emit(
+                STATUS_MESSAGES["usage_failed_template"].format(error=exc)
+            )
 
 
 class _QuotaTask(QRunnable):
@@ -198,7 +205,11 @@ class _QuotaTask(QRunnable):
         try:
             self.signals.quota_ready.emit(self.quota_fetcher())
         except Exception as exc:
-            self.signals.quota_ready.emit(GoQuotaInfo(error=f"配额拉取异常：{exc}"))
+            self.signals.quota_ready.emit(
+                GoQuotaInfo(
+                    error=STATUS_MESSAGES["quota_failed_template"].format(error=exc)
+                )
+            )
 
 
 class _ExportTask(QRunnable):
@@ -219,9 +230,13 @@ class _ExportTask(QRunnable):
                 export_all(db, self.out_dir)
             finally:
                 db.close()
-            self.signals.done.emit(f"导出完成：{self.out_dir}")
+            self.signals.done.emit(
+                STATUS_MESSAGES["export_done_template"].format(dir=self.out_dir)
+            )
         except Exception as exc:
-            self.signals.failed.emit(f"导出失败：{exc}")
+            self.signals.failed.emit(
+                STATUS_MESSAGES["export_failed_template"].format(error=exc)
+            )
 
 
 class _RemainingPieChart(QWidget):
@@ -367,8 +382,8 @@ def _format_tokens(count: int) -> str:
 
 
 def _format_cost(cost: float) -> str:
-    # 费用格式化：≥1 保留 2 位，<1 保留 4 位；近零显示 -（浮点容差，5A.1 E5）
-    if cost < 0.00005:
+    # 费用格式化：≥1 保留 2 位，<1 保留 4 位；近零显示 -（浮点容差 ui.json 驱动，5A.1 E5）
+    if cost < COST_ZERO_EPSILON:
         return "-"
     if cost >= 1:
         return f"${cost:.2f}"
@@ -388,10 +403,15 @@ def _format_cache_rate(percent: float) -> str:
     return f"{percent:.1f}%"
 
 
+def _format_cache_rate_of(tokens: TokenStats) -> str:
+    # 缓存率计算+格式化复合（6A.3 O3：卡片/明细弹窗/表格 3 处组合收敛）
+    return _format_cache_rate(_cache_rate_percent(tokens))
+
+
 def _format_total_tokens(count: int) -> str:
     # 总览总 token 显示：个位数精确 + 千分位 + 亿单位（P15，如 12,345,678（0.12 亿））
-    if count >= 1e8:
-        return f"{count:,}（{count / 1e8:.2f} 亿）"
+    if count >= TOTAL_TOKENS_UNIT_THRESHOLD:
+        return f"{count:,}（{count / TOTAL_TOKENS_UNIT_THRESHOLD:.2f} {TOTAL_TOKENS_UNIT}）"
     return f"{count:,}"
 
 
@@ -504,7 +524,8 @@ class MainWindow(QMainWindow):
         quota_box.addLayout(title_row)
         self._quota_bars: dict[str, QProgressBar] = {}
         self._quota_reset: dict[str, QLabel] = {}
-        for key in ("five_hour", "weekly", "monthly"):
+        # R2：窗口键统一来自 go_quota.QUOTA_WINDOW_KEYS（6A.3，字段名 = GoQuotaInfo 字段）
+        for key in QUOTA_WINDOW_KEYS:
             row = QHBoxLayout()
             name_label = QLabel(QUOTA_WINDOW_LABELS[key])
             name_label.setFixedWidth(QUOTA_NAME_WIDTH)
@@ -626,7 +647,7 @@ class MainWindow(QMainWindow):
         self._render_table()
         self._status_bar.showMessage(
             STATUS_MESSAGES["updated_template"].format(
-                time=datetime.now().strftime("%H:%M:%S")
+                time=datetime.now().strftime(STATUS_TIME_FORMAT)
             )
         )
 
@@ -648,9 +669,7 @@ class MainWindow(QMainWindow):
             dlt["cache_read"].format(value=f"{tokens.cache_read:,}"),
             dlt["cache_write"].format(value=f"{tokens.cache_write:,}"),
             f"{TOTAL_TOKEN_PREFIX}{_format_total_tokens(tokens.total)}",
-            dlt["cache_rate"].format(
-                value=_format_cache_rate(_cache_rate_percent(tokens))
-            ),
+            dlt["cache_rate"].format(value=_format_cache_rate_of(tokens)),
             dlt["cost"].format(value=_format_cost(summary.recorded_cost)),
         ]
         QMessageBox.information(self, DIALOG_TITLES["total_detail"], "\n".join(lines))
@@ -730,9 +749,7 @@ class MainWindow(QMainWindow):
         self._cards["tokens"].setText(_format_tokens(summary.tokens.total))
         self._cards["input"].setText(_format_tokens(summary.tokens.input))
         self._cards["output"].setText(_format_tokens(summary.tokens.output))
-        self._cards["cache_rate"].setText(
-            _format_cache_rate(_cache_rate_percent(summary.tokens))
-        )
+        self._cards["cache_rate"].setText(_format_cache_rate_of(summary.tokens))
         self._cards["cost"].setText(_format_cost(summary.recorded_cost))
 
     def _set_status_style(self, object_name: str) -> None:
@@ -745,11 +762,7 @@ class MainWindow(QMainWindow):
 
     def _render_quota(self, info: GoQuotaInfo) -> None:
         # 渲染 Go 配额进度条与状态信息（颜色分级）
-        windows = {
-            "five_hour": info.five_hour,
-            "weekly": info.weekly,
-            "monthly": info.monthly,
-        }
+        windows = {field: getattr(info, field) for field in QUOTA_WINDOW_KEYS}
         for key, window in windows.items():
             bar = self._quota_bars[key]
             reset_label = self._quota_reset[key]
@@ -829,7 +842,7 @@ class MainWindow(QMainWindow):
                 "output": _format_tokens(row.tokens.output),
                 "reasoning": _format_tokens(row.tokens.reasoning),
                 "cache": _format_tokens(cache_sum),
-                "cache_rate": _format_cache_rate(_cache_rate_percent(row.tokens)),
+                "cache_rate": _format_cache_rate_of(row.tokens),
                 "cost": _format_cost(row.cost),
             }
             for col, col_id in enumerate(COLUMN_IDS):
@@ -867,6 +880,8 @@ class MainWindow(QMainWindow):
 #   TOTAL_TOKEN_PREFIX / CARD_TITLES / QUOTA_SECTION_TITLE / DETAIL_SECTION_TITLE /
 #     BUTTON_LABELS / TOOLTIPS / STATUS_MESSAGES / DIALOG_TITLES / DIALOG_PROMPTS：
 #     界面文案外置 ui.json（5A.3 C3/C4：卡片/区域/按钮/状态栏/对话框文案单一来源）
+#   COST_ZERO_EPSILON / TOTAL_TOKENS_UNIT / TOTAL_TOKENS_UNIT_THRESHOLD /
+#     STATUS_TIME_FORMAT：容差/单位/时间格式外置（6A.3 H5/H6）
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
 #   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）

@@ -98,10 +98,12 @@ LIGHT_THEME = _build_theme(_LIGHT_PALETTE)
 DARK_THEME = _build_theme(_DARK_PALETTE)
 
 
-# 主题名常量（C13/C2：替代 THEMES[1] 魔法索引与 "dark"/"light" 魔法字符串，
-# THEMES 顺序变更不再静默错位；main_window 持久化与切换共用）
-DARK_THEME_NAME = "dark"
-LIGHT_THEME_NAME = "light"
+# 主题名常量（6A.3 R3：从 ui.json themes 数组派生，与 settings.THEMES 同源；
+# 数组顺序即 light/dark 契约；替代 THEMES[1] 魔法索引与 "dark"/"light" 魔法字符串，
+# main_window 切换与持久化共用）
+THEME_NAMES = tuple(str(item) for item in _SC.ui["themes"])
+LIGHT_THEME_NAME = THEME_NAMES[0]
+DARK_THEME_NAME = THEME_NAMES[1]
 
 
 def get_theme(name: str) -> str:
