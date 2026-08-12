@@ -18,21 +18,30 @@ def to_int(value: Any, default: int = 0) -> int:
 
 
 def to_float(value: Any, default: float = 0.0) -> float:
-    # 弹性浮点转换：数字/数字字符串均可，失败返回 default
+    # 弹性浮点转换：数字/数字字符串均可，失败返回 default（bool 语义非数值，S1 与 to_int 一致）
     try:
+        if isinstance(value, bool):
+            return default
         return float(value)
     except (TypeError, ValueError):
         return default
 
 
 def to_optional_float(value: Any) -> float | None:
-    # 弹性浮点转换（可空）：None/空/非法时返回 None（区分"未记录"与 0）
+    # 弹性浮点转换（可空）：None/空/非法时返回 None（区分"未记录"与 0；bool 语义非数值，E3）
     if value is None:
         return None
     try:
+        if isinstance(value, bool):
+            return None
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def round_cost(value: Any, digits: int = 4) -> float:
+    # 成本舍入（库 cost 聚合口径统一，3A.1 R6：opencode_usage/exporter 5 处复用）
+    return round(to_float(value), digits)
 
 
 # ===== utils/convert.py 模块说明 =====
@@ -42,6 +51,7 @@ def to_optional_float(value: Any) -> float | None:
 #   to_float(value, default=0.0)：单级 float() 兜底
 #   to_optional_float(value)：None 与非法值返回 None——None 语义为"未记录"
 #     （与 0 区分，对齐 z.plan 第四章宽容解析）
+#   round_cost(value, digits=4)：成本舍入（to_float 后 round，聚合口径统一）
 # 设计理由：opencode.db 的 token/cost 字段可能是字符串（真实库新旧格式混合），
 #   pricing.py 原有私有 _to_float/_to_optional_float，本模块提升为公共 utils
 #   层（无业务依赖，符合分层），opencode_usage 与 pricing 共同复用

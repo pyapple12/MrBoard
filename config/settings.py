@@ -12,8 +12,8 @@ _SC = get_static_config()
 CONFIG_FILE = get_project_root() / _SC.base["user_config_path"]
 DEFAULT_REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
 DEFAULT_THEME = str(_SC.base["default_theme"])
-# 主题枚举单一来源（themes.py 引用本常量，防两处定义不同步，L6）
-THEMES = ("light", "dark")
+# 主题枚举单一来源（C6：外置 ui.json；themes.py 引用本常量，防两处定义不同步）
+THEMES = tuple(str(item) for item in _SC.ui["themes"])
 
 
 @dataclass
@@ -45,11 +45,15 @@ class AppConfig:
         if theme in THEMES:
             config.theme = theme
         interval = raw.get("refresh_interval_ms")
-        if isinstance(interval, int) and interval > 0:
+        # type() is int 排除 bool（bool 是 int 子类，防 true → 1ms，S2）
+        if type(interval) is int and interval > 0:
             config.refresh_interval_ms = interval
         hidden = raw.get("hidden_columns")
         if isinstance(hidden, list):
-            config.hidden_columns = tuple(str(item) for item in hidden if item)
+            # C7：过滤空白项（strip 后非空才保留）
+            config.hidden_columns = tuple(
+                str(item).strip() for item in hidden if str(item).strip()
+            )
         return config
 
 

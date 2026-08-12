@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.09-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.11-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -162,17 +162,20 @@ mrboard/
 | 文件                        | 参数                                                                                                                                    | 说明                                 |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `config/static/config.json` | 引导映射表                                                                                                                              | `base.json` / `ui.json` 分类对应关系 |
-| `config/static/base.json`   | `version`                                                                                                                               | 版本号唯一来源（ver 0.09）           |
+| `config/static/base.json`   | `version`                                                                                                                               | 版本号唯一来源（ver 0.11）           |
 |                             | `window_width/height`、`refresh_interval_ms`、`auto_load_delay_ms`                                                                      | 窗口尺寸与刷新调度                   |
 |                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                                                                      | 配额接口节流与重试                   |
 |                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval`、`cdp_fetch_timeout`、`cdp_wait_timeout` | 浏览器/CDP 引导参数与超时            |
-|                             | `export_limit`、`price_cache_ttl`、`models_dev_url`、`http_timeout`                                                                     | 导出、定价与网络超时                 |
+|                             | `export_limit`、`price_cache_ttl`、`models_dev_url`、`http_timeout`、`subprocess_timeout`                                               | 导出、定价与网络/子进程超时          |
 |                             | `credentials_dir`、`logs_dir`、`prices_dir`                                                                                             | 运行数据目录（项目内，相对路径）     |
 |                             | `table_limit_group`、`table_limit_day`                                                                                                  | 明细表格行数上限                     |
-|                             | `app_name`、`log_level`                                                                                                                 | 应用名与日志级别                     |
+|                             | `app_name`、`log_level`、`db_default_path`                                                                                              | 应用名、日志级别与默认库路径         |
 |                             | `user_config_path`、`default_theme`                                                                                                     | 用户配置路径与默认值                 |
-| `config/static/ui.json`     | `colors.quota_*`（含饼图色值）、`quota_warn_percent`、`quota_danger_percent`                                                            | 配额颜色与阈值                       |
+| `config/static/ui.json`     | `colors.quota_*`（含饼图/托盘色）、`quota_warn_percent`、`quota_danger_percent`                                                         | 配额颜色与阈值                       |
 |                             | `icon_size`、`notify_duration_ms`、`table_headers`、`pie_size`、`pie_font_size`                                                         | 托盘图标/通知、表格表头与剩余量饼图  |
+|                             | `layout_*`、`cards_spacing`、`quota_name_width`、`reset_time_format`                                                                    | 布局与重置时间显示格式               |
+|                             | `themes`、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`                               | 主题枚举与 UI 文案                   |
+|                             | `palettes.light/dark`                                                                                                                   | 浅/深主题调色板（24 色）             |
 
 修改 json 后重启应用生效（`get_static_config()` 缓存单例，进程内只读一次）。
 

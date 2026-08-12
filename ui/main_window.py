@@ -57,7 +57,7 @@ from modules.opencode_usage import (
     find_db_path,
 )
 from ui.themes import get_theme, quota_chunk_color
-from utils.logger import get_logger
+from utils.logger import APP_NAME, get_logger
 
 logger = get_logger(__name__)
 
@@ -70,23 +70,33 @@ TABLE_LIMIT_GROUP = int(_SC.base["table_limit_group"])
 TABLE_LIMIT_DAY = int(_SC.base["table_limit_day"])
 CDP_FETCH_TIMEOUT = int(_SC.base["cdp_fetch_timeout"])
 CDP_WAIT_TIMEOUT = int(_SC.base["cdp_wait_timeout"])
+# S7：CDP 引导参数模块级解包（一次性解包约定）
+CDP_POLL_INTERVAL = int(_SC.base["cdp_poll_interval"])
+CDP_LOGIN_WAIT_SECONDS = int(_SC.base["cdp_login_wait_seconds"])
 # L9：剩余量饼图参数（ui.json 驱动）
 PIE_SIZE = int(_SC.ui["pie_size"])
 PIE_FONT_SIZE = float(_SC.ui["pie_font_size"])
 PIE_COLOR_BG = str(_SC.ui["colors"]["quota_pie_bg"])
 PIE_COLOR_TEXT = str(_SC.ui["colors"]["quota_pie_text"])
+# C11：饼图绘制角度常量（Qt 角度单位 1/16 度；90°=12 点方向起点）
+PIE_START_ANGLE = 90 * 16
+FULL_CIRCLE_16 = 360 * 16
+# C22：布局参数外置（边距/间距/配额名称列宽）；C11：卡片区间距/重置时间格式
+LAYOUT_MARGINS = tuple(int(v) for v in _SC.ui["layout_margins"])
+LAYOUT_SPACING = int(_SC.ui["layout_spacing"])
+QUOTA_NAME_WIDTH = int(_SC.ui["quota_name_width"])
+CARDS_SPACING = int(_SC.ui["cards_spacing"])
+RESET_TIME_FORMAT = str(_SC.ui["reset_time_format"])
 
 # 分组维度与表格列配置（表头文案外置 ui.json，S8.3；维度枚举保留代码内）
 # P15：总览已移出维度下拉（独立显示 + 点击弹明细），保留 total 数据供弹窗用
+# D5：维度标签/配额窗口标签/引导卡片文案外置 ui.json
 DIMENSIONS = ("month", "day", "model", "provider", "agent", "session")
-DIMENSION_LABELS = {
-    "month": "按月份",
-    "day": "按日期",
-    "model": "按模型",
-    "provider": "按 Provider",
-    "agent": "按 Agent",
-    "session": "按会话",
-}
+DIMENSION_LABELS = dict(_SC.ui["dimension_labels"])
+QUOTA_WINDOW_LABELS = dict(_SC.ui["quota_window_labels"])
+GUIDE_CARD_TEXT = str(_SC.ui["guide_card_text"])
+GUIDE_AUTO_BUTTON = str(_SC.ui["guide_auto_button"])
+GUIDE_MANUAL_BUTTON = str(_SC.ui["guide_manual_button"])
 TABLE_HEADERS = tuple(_SC.ui["table_headers"])
 # 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
 COLUMN_IDS = (
@@ -140,15 +150,8 @@ class _UsageTask(QRunnable):
             db = OpenCodeDB(self.db_path)
             try:
                 summary = db.totals()
+                # C1：rows 不含 total 伪维度（从未消费；总量明细弹窗直接读 summary）
                 rows = {
-                    "total": [
-                        UsageRow(
-                            label="总计",
-                            calls=summary.messages,
-                            tokens=summary.tokens,
-                            cost=summary.recorded_cost,
-                        )
-                    ],
                     "month": db.by_month(limit=TABLE_LIMIT_GROUP),
                     "day": db.by_day(limit=TABLE_LIMIT_DAY),
                     "model": db.by_model(limit=TABLE_LIMIT_GROUP),
@@ -234,8 +237,8 @@ class _RemainingPieChart(QWidget):
         painter.drawEllipse(rect)
         used = self._used_percent / 100.0
         if used > 0:
-            painter.setBrush(QColor(quota_chunk_color(self._used_percent)))
-            painter.drawPie(rect, 90 * 16, -int(used * 360 * 16))
+            painter.setBrush(QColor(quota_chunk_color(int(round(self._used_percent)))))
+            painter.drawPie(rect, PIE_START_ANGLE, -int(used * FULL_CIRCLE_16))
         painter.setPen(QColor(PIE_COLOR_TEXT))
         font = painter.font()
         font.setPointSizeF(PIE_FONT_SIZE)
@@ -280,7 +283,7 @@ def _wait_for_login_cookie(
                     # 占位 cookie/未登录：dashboard 返回登录页或解析失败，继续轮询
                     continue
         if auth_cookie is None:
-            time.sleep(int(_SC.base["cdp_poll_interval"]))
+            time.sleep(CDP_POLL_INTERVAL)
     return auth_cookie, valid_workspace_id
 
 
@@ -294,16 +297,14 @@ class _CdpGuideTask(QRunnable):
         super().__init__()
         self.signals = signals
         self.login_wait_seconds = (
-            int(_SC.base["cdp_login_wait_seconds"])
-            if login_wait_seconds is None
-            else login_wait_seconds
+            CDP_LOGIN_WAIT_SECONDS if login_wait_seconds is None else login_wait_seconds
         )
 
     def run(self) -> None:
         # 后台执行：环境预检 → 快照 workspaceID → 启动调试 Chrome → 轮询登录 → 写凭据 → 清理
         proc = None
         try:
-            user_data = browser_creds._chrome_user_data_dir()
+            user_data = browser_creds.chrome_user_data_dir()
             if browser_creds.is_chrome_running():
                 logger.info("检测到用户 Chrome 正在运行（独立临时 profile 不冲突）")
             if not browser_creds.has_v20_cookies(user_data):
@@ -312,7 +313,7 @@ class _CdpGuideTask(QRunnable):
                     "请关闭浏览器后重启应用自动获取，无需 CDP 引导"
                 )
                 return
-            workspace_ids = browser_creds._read_workspace_ids(
+            workspace_ids = browser_creds.read_workspace_ids(
                 user_data / "Default" / "History"
             )
             proc = browser_creds.launch_chrome_debug()
@@ -426,7 +427,7 @@ class MainWindow(QMainWindow):
         self._guide_signals.success.connect(self._on_guide_success)
         self._guide_signals.failed.connect(self._on_guide_failed)
 
-        self.setWindowTitle(f"myboard 用量与配额 {VERSION}")
+        self.setWindowTitle(f"{APP_NAME} 用量与配额 {VERSION}")
         self.resize(int(_SC.base["window_width"]), int(_SC.base["window_height"]))
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
@@ -453,8 +454,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         self._layout = QVBoxLayout(central)
-        self._layout.setContentsMargins(16, 12, 16, 8)
-        self._layout.setSpacing(10)
+        self._layout.setContentsMargins(*LAYOUT_MARGINS)
+        self._layout.setSpacing(LAYOUT_SPACING)
         self._build_cards()
         self._build_quota_section()
         self._build_guide_card()
@@ -464,7 +465,7 @@ class MainWindow(QMainWindow):
     def _build_cards(self) -> None:
         # 构建用量总览卡片区（P17：总 tokens/输入/输出/缓存率/总费用，删除会话数）
         cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(8)
+        cards_layout.setSpacing(CARDS_SPACING)
         self._cards: dict[str, QLabel] = {}
         for key, title in (
             ("tokens", "总 tokens"),
@@ -507,14 +508,10 @@ class MainWindow(QMainWindow):
         quota_box.addLayout(title_row)
         self._quota_bars: dict[str, QProgressBar] = {}
         self._quota_reset: dict[str, QLabel] = {}
-        for key, label in (
-            ("five_hour", "5 小时"),
-            ("weekly", "每周"),
-            ("monthly", "每月"),
-        ):
+        for key in ("five_hour", "weekly", "monthly"):
             row = QHBoxLayout()
-            name_label = QLabel(label)
-            name_label.setFixedWidth(60)
+            name_label = QLabel(QUOTA_WINDOW_LABELS[key])
+            name_label.setFixedWidth(QUOTA_NAME_WIDTH)
             bar = QProgressBar()
             bar.setRange(0, 100)
             bar.setValue(0)
@@ -529,22 +526,18 @@ class MainWindow(QMainWindow):
         self._layout.addWidget(quota_frame)
 
     def _build_guide_card(self) -> None:
-        # 构建凭据配置引导卡片（凭据缺失时显示，S6.2）
+        # 构建凭据配置引导卡片（凭据缺失时显示，S6.2；文案外置 ui.json，D5）
         guide_frame = QFrame()
         guide_frame.setObjectName("card")
         guide_box = QVBoxLayout(guide_frame)
-        guide_text = QLabel(
-            '未配置 Go 配额凭据。点击"一键自动获取"将临时打开一个 Chrome 窗口'
-            "（不影响你正在使用的浏览器），登录 opencode.ai 后自动保存凭据；"
-            '或点击"手动填写"自行配置。'
-        )
+        guide_text = QLabel(GUIDE_CARD_TEXT)
         guide_text.setWordWrap(True)
         guide_text.setObjectName("card_title")
         guide_box.addWidget(guide_text)
         guide_buttons = QHBoxLayout()
-        self._auto_guide_button = QPushButton("一键自动获取")
+        self._auto_guide_button = QPushButton(GUIDE_AUTO_BUTTON)
         self._auto_guide_button.clicked.connect(self._start_cdp_guide)
-        self._manual_guide_button = QPushButton("手动填写")
+        self._manual_guide_button = QPushButton(GUIDE_MANUAL_BUTTON)
         self._manual_guide_button.clicked.connect(self._manual_guide)
         guide_buttons.addWidget(self._auto_guide_button)
         guide_buttons.addWidget(self._manual_guide_button)
@@ -657,7 +650,7 @@ class MainWindow(QMainWindow):
             f"缓存写：{tokens.cache_write:,}",
             f"总 token：{_format_total_tokens(tokens.total)}",
             f"缓存率：{_format_cache_rate(_cache_rate_percent(tokens))}",
-            f"总费用：${summary.recorded_cost:.4f}",
+            f"总费用：{_format_cost(summary.recorded_cost)}",
         ]
         QMessageBox.information(self, "总量明细", "\n".join(lines))
 
@@ -667,12 +660,11 @@ class MainWindow(QMainWindow):
         self.quota_updated.emit(info)
         # 引导卡片显示条件：CDP 可解决的凭据类错误（无 dashboard 凭据/cookie 失效），
         # 且无缓存（历史成功过则不打扰）；其他阶段 CDP 解决不了，不显示
+        # （E8：remaining==0/five_hour is None 在错误非缓存路径恒真，精简）
         show_guide = (
             info.error is not None
             and not info.is_cached
             and info.error_stage in ("no_dashboard_creds", "auth")
-            and info.remaining_percent == 0
-            and info.five_hour is None
         )
         self._guide_frame.setVisible(show_guide)
 
@@ -773,7 +765,7 @@ class MainWindow(QMainWindow):
                 f"QProgressBar::chunk {{ background-color: {quota_chunk_color(percent)}; }}"
             )
             reset_label.setText(
-                f"重置于 {window.reset_date.astimezone().strftime('%m-%d %H:%M')}"
+                f"重置于 {window.reset_date.astimezone().strftime(RESET_TIME_FORMAT)}"
                 if window.reset_date
                 else "-"
             )
@@ -860,8 +852,15 @@ class MainWindow(QMainWindow):
 # ===== ui/main_window.py 模块说明 =====
 # 模块级常量：
 #   VERSION / AUTO_LOAD_DELAY_MS：版本（base.json version 字段）/ 启动延迟加载毫秒数
-#   DIMENSIONS / DIMENSION_LABELS / TABLE_HEADERS / COLUMN_IDS：分组维度与表格列配置
-#     （COLUMN_IDS 与 TABLE_HEADERS 索引对齐，P13 列开关用 id）
+#   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：表格行数上限（base.json）
+#   CDP_FETCH_TIMEOUT / CDP_WAIT_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：
+#     CDP 引导参数（base.json）
+#   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG / PIE_COLOR_TEXT / PIE_START_ANGLE /
+#     FULL_CIRCLE_16：剩余量饼图参数与绘制角度（ui.json）
+#   LAYOUT_MARGINS / LAYOUT_SPACING / QUOTA_NAME_WIDTH / CARDS_SPACING：
+#     布局参数（ui.json）；RESET_TIME_FORMAT：重置时间显示格式（ui.json）
+#   DIMENSIONS / DIMENSION_LABELS / QUOTA_WINDOW_LABELS / GUIDE_* / TABLE_HEADERS /
+#     COLUMN_IDS：维度与文案配置（标签外置 ui.json，列模型代码内）
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
 #   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）

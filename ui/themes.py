@@ -74,62 +74,12 @@ QMenu { background-color: {menu_bg}; color: {fg}; }
 QMenu::item:selected { background-color: {menu_selected}; }
 """
 
-# 浅色调色板
-_LIGHT_PALETTE = {
-    "bg": "#f5f6f8",
-    "fg": "#333333",
-    "card_bg": "#ffffff",
-    "card_border": "#e0e0e0",
-    "card_value_color": "#1976d2",
-    "card_title_color": "#888888",
-    "section_title_color": "#444444",
-    "status_ok": "#2e7d32",
-    "status_warn": "#e65100",
-    "progress_border": "#cccccc",
-    "progress_bg": "#eeeeee",
-    "table_bg": "#ffffff",
-    "table_grid": "#eeeeee",
-    "header_bg": "#f0f1f3",
-    "button_bg": "#1976d2",
-    "button_fg": "#ffffff",
-    "button_hover": "#1565c0",
-    "combo_bg": "#ffffff",
-    "combo_border": "#cccccc",
-    "statusbar_bg": "#e8eaed",
-    "statusbar_fg": "#666666",
-    "menu_bg": "#ffffff",
-    "menu_selected": "#e3f2fd",
-}
-
-# 深色调色板
-_DARK_PALETTE = {
-    "bg": "#1e1e1e",
-    "fg": "#d4d4d4",
-    "card_bg": "#2a2a2a",
-    "card_border": "#3a3a3a",
-    "card_value_color": "#64b5f6",
-    "card_title_color": "#9e9e9e",
-    "section_title_color": "#c0c0c0",
-    "status_ok": "#81c784",
-    "status_warn": "#ffb74d",
-    "progress_border": "#444444",
-    "progress_bg": "#333333",
-    "table_bg": "#262626",
-    "table_grid": "#333333",
-    "header_bg": "#333333",
-    "button_bg": "#1976d2",
-    "button_fg": "#ffffff",
-    "button_hover": "#1565c0",
-    "combo_bg": "#2a2a2a",
-    "combo_border": "#444444",
-    "statusbar_bg": "#2a2a2a",
-    "statusbar_fg": "#9e9e9e",
-    "menu_bg": "#2a2a2a",
-    "menu_selected": "#37474f",
-}
+# 浅/深色调色板（4A.2 D5：整体外置 ui.json palettes，S8.3 颜色外置补齐）
+_SC = get_static_config()
+_LIGHT_PALETTE = dict(_SC.ui["palettes"]["light"])
+_DARK_PALETTE = dict(_SC.ui["palettes"]["dark"])
 
 # 配额颜色与阈值（S8.3：外置 ui.json，静态配置解包）
-_SC = get_static_config()
 QUOTA_WARN_PERCENT = int(_SC.ui["quota_warn_percent"])
 QUOTA_DANGER_PERCENT = int(_SC.ui["quota_danger_percent"])
 QUOTA_COLOR_OK = str(_SC.ui["colors"]["quota_ok"])
@@ -149,9 +99,13 @@ LIGHT_THEME = _build_theme(_LIGHT_PALETTE)
 DARK_THEME = _build_theme(_DARK_PALETTE)
 
 
+# 深色主题名（C13：替代 THEMES[1] 魔法索引，THEMES 顺序变更不再静默错位）
+DARK_THEME_NAME = "dark"
+
+
 def get_theme(name: str) -> str:
-    # 按主题名返回 QSS 样式字符串（THEMES[1] = dark，单一来源见 config.settings，未知返回浅色）
-    if name == THEMES[1]:
+    # 按主题名返回 QSS 样式字符串（THEMES 枚举见 config.settings，未知返回浅色）
+    if name == DARK_THEME_NAME:
         return DARK_THEME
     return LIGHT_THEME
 
@@ -169,7 +123,7 @@ def quota_chunk_color(percent: int) -> str:
 # 模块级常量：
 #   _QSS_TEMPLATE：QSS 模板（{占位符} 由调色板注入；QSS 自身花括号不受影响）
 #   _LIGHT_PALETTE / _DARK_PALETTE：浅/深色调色板（20+ 色值键）
-#   QUOTA_WARN_PERCENT / QUOTA_DANGER_PERCENT：配额阈值（50/80，多处共用）
+#   QUOTA_WARN_PERCENT / QUOTA_DANGER_PERCENT：配额阈值（ui.json quota_warn/danger_percent 驱动）
 #   QUOTA_COLOR_OK / WARN / DANGER：配额三档颜色
 #   LIGHT_THEME / DARK_THEME：由模板 + 调色板构建的最终 QSS
 # 函数：

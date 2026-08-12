@@ -4,7 +4,10 @@ import logging
 import time
 from typing import Any, Callable
 
-_logger = logging.getLogger(__name__)
+from utils.logger import get_logger
+
+# 统一日志入口（3A.1 R5：与全项目一致，避免绕过 get_logger 的格式/落盘约定）
+_logger = get_logger(__name__)
 
 
 def retry_call(
@@ -37,9 +40,9 @@ def retry_call(
                 wait,
             )
             time.sleep(wait)
-    if last_error is not None:
-        raise last_error
-    # 不可达：循环内成功即 return，异常必被 except 捕获（last_error 非 None）或类型不匹配直接传播
+    # 循环内成功即 return，异常必被捕获赋值 last_error（C9 assert 消除 Optional 语义）
+    assert last_error is not None, "重试逻辑异常：未捕获到错误"
+    raise last_error
 
 
 # ===== utils/retry.py 模块说明 =====

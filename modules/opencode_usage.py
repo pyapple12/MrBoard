@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,17 +16,25 @@ from typing import Any
 
 from config.static.static_config import get_static_config
 from modules import pricing
-from utils.convert import to_float, to_int
+from utils.convert import round_cost, to_float, to_int
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 UNKNOWN_LABEL = "未知"
-DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
+# C19：默认库路径由 base.json 驱动（~ 展开），消除代码内硬编码
+DEFAULT_DB_PATH = Path(
+    os.path.expanduser(str(get_static_config().base["db_default_path"]))
+)
 ASSISTANT_ROLE = "assistant"
 _EPOCH_MS = 1000
-_DAY_MS = 86_400_000  # 天毫秒数（_EPOCH_MS * 86400，L12 消除两处魔法数字）
-HTTP_TIMEOUT = float(get_static_config().base["http_timeout"])  # L13：统一超时
+_DAY_MS = _EPOCH_MS * 86400  # 天毫秒数（3A.1 R12 派生，消除魔法数字）
+SUBPROCESS_TIMEOUT = float(
+    get_static_config().base["subprocess_timeout"]
+)  # 子进程探测超时（R7）
+# C5：分组查询默认行数收敛（消除 8 处 limit=100 魔法数字，与 GUI 配置一致）
+TABLE_LIMIT_GROUP = int(get_static_config().base["table_limit_group"])
+TABLE_LIMIT_DAY = int(get_static_config().base["table_limit_day"])
 
 # 聚合 SQL 列模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
 _TOKEN_SUM_SELECT = (
@@ -41,7 +50,8 @@ _TOKEN_SUM_SELECT = (
 
 @dataclass
 class TokenStats:
-    # 单次聚合的 token 统计（各字段默认为 0，input/output/reasoning/cache）
+    # 单次聚合的 token 统计（input/output/reasoning/cache_read/cache_write/total 六字段，
+    # S9 注释补全）
 
     input: int = 0
     output: int = 0
@@ -127,7 +137,7 @@ def _query_db_path_from_cli() -> Path | None:
             [binary, "db", "path"],
             capture_output=True,
             text=True,
-            timeout=HTTP_TIMEOUT,
+            timeout=SUBPROCESS_TIMEOUT,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("调用 opencode db path 失败：%s", exc)
@@ -141,8 +151,9 @@ class OpenCodeDB:
     # opencode.db 只读访问封装：持有一个连接，提供多维度聚合查询
 
     def __init__(self, db_path: Path) -> None:
-        # 只读连接防误写（z.plan 第四章：只读防误写策略）
-        self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        # 只读连接防误写（z.plan 第四章：只读防误写策略；E7：URI 路径转义防 #/? 解析错误）
+        uri_path = urllib.parse.quote(str(db_path).replace("\\", "/"))
+        self.conn = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
         self.conn.row_factory = sqlite3.Row
         self.db_path = db_path
         # PRAGMA 检测结果缓存（by_session 周期调用避免重复查表结构，M14）
@@ -182,7 +193,7 @@ class OpenCodeDB:
         summary.sessions = to_int(row["sessions"])
         min_ts = row["min_ts"]
         max_ts = row["max_ts"]
-        if min_ts and max_ts:
+        if min_ts is not None and max_ts is not None:
             # 活动跨度天数 = 跨度毫秒转天向下取整 + 1（对齐 opencode stats 的 Days 口径）
             summary.days = int((to_int(max_ts) - to_int(min_ts)) / _DAY_MS) + 1
         agg = self._fetch_one(
@@ -196,26 +207,31 @@ class OpenCodeDB:
         )
         summary.messages = to_int(msg_row["messages"])
         summary.tokens = self._row_to_tokens(agg)
-        summary.recorded_cost = round(to_float(agg["recorded_cost"]), 4)
+        summary.recorded_cost = round_cost(agg["recorded_cost"])
         if estimate:
             estimates = self._estimate_missing_costs(price_map, since, until)
             summary.estimated_cost_totals, summary.estimated_cost_total = (
                 pricing.aggregate_estimated_costs(estimates)
             )
+        # S4：以 estimated_cost_totals 非空判定估算存在（多币种时 total=None 但 totals 非空，
+        # 此时应标 mixed/estimated 而非 recorded）
         if summary.recorded_cost > 0:
             summary.cost_source = (
                 "recorded"
-                if not estimate or not summary.estimated_cost_total
+                if not estimate or not summary.estimated_cost_totals
                 else "mixed"
             )
         else:
             summary.cost_source = (
-                "estimated" if estimate and summary.estimated_cost_total else "recorded"
+                "estimated"
+                if estimate and summary.estimated_cost_totals
+                else "recorded"
             )
         return summary
 
     def by_day(
-        self, since: int | None = None, until: int | None = None, limit: int = 100
+        self, since: int | None = None, until: int | None = None,
+        limit: int = TABLE_LIMIT_DAY
     ) -> list[UsageRow]:
         # 按日期分组聚合（日期降序，最近日期在前，本地时区；P7 由近到远）
         return self._query_grouped(
@@ -223,7 +239,8 @@ class OpenCodeDB:
         )
 
     def by_month(
-        self, since: int | None = None, until: int | None = None, limit: int = 100
+        self, since: int | None = None, until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP
     ) -> list[UsageRow]:
         # 按月份分组聚合（%Y-%m 降序，最新月在前；P8 月度统计）
         return self._query_grouped(
@@ -231,7 +248,8 @@ class OpenCodeDB:
         )
 
     def by_session(
-        self, since: int | None = None, until: int | None = None, limit: int = 100
+        self, since: int | None = None, until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP
     ) -> list[UsageRow]:
         # 按会话分组聚合：会话标题｜项目目录（P19，LEFT JOIN session 表；
         # session 表缺 title/directory 列时降级仅显示 session_id，兼容旧库/测试库）
@@ -256,16 +274,11 @@ class OpenCodeDB:
         rows = self.conn.execute(sql, [ASSISTANT_ROLE] + params + [limit]).fetchall()
         result: list[UsageRow] = []
         for row in rows:
+            # C15：复用 _row_to_usage_row 后再拼接目录（避免手写重复构造）
+            item = self._row_to_usage_row(row)
             directory = str(row["directory"])
-            label = f"{row['label']}｜{directory}" if directory else str(row["label"])
-            result.append(
-                UsageRow(
-                    label=label,
-                    calls=to_int(row["calls"]),
-                    tokens=self._row_to_tokens(row),
-                    cost=round(to_float(row["recorded_cost"]), 4),
-                )
-            )
+            item.label = f"{item.label}｜{directory}" if directory else item.label
+            result.append(item)
         return result
 
     def _has_session_columns(self) -> bool:
@@ -283,39 +296,51 @@ class OpenCodeDB:
         return self._session_columns
 
     def by_model(
-        self, since: int | None = None, until: int | None = None, limit: int = 100
+        self, since: int | None = None, until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP
     ) -> list[UsageRow]:
         # 按模型分组聚合（按总 token 降序）
-        return self._query_grouped(
+        return self._by_field(
             f"COALESCE(NULLIF(json_extract(data, '$.modelID'), ''), '{UNKNOWN_LABEL}')",
             since,
             until,
-            order="total DESC",
-            limit=limit,
+            limit,
         )
 
     def by_provider(
-        self, since: int | None = None, until: int | None = None, limit: int = 100
+        self, since: int | None = None, until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP
     ) -> list[UsageRow]:
         # 按 provider 分组聚合（按总 token 降序）
-        return self._query_grouped(
+        return self._by_field(
             f"COALESCE(NULLIF(json_extract(data, '$.providerID'), ''), '{UNKNOWN_LABEL}')",
             since,
             until,
-            order="total DESC",
-            limit=limit,
+            limit,
         )
 
     def by_agent(
-        self, since: int | None = None, until: int | None = None, limit: int = 100
+        self, since: int | None = None, until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP
     ) -> list[UsageRow]:
         # 按 agent 分组聚合（含子 agent；缺失显示未知，按总 token 降序）
-        return self._query_grouped(
+        return self._by_field(
             f"COALESCE(NULLIF(json_extract(data, '$.agent'), ''), '{UNKNOWN_LABEL}')",
             since,
             until,
-            order="total DESC",
-            limit=limit,
+            limit,
+        )
+
+    def _by_field(
+        self,
+        json_expr: str,
+        since: int | None = None,
+        until: int | None = None,
+        limit: int = TABLE_LIMIT_GROUP,
+    ) -> list[UsageRow]:
+        # 按 JSON 字段分组聚合（按总 token 降序；by_model/by_provider/by_agent 共用，R15）
+        return self._query_grouped(
+            json_expr, since, until, order="total DESC", limit=limit
         )
 
     def _base_sql(self, since: int | None = None, until: int | None = None) -> str:
@@ -361,7 +386,7 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         order: str = "total DESC",
-        limit: int = 100,
+        limit: int = TABLE_LIMIT_GROUP,
     ) -> list[UsageRow]:
         # 通用分组查询：按 group_expr 分组聚合，返回 UsageRow 列表（order 用 SELECT 别名）
         time_clause, params = self._time_clause(since, until)
@@ -393,7 +418,7 @@ class OpenCodeDB:
             label=str(row["label"]),
             calls=to_int(row["calls"]),
             tokens=self._row_to_tokens(row),
-            cost=round(to_float(row["recorded_cost"]), 4),
+            cost=round_cost(row["recorded_cost"]),
         )
 
     def _fetch_one(self, sql: str, params: list[Any]) -> sqlite3.Row:
@@ -444,8 +469,9 @@ class OpenCodeDB:
 
 
 def parse_time_arg(spec: str) -> datetime:
-    # 解析时间参数：支持 '7d'/'2w'/'3h' 相对时长或 ISO 日期；非法输入抛 ValueError
-    match = re.fullmatch(r"(\d+)([dhwm])", spec.strip())
+    # 解析时间参数：支持 '7d'/'2w'/'3h' 相对时长或 ISO 日期；非法输入抛 ValueError（E6 统一 strip）
+    spec = spec.strip()
+    match = re.fullmatch(r"(\d+)([dhwm])", spec)
     if match:
         amount = int(match.group(1))
         unit = match.group(2)
@@ -512,6 +538,10 @@ def main() -> None:
     except FileNotFoundError as exc:
         print(f"错误：{exc}", file=sys.stderr)
         sys.exit(1)
+    except sqlite3.Error as exc:
+        # S5：坏库/路径为目录时统一中文提示（防英文 traceback）
+        print(f"错误：无法打开数据库（{exc}）", file=sys.stderr)
+        sys.exit(1)
 
     try:
         if args.by == "total":
@@ -574,6 +604,8 @@ if __name__ == "__main__":
 #   DEFAULT_DB_PATH：XDG 默认数据库路径（%USERPROFILE%\.local\share\opencode\opencode.db）
 #   ASSISTANT_ROLE：只统计 assistant 消息（user 消息无 token 数据）
 #   _EPOCH_MS：毫秒换算基数（时间戳/分组表达式共用）
+#   _DAY_MS：天毫秒数（_EPOCH_MS * 86400 派生）
+#   SUBPROCESS_TIMEOUT：子进程探测超时（base.json subprocess_timeout）
 #   _TOKEN_SUM_SELECT：聚合列 SQL 模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
 # 类型：
 #   TokenStats：token 五字段 + compute_total()（total 优先，五字段和兜底，兼容新旧格式）

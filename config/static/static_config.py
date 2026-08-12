@@ -22,8 +22,14 @@ def _load_static_config() -> StaticConfig:
     # use_cache=False：静态配置以本模块单例为唯一缓存层，避免 file_utils
     # 缓存导致"改了 json 不生效"（开发调参困惑）
     mapping = read_json(STATIC_DIR / "config.json", default={}, use_cache=False)
+    # C8：映射表非 dict 时统一抛 RuntimeError（防裸 AttributeError）
+    if not isinstance(mapping, dict):
+        raise RuntimeError("静态配置映射表 config.json 结构非法（应为对象）")
     result: dict[str, dict[str, Any]] = {}
     for key, rel_path in mapping.items():
+        # S6：映射值非字符串时统一抛 RuntimeError（防裸 TypeError，与文件缺失同策略）
+        if not isinstance(rel_path, str):
+            raise RuntimeError(f"静态配置映射项非法（非字符串路径）: {key}")
         data = read_json(STATIC_DIR / rel_path, default=None, use_cache=False)
         if data is None:
             raise RuntimeError(f"静态配置文件缺失或损坏: {rel_path}")

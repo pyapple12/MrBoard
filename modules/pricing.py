@@ -2,8 +2,6 @@
 
 import json
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +10,7 @@ from config.static.static_config import get_static_config
 from utils.convert import to_float, to_optional_float
 from utils.file_utils import get_project_root, read_json, write_json
 from utils.logger import get_logger
+from utils.network import RETRY_NETWORK_ERRORS, http_get
 from utils.retry import retry_call
 
 logger = get_logger(__name__)
@@ -20,11 +19,13 @@ logger = get_logger(__name__)
 _SC = get_static_config()
 MODELS_DEV_URL = str(_SC.base["models_dev_url"])
 # 价格缓存目录（P2：集中项目内 data/prices，不使用用户目录）
-PRICE_CACHE_DIR = get_project_root() / Path(str(_SC.base["prices_dir"]))
+PRICE_CACHE_DIR = get_project_root() / _SC.base["prices_dir"]
 PRICE_CACHE_FILE = PRICE_CACHE_DIR / "prices.json"
 PRICE_LOCAL_FILE = PRICE_CACHE_DIR / "prices.local.json"
 PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效期：1 天
 HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
+RETRY_COUNT = int(_SC.base["retry_count"])  # 3A.1 C8：重试参数走 base.json
+RETRY_DELAY = float(_SC.base["retry_delay"])
 
 # 内置常见模型价格表（单位：美元/百万 token，cache 价格缺省为 None 表示按无折扣计）
 # 来源：models.dev 快照与 opencode-bar 测试数据，仅作无网络/无缓存时的回退
@@ -95,22 +96,23 @@ def canonical_key(provider: str, model: str) -> str:
 
 
 def load_price_map(refresh: bool = False) -> dict[str, RateInfo]:
-    # 加载定价表：缓存（TTL 内）→ 远程 models.dev（无缓存或 refresh）→ 内置表，最后合并本地覆盖
-    # （H6：refresh 且远程失败时回退 TTL 内旧缓存，不降级为内置表）
+    # 加载定价表：缓存（TTL 内）→ 远程 models.dev（无缓存或 refresh）→ 旧缓存兜底
+    # → 内置表，最后合并本地覆盖（H6/C11：远程失败一律回退旧缓存，不直接降级内置表）
     price_map = _load_cached_prices(refresh)
     if not price_map:
-        cached_fallback = _load_cached_prices(False) if refresh else None
         remote = _fetch_remote_prices()
         if remote:
             price_map = remote
             write_json(PRICE_CACHE_FILE, _serialize(remote))
             logger.info("远程定价表已缓存：%d 条", len(remote))
-        elif cached_fallback:
-            price_map = cached_fallback
-            logger.info("远程定价刷新失败，回退旧缓存：%d 条", len(cached_fallback))
         else:
-            price_map = _load_bundled()
-            logger.info("远程定价不可用，回退内置表：%d 条", len(price_map))
+            stale = _read_stale_cache()
+            if stale:
+                price_map = stale
+                logger.info("远程定价不可用，回退旧缓存：%d 条", len(stale))
+            else:
+                price_map = _load_bundled()
+                logger.info("远程定价不可用，回退内置表：%d 条", len(price_map))
     _apply_local_overrides(price_map)
     return price_map
 
@@ -166,29 +168,24 @@ def aggregate_estimated_costs(
     return totals, None
 
 
-def _rate_from_raw(item: dict[str, Any], default_source: str) -> RateInfo | None:
-    # 从 dict 弹性构建 RateInfo（内置/缓存/本地覆盖三处来源共用）；字段非法返回 None
-    try:
-        return RateInfo(
-            input_price=to_float(item.get("input_price")),
-            output_price=to_float(item.get("output_price")),
-            cache_read_price=to_optional_float(item.get("cache_read_price")),
-            cache_write_price=to_optional_float(item.get("cache_write_price")),
-            currency=str(item.get("currency", "USD")),
-            source=str(item.get("source", default_source)),
-        )
-    except (TypeError, ValueError):
-        return None
+def _rate_from_raw(item: dict[str, Any], default_source: str) -> RateInfo:
+    # 从 dict 弹性构建 RateInfo（内置/缓存/本地覆盖三处来源共用；to_* 已消化异常，
+    # 字段缺省有默认值，不会失败——C5 去除冗余防御）
+    return RateInfo(
+        input_price=to_float(item.get("input_price")),
+        output_price=to_float(item.get("output_price")),
+        cache_read_price=to_optional_float(item.get("cache_read_price")),
+        cache_write_price=to_optional_float(item.get("cache_write_price")),
+        currency=str(item.get("currency", "USD")),
+        source=str(item.get("source", default_source)),
+    )
 
 
 def _load_bundled() -> dict[str, RateInfo]:
     # 将内置 BUNDLED_PRICES 常量转为 RateInfo 字典（source=bundled）
-    result: dict[str, RateInfo] = {}
-    for key, item in BUNDLED_PRICES.items():
-        rate = _rate_from_raw(item, "bundled")
-        if rate is not None:
-            result[key] = rate
-    return result
+    return {
+        key: _rate_from_raw(item, "bundled") for key, item in BUNDLED_PRICES.items()
+    }
 
 
 def _load_cached_prices(refresh: bool) -> dict[str, RateInfo] | None:
@@ -200,10 +197,17 @@ def _load_cached_prices(refresh: bool) -> dict[str, RateInfo] | None:
             return None
     except OSError:
         return None
+    return _read_stale_cache()
+
+
+def _read_stale_cache() -> dict[str, RateInfo] | None:
+    # 读取旧缓存（忽略 TTL；仅远程失败兜底用，C11）
+    if not PRICE_CACHE_FILE.is_file():
+        return None
     raw = read_json(PRICE_CACHE_FILE, default=None, use_cache=False)
     if not isinstance(raw, dict):
         return None
-    return _deserialize(raw)
+    return _load_rate_items(raw, "remote")
 
 
 def _serialize(price_map: dict[str, RateInfo]) -> dict[str, dict[str, Any]]:
@@ -221,15 +225,13 @@ def _serialize(price_map: dict[str, RateInfo]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _deserialize(raw: dict[str, Any]) -> dict[str, RateInfo]:
-    # 将缓存的 dict 结构还原为 RateInfo 字典（宽容解析，坏条目跳过）
+def _load_rate_items(raw: dict[str, Any], default_source: str) -> dict[str, RateInfo]:
+    # 遍历 dict 逐条构建 RateInfo（远程缓存/本地覆盖共用，C10 合并 _deserialize）
     result: dict[str, RateInfo] = {}
     for key, item in raw.items():
         if not isinstance(item, dict):
             continue
-        rate = _rate_from_raw(item, "remote")
-        if rate is not None:
-            result[key] = rate
+        result[key] = _rate_from_raw(item, default_source)
     return result
 
 
@@ -238,23 +240,19 @@ def _apply_local_overrides(price_map: dict[str, RateInfo]) -> None:
     raw = read_json(PRICE_LOCAL_FILE, default=None, use_cache=False)
     if not isinstance(raw, dict):
         return
-    for key, item in raw.items():
-        if not isinstance(item, dict):
-            continue
-        rate = _rate_from_raw(item, "local")
-        if rate is not None:
-            price_map[key] = rate
+    price_map.update(_load_rate_items(raw, "local"))
 
 
 def _fetch_remote_prices() -> dict[str, RateInfo] | None:
     # 从 models.dev 拉取全量定价并转 RateInfo 字典；网络失败返回 None（宽容降级）
     try:
         body = retry_call(
-            _http_get,
+            http_get,
             MODELS_DEV_URL,
-            retries=2,
-            exceptions=(urllib.error.URLError, TimeoutError),
-            delay=1.0,
+            headers={"User-Agent": f"myboard/{_SC.base['version']}"},
+            retries=RETRY_COUNT,
+            exceptions=RETRY_NETWORK_ERRORS,
+            delay=RETRY_DELAY,
         )
         data = json.loads(body.decode("utf-8"))
     except Exception as exc:
@@ -283,22 +281,13 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
     return result or None
 
 
-def _http_get(url: str) -> bytes:
-    # 发送 GET 请求返回响应体（超时走 base.json http_timeout，L13），供 retry_call 重试调用
-    # UA 版本跟随 base.json（H7）
-    request = urllib.request.Request(
-        url, headers={"User-Agent": f"myboard/{_SC.base['version']}"}
-    )
-    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
-        return response.read()
-
-
 # ===== modules/pricing.py 模块说明 =====
 # 模块级常量：
 #   MODELS_DEV_URL：models.dev 全量定价接口
-#   PRICE_CACHE_FILE / PRICE_LOCAL_FILE：缓存与本地覆盖文件（项目内 data/prices/，
-#     P2：集中项目内，不使用用户目录）
+#   PRICE_CACHE_DIR / PRICE_CACHE_FILE / PRICE_LOCAL_FILE：缓存与本地覆盖文件
+#     （项目内 data/prices/，P2：集中项目内，不使用用户目录）
 #   PRICE_CACHE_TTL：远程缓存有效期 1 天
+#   HTTP_TIMEOUT / RETRY_COUNT / RETRY_DELAY：网络超时与重试（base.json 驱动）
 #   BUNDLED_PRICES：内置常见模型价格（无网络回退，仅机制兜底）
 # 类型：
 #   RateInfo：单价 dataclass（input/output/cache_read/cache_write + currency + source）
@@ -311,10 +300,11 @@ def _http_get(url: str) -> bytes:
 #     + cache_write/M*write；查不到价格返回 unpriced（estimated_cost=None）
 #   aggregate_estimated_costs()：多币种分桶；仅 1 币种返回其和，≥2 币种返回 None
 #     （禁止跨币种相加，参考 OpenCode-Token 的 estimated_cost_totals 设计）
-#   _load_bundled / _load_cached_prices / _serialize / _deserialize / _apply_local_overrides：
+#   _load_bundled / _load_cached_prices / _read_stale_cache / _serialize / _load_rate_items /
+#     _apply_local_overrides：
 #     定价表各层来源的装载与合并（坏条目逐条跳过，宽容解析）
-#   _fetch_remote_prices / _http_get：models.dev 拉取与解析（urllib 实现，
-#     复用 utils/retry.py 指数退避重试，失败返回 None 不崩溃）
+#   _fetch_remote_prices：models.dev 拉取与解析（复用 utils.network.http_get +
+#     utils/retry.py 指数退避重试，失败返回 None 不崩溃）
 #   弹性数字转换复用 utils/convert.py 的 to_float / to_optional_float
 #     （String/Int 兼容，z.plan 第四章宽容解析）
 # 设计理由：库 cost 优先（opencode_usage 聚合），估算仅作缺失回退；价格数据带

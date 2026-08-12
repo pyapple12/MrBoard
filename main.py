@@ -9,11 +9,11 @@ from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
 from ui.themes import QUOTA_DANGER_PERCENT
+from utils.logger import APP_NAME
 
-# 版本号单一来源（S8.5：外置 base.json version 字段）；应用名同样 json 驱动（L16）
+# 版本号单一来源（S8.5：外置 base.json version 字段）；APP_NAME 由 utils.logger 统一导出（D1）
 _SC = get_static_config()
 VERSION = str(_SC.base["version"])
-APP_NAME = str(_SC.base["app_name"])
 
 
 def main() -> None:
@@ -43,9 +43,13 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
     if info.error is None:
         tray.update_quota_status(info.overall_used_percent)
         if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
+            # C21：气泡文案外置 ui.json（notify_title/notify_message_template）
             tray.notify_quota(
-                "OpenCode Go 配额预警",
-                f"最紧窗口已使用 {info.overall_used_percent}%，剩余 {info.remaining_percent}%",
+                str(_SC.ui["notify_title"]),
+                str(_SC.ui["notify_message_template"]).format(
+                    used=info.overall_used_percent,
+                    remaining=info.remaining_percent,
+                ),
             )
     else:
         tray.update_quota_status(None)
@@ -65,6 +69,7 @@ if __name__ == "__main__":
 # 模块级常量：
 #   VERSION：来自 base.json version 字段（S8.5 外置），main.py 与 ui 层共同引用，
 #     消除循环依赖（审计 M1/M2 修复：原 VERSION 放 main.py 导致 ui 反向引用）
+#   APP_NAME：应用名（来自 utils.logger 单一来源，D1/C14）
 # 函数：
 #   main()：
 #     输入：sys.argv 命令行参数

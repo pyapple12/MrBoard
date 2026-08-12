@@ -5,7 +5,6 @@ import os
 import re
 import time
 import urllib.error
-import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +14,7 @@ from config.static.static_config import get_static_config
 from modules import browser_creds, credential_store
 from utils.file_utils import get_project_root, write_json
 from utils.logger import get_logger
+from utils.network import RETRY_NETWORK_ERRORS, http_get
 from utils.retry import retry_call
 
 logger = get_logger(__name__)
@@ -31,8 +31,18 @@ MIN_FETCH_INTERVAL = int(_SC.base["min_fetch_interval"])
 RETRY_COUNT = int(_SC.base["retry_count"])
 RETRY_DELAY = float(_SC.base["retry_delay"])
 HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
-WORKSPACE_ID_FIELDS = ("workspaceId", "workspaceID", "workspace_id")
-AUTH_COOKIE_FIELDS = ("authCookie", "auth_cookie", "cookie")
+WORKSPACE_ID_FIELDS = (
+    credential_store.WORKSPACE_ID_KEY,
+    "workspaceID",
+    "workspace_id",
+)
+AUTH_COOKIE_FIELDS = (
+    credential_store.AUTH_COOKIE_KEY,
+    "auth_cookie",
+    "cookie",
+)
+# OpenAuth 登录页特征标记（凭据失效判定，R9 收敛魔法字符串）
+OAUTH_REDIRECT_MARKER = "OpenAuth"
 # dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
 CREDENTIALS_FILE = get_project_root() / _SC.base["credentials_dir"] / "opencode-go.json"
 
@@ -62,13 +72,9 @@ class GoQuotaWindow:
     reset_date: datetime
 
 
-@dataclass
-class DashboardCredentials:
-    # dashboard 凭据候选：workspace_id + auth_cookie + 来源标注
-
-    workspace_id: str
-    auth_cookie: str
-    source: str
+# dashboard 凭据候选（3A.1 R3：与 browser_creds.BrowserCredential 字段完全相同，
+# 收敛为别名——workspace_id + auth_cookie + source，外部引用名保持兼容）
+DashboardCredentials = browser_creds.BrowserCredential
 
 
 @dataclass
@@ -110,7 +116,7 @@ def find_dashboard_credentials() -> list[DashboardCredentials]:
         auth_cookie = auth_cookie.strip()
         if not workspace_id or not auth_cookie:
             return
-        key = f"{workspace_id}::{auth_cookie}"
+        key = browser_creds.credential_dedup_key(workspace_id, auth_cookie)
         if key in seen:
             return
         seen.add(key)
@@ -171,7 +177,7 @@ def fetch_dashboard_usage(
             url,
             headers=headers,
             retries=RETRY_COUNT,
-            exceptions=(urllib.error.URLError, TimeoutError),
+            exceptions=RETRY_NETWORK_ERRORS,
             delay=RETRY_DELAY,
         )
     except GoQuotaError:
@@ -179,16 +185,12 @@ def fetch_dashboard_usage(
         # （否则被 except Exception 捕获包装成 network，破坏 auth 分类）
         raise
     except urllib.error.HTTPError as exc:
-        # 重试耗尽后分类：401/403 为凭据问题，其余为 provider 错误
-        if exc.code in (401, 403):
-            raise GoQuotaError(
-                "auth", f"OpenCode Go 凭据无效（HTTP {exc.code}）"
-            ) from exc
+        # 401/403 已在 _http_get 转 auth 分类且不可重试，到达此处必为其余 HTTP 错误（C3）
         raise GoQuotaError("provider", f"HTTP {exc.code}") from exc
     except Exception as exc:
         raise GoQuotaError("network", f"请求 dashboard 失败：{exc}") from exc
     html = body.decode("utf-8", errors="replace")
-    if "OpenAuth" in html:
+    if OAUTH_REDIRECT_MARKER in html:
         # 未登录会话被重定向到 OpenAuth 登录页：凭据失效，按 auth 分类
         # （引导卡片据此显示，用户可一键重新获取）
         raise GoQuotaError(
@@ -264,25 +266,20 @@ def _capture_object_body(field_name: str, text: str) -> str | None:
 
 def _capture_number(field_name: str, text: str) -> float | None:
     # 正则提取数字字段：兼容 "usagePercent":23 与 usagePercent:"23" 形态
+    # （正则已保证数字格式，float 不会失败，C13 去除冗余 try/except）
     pattern = rf"""["']?{re.escape(field_name)}["']?\s*:\s*"?(-?\d+(?:\.\d+)?)"?"""
     match = re.search(pattern, text)
     if not match:
         return None
-    try:
-        return float(match.group(1))
-    except ValueError:
-        return None
+    return float(match.group(1))
 
 
 def _http_get(
     url: str, headers: dict[str, str] | None = None, timeout: float = HTTP_TIMEOUT
 ) -> bytes:
-    # 发送 GET 请求返回响应体；401/403 转 auth 分类，网络/其他 HTTP 异常原样抛出（交 retry_call 重试）
-    request = urllib.request.Request(url, headers=headers or {})
+    # 统一 GET（utils.network.http_get 复用），401/403 转 auth 分类（dashboard 凭据语义）
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            # urlopen 对非 2xx 直接抛 HTTPError（3xx 自动跟随），能返回必为 2xx
-            return response.read()
+        return http_get(url, headers=headers, timeout=timeout)
     except urllib.error.HTTPError as exc:
         # 凭据问题不可重试 → auth 分类；其余（5xx/429）抛原异常由 retry_call 重试
         if exc.code in (401, 403):
@@ -314,7 +311,8 @@ def _fetch_usage_with_fallback(
     for credentials_item in credentials:
         try:
             usage = fetch_dashboard_usage(credentials_item)
-            return usage, credentials_item.source, last_stage, last_error
+            # C14：成功路径不携带前序失败残留（last_stage/last_error 仅失败时有效）
+            return usage, credentials_item.source, "", ""
         except GoQuotaError as exc:
             last_error = exc.message
             last_stage = (
@@ -359,7 +357,6 @@ def _build_info(
 
 def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
     # 主流程：节流 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误（P3：无 key 链路）
-    global _last_quota, _last_success_at
     now = datetime.now(timezone.utc)
     cached = _throttled_cache(force)
     if cached is not None:
@@ -435,8 +432,10 @@ if __name__ == "__main__":
 # 模块级常量：
 #   DASHBOARD_URL_TEMPLATE / DASHBOARD_ACCEPT / CHROME_UA：dashboard HTML 请求参数
 #     （Cookie auth= 自动补前缀，参考 opencode-bar OpenCodeGoProvider.swift）
-#   MIN_FETCH_INTERVAL：接口节流 60 秒（z.plan 第四章节流策略）
-#   WORKSPACE_ID_FIELDS / AUTH_COOKIE_FIELDS：凭据字段兼容集合
+#   MIN_FETCH_INTERVAL：接口节流间隔（base.json min_fetch_interval 驱动，默认 60 秒）
+#   RETRY_COUNT / RETRY_DELAY / HTTP_TIMEOUT：重试与网络超时（base.json 驱动）
+#   WORKSPACE_ID_FIELDS / AUTH_COOKIE_FIELDS：凭据字段兼容集合（首键引用 credential_store）
+#   OAUTH_REDIRECT_MARKER：OpenAuth 登录页特征标记（凭据失效判定）
 #   CREDENTIALS_FILE：dashboard 凭据文件（项目内 data/credentials/opencode-go.json，
 #     P2 定案集中项目内；含凭据严禁入库）
 # 模块级变量：_last_quota / _last_success_at——成功结果缓存与时间戳（缓存兜底）

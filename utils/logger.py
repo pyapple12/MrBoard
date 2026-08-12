@@ -51,6 +51,7 @@ def _setup_handlers() -> None:
 #   LOG_DIR / LOG_FILE：日志文件路径（项目内 data/logs/myboard.log，由 base.json
 #     logs_dir 字段 + get_project_root() 拼接，P2 决策：所有数据目录集中项目内，
 #     不使用用户目录；utils 层允许依赖 config.static 读取配置，AGENTS.md 已放宽）
+#   APP_NAME / LOG_LEVEL：应用名与日志级别（base.json 驱动，C14 补列）
 #   LOG_FORMAT / DATE_FORMAT：统一日志格式（时间 | 级别 | 模块名 | 消息）
 #   _configured：模块级状态标记，保证 handler 只初始化一次（幂等）
 # 函数：

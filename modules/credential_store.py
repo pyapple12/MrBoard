@@ -5,17 +5,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-try:
-    import win32crypt
-except ImportError:  # 打包环境缺依赖时降级为 None（加密不可用，写入路径拒绝明文落盘）
-    win32crypt = None
-
+from utils.file_utils import read_json
 from utils.logger import get_logger
+from utils.windows import WIN32CRYPT_AVAILABLE, dpapi_protect, dpapi_unprotect
 
 logger = get_logger(__name__)
 
 # 加密格式标记：文件 dict 含该键时按 base64(DPAPI blob) 解密（P4）
 ENCRYPTED_KEY = "encrypted_v1"
+# 凭据字段键（R9：go_quota 的兼容集合首键引用本常量，单点维护）
+WORKSPACE_ID_KEY = "workspaceId"
+AUTH_COOKIE_KEY = "authCookie"
 
 
 class CredentialEncryptionError(Exception):
@@ -29,51 +29,44 @@ class CredentialEncryptionError(Exception):
 
 def encrypt_credentials(workspace_id: str, auth_cookie: str) -> str:
     # 加密凭据 JSON 为 base64(DPAPI blob)；win32crypt 缺失时抛错误（安全优先，P4 D3=A）
-    if win32crypt is None:
+    if not WIN32CRYPT_AVAILABLE:
         raise CredentialEncryptionError(
             "缺少 pywin32，无法加密保存凭据（安全策略：拒绝明文写入），请安装 pywin32 后重试"
         )
     payload = json.dumps(
-        {"workspaceId": workspace_id, "authCookie": auth_cookie},
+        {WORKSPACE_ID_KEY: workspace_id, AUTH_COOKIE_KEY: auth_cookie},
         ensure_ascii=False,
     ).encode("utf-8")
-    try:
-        # pywin32 的 CryptProtectData 直接返回加密 blob（bytes），非元组
-        blob = win32crypt.CryptProtectData(
-            payload, "myboard-credentials", None, None, None, 0
-        )
-    except Exception as exc:
-        raise CredentialEncryptionError(f"DPAPI 加密凭据失败：{exc}") from exc
+    blob = dpapi_protect(payload)
+    if blob is None:
+        raise CredentialEncryptionError("DPAPI 加密凭据失败")
     return base64.b64encode(blob).decode("ascii")
 
 
 def decrypt_credentials(encrypted_text: str) -> dict[str, Any] | None:
     # 解密 base64(DPAPI blob) 为凭据 dict；win32crypt 缺失或解密失败返回 None（宽容降级）
-    if win32crypt is None:
+    if not WIN32CRYPT_AVAILABLE:
         logger.warning("缺少 pywin32，无法解密加密凭据")
         return None
     try:
         blob = base64.b64decode(encrypted_text)
-        # pywin32 怪癖：返回 (空/描述, 解密数据)——数据在第二个元素
-        # （browser_creds 的 `_, aes_key = ...` 同款；文本数据可能返回 str，
-        #   统一转 bytes 再解析）
-        _, data = win32crypt.CryptUnprotectData(blob, None, None, None, 0)
-        if isinstance(data, str):
-            data = data.encode("utf-8")
-        raw = json.loads(data.decode("utf-8"))
-    except Exception as exc:
+        plaintext = dpapi_unprotect(blob)
+        if plaintext is None:
+            return None
+        raw = json.loads(plaintext.decode("utf-8"))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
         logger.warning("解密凭据失败：%s", exc)
         return None
     return raw if isinstance(raw, dict) else None
 
 
 def read_credentials_file(path: Path) -> dict[str, Any] | None:
-    # 读取凭据文件（宽容解析）：加密格式识别标记解密；明文旧格式原样返回；失败返回 None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        logger.warning("读取凭据配置失败 %s：%s", path, exc)
+    # 读取凭据文件（宽容解析，复用 read_json 原子读；加密格式识别标记解密；
+    # 明文旧格式原样返回；缺失打 WARNING 便于排查，损坏返回 None）
+    if not path.is_file():
+        logger.warning("读取凭据配置失败 %s：文件不存在", path)
         return None
+    raw = read_json(path, default=None, use_cache=False)
     if not isinstance(raw, dict):
         return None
     encrypted_text = raw.get(ENCRYPTED_KEY)
@@ -85,15 +78,16 @@ def read_credentials_file(path: Path) -> dict[str, Any] | None:
 # ===== modules/credential_store.py 模块说明 =====
 # 模块级常量：
 #   ENCRYPTED_KEY：加密格式标记（文件 dict 含该键 = DPAPI 加密 blob）
-# 模块级导入：win32crypt 缺失时降级为 None（写入路径拒绝明文落盘，读取路径返回 None）
+# 模块级导入：DPAPI 能力来自 utils.windows（WIN32CRYPT_AVAILABLE/dpapi_protect/dpapi_unprotect，
+#   4A.2 D2 收敛 win32crypt 降级；写入路径拒绝明文落盘，读取路径返回 None）
 # 类型：
 #   CredentialEncryptionError：加密业务错误（win32crypt 缺失/DPAPI 失败），中文提示
 # 函数：
 #   encrypt_credentials(workspace_id, auth_cookie)：
 #     输入：workspaceId 与 authCookie 明文
 #     输出：base64(DPAPI blob) 字符串（加密后的凭据 JSON）
-#     逻辑步骤：win32crypt 缺失抛 CredentialEncryptionError（D3=A 安全优先）→
-#       json.dumps 明文凭据 → CryptProtectData（绑定当前 Windows 用户 SID）→ base64
+#     逻辑步骤：WIN32CRYPT_AVAILABLE 缺失抛 CredentialEncryptionError（D3=A 安全优先）→
+#       json.dumps 明文凭据 → dpapi_protect（绑定当前 Windows 用户 SID）→ base64
 #     设计理由：DPAPI 加密绑定当前 Windows 用户，他人换机/换用户无法解密；
 #       加密粒度为整个凭据 JSON（workspaceId + authCookie 一起）
 #   decrypt_credentials(encrypted_text)：
@@ -110,4 +104,4 @@ def read_credentials_file(path: Path) -> dict[str, Any] | None:
 # 异常处理：读取全路径宽容（返回 None）；加密路径 win32crypt 缺失抛
 #   CredentialEncryptionError（UI 状态栏提示，不弹窗）
 # 关联配置：无（DPAPI 系统级，绑定当前用户）；被 modules/go_quota.py 集成
-#   （save_dashboard_credentials 加密写入 / _read_credentials_json 兼容读取）
+#   （save_dashboard_credentials 加密写入 / read_credentials_file 兼容读取，C7 更正函数名）

@@ -21,15 +21,18 @@ def get_project_root() -> Path:
 
 def read_json(path: Path | str, default: Any = None, use_cache: bool = True) -> Any:
     # 读取 JSON 文件（默认带内存缓存；use_cache=False 强制读最新文件），文件不存在或解析失败时返回 default
+    # （E4：解析失败不写缓存，防坏 JSON 毒化——文件修复后默认调用即可读到新值）
     path = Path(path)
     if use_cache and path in _json_cache:
         return _json_cache[path]
-    data = default
-    if path.is_file():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-            data = default
+    if not path.is_file():
+        if use_cache:
+            _json_cache[path] = default
+        return default
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return default
     if use_cache:
         _json_cache[path] = data
     return data
@@ -46,8 +49,11 @@ def write_json(path: Path, data: Any) -> None:
             f.write(content)
         os.replace(tmp_path, str(path))
     except Exception:
-        if os.path.exists(tmp_path):
+        # E5：unlink 自身可能抛 OSError（已被删/权限），包裹吞掉避免覆盖原异常
+        try:
             os.unlink(tmp_path)
+        except OSError:
+            pass
         raise
     _json_cache[path] = data
 
@@ -75,9 +81,9 @@ def write_json(path: Path, data: Any) -> None:
 #       更新缓存
 #     设计理由：原子写避免写一半崩溃产生损坏文件（参考 opencode-usage insights
 #       缓存的 .tmp → os.rename 模式）
-#   clear_cache()：
-#     逻辑步骤：清空 _json_cache 字典
-#     设计理由：文件被外部工具修改后（如用户手改配置）提供强制重读入口
+#     _json_cache 缓存机制说明（C1 评估）：业务调用点均显式 use_cache=False
+#       （TTL 类文件必须绕过缓存），缓存保留供高频重复读同路径的调用方选用
+#       （verify_s1 覆盖缓存命中行为），属通用 utils 能力非死代码
 # 异常处理：write_json 失败时清理临时文件并重新抛出（调用方决定如何提示）；
 #   read_json 内部消化所有解析异常
 # 关联配置：无（通用工具，config/settings.py 复用）

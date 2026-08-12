@@ -207,3 +207,112 @@ mrboard/
 - **file_utils**：:22 注解 `path: Path` 与实现（接受 str）不符；:64 说明区漏 `_PROJECT_ROOT`；:27-39 缓存写入重复 3 次
 - **硬编码（多处）**：settings.py:44 主题枚举与 themes.py 重复；main_window.py:143-148 表格 limit=50/200；main_window.py:199-235 饼图色值/尺寸/字号；main_window.py:256/323 CDP 超时；system_tray.py:80-94 图标几何按 32×32 推算；opencode_usage.py:181/334/339 `86400_000`/`/1000` 与 `_EPOCH_MS` 重复；opencode_usage:127/go_quota:281/pricing:283 timeout 不统一（10/15）；main.py:27 应用名；logger.py:32-33 日志级别/文件名
 - **其他**：static_config.py:31 `result.get("base", {})` 静默兜底与失败策略不一致；exporter.py:46 `Path(out_dir)` 重复构造；opencode_usage.py:268 `row[1]` 数字索引应改 `row["name"]`
+
+---
+
+## 十四、第四轮全量审计问题汇总（2026-08-12 审计完成）
+
+> 范围：全部 17 个 .py 文件（含 utils/network.py、utils/windows.py），AST 精确扫描（函数内 import/嵌套 def）+ 三代理全文审读
+> 结果：**47 条发现**（错漏 11 / 硬编码 10 / 重复实现 5 / 说明区不符 8 / 防御性 5 / 可优化 5 / 死代码 3）+ 专项结论（函数内嵌套 def 4 处）
+> **整改状态：✅ 全部完成（2026-08-12，V0.11）**——实施明细见 x.progress.md 第四轮章节（4A.1-4A.3）
+
+### 重复实现（5 条，重点）
+
+- **APP_NAME 四处重复解包**：logger.py/main.py/system_tray.py/main_window.py 同一 base.json 键——logger 导出统一引用
+- **win32crypt try-import 降级逐字重复**：credential_store/browser_creds——提取 utils/windows.py 公共模块
+- **DPAPI 解密同款调用**：credential_store（str 转 bytes 怪癖）与 browser_creds AES key 提取——公共 dpapi_unprotect 工具
+- **去重键逐字同构**：go_quota add 闭包 vs browser_creds 内联去重——credential_dedup_key 共享
+- **UI 文案跨模块重复**：维度标签/卡片标题/配额窗口名（"5 小时/每周/每月"与 CLI 打印重复）——外置 ui.json；themes 调色板 20+ 色值整体迁入
+
+### 函数内嵌套 def（AST 扫描，4 处）
+
+- browser_creds.py:163/206/294 三处 `_with_copied_db` 回调闭包（206/294 无捕获可参数化提取；163 捕获 aes_key 可传参，保留亦正当）
+- go_quota.py:109 add 闭包（捕获 candidates/seen，累加器语义保留合理）；browser_creds _TaskProcess 嵌套类提模块级
+
+### 错漏（11 条）
+
+- exporter.py:57 日志 CSV 计数 `len(datasets)-1`=6 但实际 7 个 CSV（summary 也是 CSV）
+- 3 处未用 import（go_quota/browser_creds urllib.request、exporter json）
+- convert.to_optional_float 缺 bool 排除；file_utils 解析失败结果写缓存（毒化）；write_json unlink 竞态
+- opencode_usage parse_time_arg strip 不一致；sqlite URI 未转义（两处）；show_guide 永真判断
+- pricing 说明区 _deserialize 残留；browser_creds v20 逐条 WARNING 刷屏；CDP 响应解析在 try 外
+
+### 硬编码（10 条）
+
+- themes 调色板 20+ 色值全部硬编码（S8.3 颜色外置只做配额色）；settings THEMES 枚举
+- browser_creds login_url 与 OPENCODE_HOST 重复、CDP 探测 timeout=2
+- main_window cards_spacing=8、重置时间格式与 CLI 不一致、drawPie 角度魔法数、quota_chunk_color 传 float
+- opencode_usage 8 处签名 limit=100 第三套无来源数字；system_tray **init** 缺注解
+
+### 防御性/可优化/死代码（13 条）
+
+- static_config mapping 非 dict 裸 AttributeError；retry raise Optional；browser_creds except Exception 过宽
+- opencode_usage cost_source 重复分支可合并；by_session 手写行构造；settings hidden 空白项
+- **rows["total"] 伪维度从未消费**（弹窗读 summary）；used_percent getter 测试专用
+- 说明区不符 8 处（browser_creds/main_window/system_tray/logger/main 漏常量与函数；go_quota/themes 阈值字面量与配置脱钩）
+
+---
+
+## 十三、第三轮全量审计问题汇总（2026-08-11 审计完成）
+
+> 范围：全部 16 个 .py 文件，对照 AGENTS.md + 10 类问题清单 + **跨模块复用专项**
+> 结果：**57 条发现**（跨模块复用 15 / 可优化 10 / 小错误 9 / 死代码 8 / 硬编码 6 / 规范 5 / 默认值 2 / 过度防御 2）
+> 与上轮对比：约 25 条为上轮遗留（pricing retries、Path 冗余、说明区漏项等），其余为新增（重点：跨模块复用 15 条）
+> **整改状态：✅ 全部完成（2026-08-12，V0.11）**——实施明细见 x.progress.md 第三/四轮章节
+
+### 跨模块复用（15 条，重点）
+
+- **HTTP GET 三处自实现**：go_quota._http_get / pricing._http_get / browser_creds 内联 urlopen ×2——抽 `utils/http_get(url, headers, timeout, auth_error_codes=None)`
+- **宽容读文件重复**：credential_store.read_credentials_file 与 browser_creds._read_local_state_json 手写"读文件 + json.loads + 三异常捕获"——复用 `read_json(path, default=None, use_cache=False)`
+- **双胞胎 dataclass**：go_quota.DashboardCredentials 与 browser_creds.BrowserCredential 字段完全相同——复用或抽公共类型
+- **阈值三分支重复**：system_tray.update_quota_status 重复 themes.quota_chunk_color 逻辑——直接调用（None→灰分支保留）
+- **日志入口绕过**：retry._logger 用 logging.getLogger 未走统一 get_logger（唯一例外）
+- **成本舍入口径 5 处**：opencode_usage ×3 + exporter ×2 的 round(to_float(x), 4)——抽公共 _round_cost
+- **配置键重复解包**：HTTP_TIMEOUT 三模块重复（opencode_usage 用于 subprocess 命名名不副实）——统一命名或 config 层代理
+- **retry 异常元组重复**：(URLError, TimeoutError) go_quota/pricing 两处——utils 公共常量
+- **魔法字符串/字段名散落**：OpenAuth 标记、"workspaceId/authCookie" 键名重复维护——公共常量收敛
+- **窗口标题/托盘 tooltip 文案重复**：两处独立维护——app_name 拼接或公共常量
+- **Chrome User Data 路径重复**：_browser_user_data_dirs 与 _chrome_user_data_dir 重复构造——单点维护
+- **弹窗费用口径不一致**：main_window 总量明细 $0.0000 vs 卡片 -（_format_cost 未复用）
+- **\_ 前缀私有函数跨模块调用**：main_window 调 browser_creds._chrome_user_data_dir/_read_workspace_ids（违反私有约定）——提供公开入口
+- **CSV 列名/键多处方维护**：exporter 两表 + flatten_tokens 键——单一来源推导
+- **三方法完全相同**：opencode_usage by_model/by_provider/by_agent——抽 `_by_field(json_expr, unknown_label)`
+
+### 死代码/冗余（8 条）
+
+- file_utils `_json_cache` 缓存形同虚设（业务调用点全 use_cache=False，仅测试用默认缓存）；说明区"clear_cache"条目残留不符
+- retry.py 不可达 `if last_error is not None: raise`（注释自认）
+- go_quota except HTTPError 内 401/403 分支不可达（_http_get 已转 GoQuotaError）
+- go_quota fetch_go_quota 的 global 声明冗余（读写均在 _build_info/_fallback）
+- pricing _rate_from_raw try/except 永不触发 + 调用方 is not None 恒真
+- browser_creds rmtree(ignore_errors=True) 外层 except OSError 永不可达
+- credential_store 说明区引用不存在的 _read_credentials_json 函数名
+- main_window 弹窗费用未复用 _format_cost（口径不一致）
+
+### 小错误/边界（9 条）
+
+- convert.to_float 未排除 bool（to_float(True)→1.0，to_int(True)→default，语义矛盾）
+- settings isinstance(interval, int) 未排除 bool（true → 1ms 刷新间隔）
+- opencode_usage `if min_ts and max_ts` truthiness（min_ts=0 边界）→ is not None
+- opencode_usage cost_source 多币种边缘（estimated_cost_total=None 时混标 recorded）
+- opencode_usage CLI 未捕获 sqlite3.Error（坏库英文 traceback）
+- static_config 映射值非 str 抛裸 TypeError
+- main_window cdp_poll_interval/cdp_login_wait_seconds 未模块级解包（违反一次性解包约定）
+- system_tray QApplication import 未使用
+- TokenStats 类注释漏 total 字段
+
+### 硬编码（6 条）
+
+- pricing retries=2/delay=1.0（base.json 已有 retry_count/retry_delay，上轮 L13 漏改）
+- pricing BUNDLED_PRICES 约 20 个价格数字源码内（可选外置）
+- opencode_usage DEFAULT_DB_PATH 未走 base.json
+- main.py 气泡文案
+- main_window 布局边距/spacing/固定宽
+- system_tray 白色圆点 #ffffff（其余颜色已外置）
+
+### 其他（规范/默认值/防御/可优化，约 19 条）
+
+- 规范：pricing Path(str(...)) 冗余（上轮 L2 漏此）；opencode_usage/go_quota/pricing/exporter 说明区漏 HTTP_TIMEOUT/_DAY_MS/PRICE_CACHE_DIR/RETRY_COUNT/_SC 等常量
+- 默认值：browser_creds import psutil 函数内延迟导入（与 try-import 风格不一致，违反顶层 import 约定）
+- 过度防御：go_quota _capture_number 的 float() try/except 永不触发
+- 可优化：pricing _deserialize 与 _apply_local_overrides 可合并；exporter datasets 遍历两遍可合并；_fetch_usage_with_fallback 成功路径携带前序失败残留；pricing 非 refresh 路径 TTL 过期应回退旧缓存（旧缓存优先于内置表）；opencode_usage by_session 手写 UsageRow 与 _row_to_usage_row 重复

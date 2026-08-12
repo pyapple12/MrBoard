@@ -10,15 +10,10 @@ import subprocess
 import tempfile
 import time
 import urllib.error
-import urllib.request
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
-
-try:
-    import win32crypt
-except ImportError:  # 打包环境缺依赖时降级（不阻断 go_quota 主流程）
-    win32crypt = None
 
 try:
     from Crypto.Cipher import AES
@@ -30,8 +25,16 @@ try:
 except ImportError:  # 打包环境缺依赖时降级（CDP 获取不可用，不影响其他路径）
     websocket = None
 
+try:
+    import psutil
+except ImportError:  # 打包环境缺依赖时降级（进程检测回退 tasklist，C12 顶层导入）
+    psutil = None
+
 from config.static.static_config import get_static_config
+from utils.file_utils import read_json
 from utils.logger import get_logger
+from utils.network import http_get
+from utils.windows import WIN32CRYPT_AVAILABLE, dpapi_unprotect
 
 logger = get_logger(__name__)
 
@@ -40,6 +43,16 @@ T = TypeVar("T")
 OPENCODE_HOST = "opencode.ai"
 COOKIE_NAMES = ("auth",)
 WORKSPACE_ID_RE = re.compile(r"/workspace/(wrk_[A-Za-z0-9]+)")
+# C10：CDP 探测超时与默认登录页（消除魔法值/与 OPENCODE_HOST 重复）
+CDP_PROBE_TIMEOUT = 2.0
+DEFAULT_LOGIN_URL = f"https://{OPENCODE_HOST}/"
+
+
+def credential_dedup_key(workspace_id: str, auth_cookie: str) -> str:
+    # 凭据去重键（workspace_id::auth_cookie；go_quota 与浏览器探测共用，D4 消除重复实现）
+    return f"{workspace_id}::{auth_cookie}"
+
+
 # 静态配置解包（S8：参数外置 base.json）
 _SC = get_static_config()
 HISTORY_LIMIT = int(_SC.base["history_limit"])
@@ -64,7 +77,7 @@ class BrowserCredential:
 
 def find_browser_credentials() -> list[BrowserCredential]:
     # 主入口：遍历 Chrome/Edge × profile，组合 workspaceID 与 auth cookie 候选
-    if win32crypt is None or AES is None:
+    if not WIN32CRYPT_AVAILABLE or AES is None:
         logger.warning("缺少 pywin32/pycryptodome，跳过浏览器凭据探测")
         return []
     result: list[BrowserCredential] = []
@@ -78,13 +91,13 @@ def find_browser_credentials() -> list[BrowserCredential]:
                 cookies = _read_auth_cookies(
                     profile_dir / "Network" / "Cookies", aes_key
                 )
-                workspace_ids = _read_workspace_ids(profile_dir / "History")
+                workspace_ids = read_workspace_ids(profile_dir / "History")
                 if not cookies or not workspace_ids:
                     continue
                 source = f"{browser_name}:{profile_dir.name}"
                 for workspace_id in workspace_ids:
                     for cookie in cookies:
-                        key = f"{workspace_id}::{cookie}"
+                        key = credential_dedup_key(workspace_id, cookie)
                         if key in seen:
                             continue
                         seen.add(key)
@@ -101,10 +114,10 @@ def _local_appdata() -> Path:
 
 
 def _browser_user_data_dirs() -> list[tuple[str, Path]]:
-    # 返回浏览器名与 User Data 目录（Chrome/Edge，Windows 标准路径）
+    # 返回浏览器名与 User Data 目录（Chrome/Edge，Windows 标准路径；Chrome 项复用单点，R11）
     local_appdata = _local_appdata()
     return [
-        ("Chrome", local_appdata / "Google" / "Chrome" / "User Data"),
+        ("Chrome", chrome_user_data_dir()),
         ("Edge", local_appdata / "Microsoft" / "Edge" / "User Data"),
     ]
 
@@ -127,17 +140,14 @@ def _profile_dirs(user_data: Path) -> list[Path]:
 
 
 def _read_local_state_json(local_state_path: Path) -> dict[str, Any] | None:
-    # 读取浏览器 Local State JSON（宽容解析：缺失/损坏/非 dict 返回 None，M12 收敛重复）
-    try:
-        raw = json.loads(local_state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
+    # 读取浏览器 Local State JSON（复用 read_json 宽容解析：缺失/损坏/非 dict 返回 None）
+    raw = read_json(local_state_path, default=None, use_cache=False)
     return raw if isinstance(raw, dict) else None
 
 
 def _load_aes_key(local_state_path: Path) -> bytes | None:
     # 从 Local State 提取 AES key：base64 解码 encrypted_key（去 DPAPI 前缀）后 DPAPI 解密
-    if win32crypt is None:
+    if not WIN32CRYPT_AVAILABLE:
         return None
     local_state = _read_local_state_json(local_state_path)
     if not local_state:
@@ -149,36 +159,54 @@ def _load_aes_key(local_state_path: Path) -> bytes | None:
         ):
             return None
         encrypted_key = base64.b64decode(encrypted_key_b64[5:])
-        _, aes_key = win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)
+        aes_key = dpapi_unprotect(encrypted_key)
+        if aes_key is None:
+            return None
         return aes_key
     except (ValueError, TypeError) as exc:
         logger.warning("提取浏览器 AES key 失败（%s）：%s", local_state_path, exc)
         return None
 
 
+def _read_auth_cookies_query(
+    conn: sqlite3.Connection, aes_key: bytes
+) -> tuple[list[str], bool]:
+    # 查询并解密 opencode.ai 的 auth cookie（返回 cookie 列表与是否含 v20；C4 提取模块级）
+    rows = conn.execute(
+        "SELECT name, encrypted_value FROM cookies WHERE host_key = ?",
+        (OPENCODE_HOST,),
+    ).fetchall()
+    result: list[str] = []
+    has_v20 = False
+    for row in rows:
+        if row["name"] not in COOKIE_NAMES:
+            continue
+        encrypted = row["encrypted_value"]
+        if encrypted.startswith(V20_PREFIX):
+            has_v20 = True
+            continue
+        value = _decrypt_cookie_value(encrypted, aes_key)
+        if value:
+            result.append(value)
+    return result, has_v20
+
+
 def _read_auth_cookies(cookie_db_path: Path, aes_key: bytes) -> list[str]:
-    # 读取 opencode.ai 的 auth cookie 并解密（v10 解密 / v20 跳过降级）
-
-    def query(conn: sqlite3.Connection) -> list[str]:
-        # 在复制库连接上查询并解密 auth cookie
-        rows = conn.execute(
-            "SELECT name, encrypted_value FROM cookies WHERE host_key = ?",
-            (OPENCODE_HOST,),
-        ).fetchall()
-        result: list[str] = []
-        for row in rows:
-            if row["name"] not in COOKIE_NAMES:
-                continue
-            value = _decrypt_cookie_value(row["encrypted_value"], aes_key)
-            if value:
-                result.append(value)
-        return result
-
-    return _with_copied_db(cookie_db_path, query) or []
+    # 读取 opencode.ai 的 auth cookie 并解密（v10 解密 / v20 跳过；
+    # v20 提示每探测会话仅一次防多 profile 多 cookie 刷屏，E10）
+    result, has_v20 = _with_copied_db(
+        cookie_db_path, _read_auth_cookies_query, aes_key
+    ) or ([], False)
+    if has_v20:
+        logger.warning(
+            "检测到 Chrome v127+ app-bound 加密 cookie（v20），"
+            "暂不支持自动解密，请手动配置凭据（见配置引导）"
+        )
+    return result
 
 
 def _decrypt_cookie_value(encrypted_value: bytes, aes_key: bytes) -> str | None:
-    # 解密 cookie 值：v10（AES-GCM + DPAPI key）；v20 为 app-bound 加密，跳过并提示
+    # 解密 cookie 值：v10（AES-GCM + DPAPI key）；v20 返回 None（提示已上移到 _read_auth_cookies）
     if AES is None:
         return None
     if encrypted_value.startswith(V10_PREFIX):
@@ -190,46 +218,43 @@ def _decrypt_cookie_value(encrypted_value: bytes, aes_key: bytes) -> str | None:
         except ValueError as exc:
             logger.warning("cookie 解密校验失败：%s", exc)
             return None
-    if encrypted_value.startswith(V20_PREFIX):
-        logger.warning(
-            "检测到 Chrome v127+ app-bound 加密 cookie（v20），暂不支持自动解密，"
-            "请手动配置凭据（见配置引导）"
-        )
-        return None
     return None
 
 
-def _read_workspace_ids(history_db_path: Path) -> list[str]:
-    # 从 History 数据库的浏览记录正则提取 workspaceID（去重，limit 200）
+def _workspace_ids_query(conn: sqlite3.Connection) -> list[str]:
+    # 查询 History 中的 workspace 链接并正则提取 workspaceID（去重，limit 200；C4 提取模块级）
+    rows = conn.execute(
+        "SELECT url FROM urls WHERE url LIKE ? LIMIT ?",
+        (f"%{OPENCODE_HOST}/workspace/%", HISTORY_LIMIT),
+    ).fetchall()
+    workspace_ids: list[str] = []
+    for row in rows:
+        match = WORKSPACE_ID_RE.search(row["url"] or "")
+        if match and match.group(1) not in workspace_ids:
+            workspace_ids.append(match.group(1))
+    return workspace_ids
 
-    def query(conn: sqlite3.Connection) -> list[str]:
-        # 在复制库连接上查询 workspace 链接并正则提取
-        rows = conn.execute(
-            "SELECT url FROM urls WHERE url LIKE ? LIMIT ?",
-            (f"%{OPENCODE_HOST}/workspace/%", HISTORY_LIMIT),
-        ).fetchall()
-        workspace_ids: list[str] = []
-        for row in rows:
-            match = WORKSPACE_ID_RE.search(row["url"] or "")
-            if match and match.group(1) not in workspace_ids:
-                workspace_ids.append(match.group(1))
-        return workspace_ids
 
-    return _with_copied_db(history_db_path, query) or []
+def read_workspace_ids(history_db_path: Path) -> list[str]:
+    # 从 History 数据库的浏览记录正则提取 workspaceID（去重，limit 200；对外公开 R13）
+    return _with_copied_db(history_db_path, _workspace_ids_query) or []
 
 
 def _with_copied_db(
-    db_path: Path, query: Callable[[sqlite3.Connection], T]
+    db_path: Path, query: Callable[..., T], *query_args: Any
 ) -> T | None:
-    # 复制库到临时目录执行查询（自动连接/关闭/清理；复制失败或查询异常返回 None）
+    # 复制库到临时目录执行查询（自动连接/关闭/清理；复制失败或查询异常返回 None；
+    # *query_args 透传查询函数参数，C4 支持模块级查询函数）
     copy_path = _safe_copy_db(db_path)
     if copy_path is None:
         return None
     try:
-        conn = sqlite3.connect(f"file:{copy_path}?mode=ro", uri=True)
+        # E7：URI 路径转义（临时目录名可能含 #/?），Windows 反斜杠统一为正斜杠
+        uri_path = urllib.parse.quote(str(copy_path).replace("\\", "/"))
+        conn = sqlite3.connect(f"file:{uri_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            return query(conn)
+            return query(conn, *query_args)
         finally:
             conn.close()
     except sqlite3.Error as exc:
@@ -287,19 +312,19 @@ def has_v20_cookies(user_data: Path) -> bool:
     return _scan_cookie_db_for_v20(user_data)
 
 
+def _scan_v20_query(conn: sqlite3.Connection) -> bool:
+    # 查询单库是否存在 v20 前缀条目（C4 提取模块级）
+    row = conn.execute(
+        "SELECT 1 FROM cookies WHERE CAST(substr(encrypted_value, 1, 3) AS TEXT) = 'v20'"
+        " LIMIT 1"
+    ).fetchone()
+    return row is not None
+
+
 def _scan_cookie_db_for_v20(user_data: Path) -> bool:
     # 扫描各 profile cookie 库是否存在 v20 条目（v10 老浏览器回退检测）
-
-    def query(conn: sqlite3.Connection) -> bool:
-        # 查询单库是否存在 v20 前缀条目
-        row = conn.execute(
-            "SELECT 1 FROM cookies WHERE CAST(substr(encrypted_value, 1, 3) AS TEXT) = 'v20'"
-            " LIMIT 1"
-        ).fetchone()
-        return row is not None
-
     for profile_dir in _profile_dirs(user_data):
-        if _with_copied_db(profile_dir / "Network" / "Cookies", query):
+        if _with_copied_db(profile_dir / "Network" / "Cookies", _scan_v20_query):
             return True
     return False
 
@@ -315,7 +340,7 @@ def is_chrome_running() -> bool:
 
 
 def launch_chrome_debug(
-    port: int = CDP_PORT, login_url: str = "https://opencode.ai/"
+    port: int = CDP_PORT, login_url: str = DEFAULT_LOGIN_URL
 ) -> subprocess.Popen | None:
     # 以远程调试模式启动 Chrome（独立临时 profile，全新环境需重新登录，
     # --restore-last-session 对空 profile 无效已移除，M16）
@@ -358,12 +383,11 @@ def wait_cdp_ready(port: int = CDP_PORT, timeout: float = 30.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(
-                f"http://{CDP_HOST}:{port}/json/version", timeout=2
-            ) as response:
-                if response.status == 200:
-                    return True
-        except (OSError, urllib.error.URLError):
+            http_get(
+                f"http://{CDP_HOST}:{port}/json/version", timeout=CDP_PROBE_TIMEOUT
+            )
+            return True
+        except (OSError, urllib.error.URLError, TimeoutError):
             time.sleep(0.5)
     return False
 
@@ -376,12 +400,15 @@ def fetch_auth_cookie_via_cdp(
         logger.warning("缺少 websocket-client，无法使用 CDP 获取凭据")
         return None
     try:
-        with urllib.request.urlopen(
-            f"http://{CDP_HOST}:{port}/json", timeout=5
-        ) as response:
-            targets = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        targets = json.loads(
+            http_get(f"http://{CDP_HOST}:{port}/json", timeout=5).decode("utf-8")
+        )
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         logger.warning("连接 CDP 端点失败：%s", exc)
+        return None
+    if not isinstance(targets, list):
+        # E11：端点返回非列表结构时提前退出（防迭代非 dict 抛 AttributeError 逃逸）
+        logger.warning("CDP 端点返回异常结构（非列表）")
         return None
     page = next(
         (
@@ -427,10 +454,8 @@ def shutdown_chrome_debug(proc: subprocess.Popen | None) -> None:
         except (OSError, subprocess.TimeoutExpired) as exc:
             logger.warning("关闭 Chrome 调试实例失败：%s", exc)
     if _cdp_profile_dir is not None:
-        try:
-            shutil.rmtree(_cdp_profile_dir, ignore_errors=True)
-        except OSError as exc:
-            logger.warning("清理临时 profile 失败：%s", exc)
+        # rmtree(ignore_errors=True) 不抛异常，无需 try/except（C6）
+        shutil.rmtree(_cdp_profile_dir, ignore_errors=True)
         _cdp_profile_dir = None
 
 
@@ -452,45 +477,42 @@ def _chrome_executable() -> Path | None:
     return None
 
 
-def _chrome_user_data_dir() -> Path:
-    # Chrome User Data 目录（与 _browser_user_data_dirs 同路径，保留登录态）
+def chrome_user_data_dir() -> Path:
+    # Chrome User Data 目录（保留登录态；对外公开，供 main_window 调用，R13）
     local_appdata = _local_appdata()
     return local_appdata / "Google" / "Chrome" / "User Data"
 
 
+class _TaskProcess:
+    # tasklist 输出的最小进程包装（仅暴露 name；C3 从函数内提为模块级）
+
+    def __init__(self, name: str) -> None:
+        # 初始化进程名
+        self._name = name
+
+    def name(self) -> str:
+        # 返回进程名
+        return self._name
+
+
 def psutil_process_iter() -> list[Any]:
-    # 遍历进程列表（psutil 存在时用之，否则回退 tasklist 解析，均失败返回空）
-    try:
-        import psutil
-
+    # 遍历进程列表（psutil 可用时用之，否则回退 tasklist 解析，均失败返回空）
+    if psutil is not None:
         return list(psutil.process_iter(["name"]))
-    except ImportError:
-        try:
-            output = subprocess.run(
-                ["tasklist", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            ).stdout
-
-            class _TaskProcess:
-                # tasklist 输出的最小进程包装（仅暴露 name）
-
-                def __init__(self, name: str) -> None:
-                    # 初始化进程名
-                    self._name = name
-
-                def name(self) -> str:
-                    # 返回进程名
-                    return self._name
-
-            return [
-                _TaskProcess(line.split('","')[0].strip('"'))
-                for line in output.splitlines()
-                if line.strip()
-            ]
-        except (OSError, subprocess.TimeoutExpired):
-            return []
+    try:
+        output = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+        return [
+            _TaskProcess(line.split('","')[0].strip('"'))
+            for line in output.splitlines()
+            if line.strip()
+        ]
+    except (OSError, subprocess.TimeoutExpired):
+        return []
 
 
 # ===== modules/browser_creds.py 模块说明 =====
@@ -500,23 +522,36 @@ def psutil_process_iter() -> list[Any]:
 #   HISTORY_LIMIT：历史记录查询上限（参考 opencode-bar limit 200）
 #   V10_PREFIX / V20_PREFIX：cookie 加密版本前缀
 #   CDP_HOST / CDP_PORT：Chrome 远程调试端点（仅引导流程临时开放）
-# 模块级导入：win32crypt/AES/websocket 缺失时降级为 None（打包环境不阻断主流程）
-# 类型：BrowserCredential（workspace_id + auth_cookie + 来源标注）
+#   ESENTUTL_TIMEOUT / CDP_PROBE_TIMEOUT / DEFAULT_LOGIN_URL：esentutl 超时、
+#     CDP 探测超时、默认登录页（base.json/OPENCODE_HOST 驱动，C14 补列）
+# 模块级变量：_cdp_profile_dir——CDP 引导临时 profile（launch 创建，shutdown 清理）
+# 模块级导入：AES/websocket/psutil 缺失时降级为 None；DPAPI 能力来自 utils.windows
+#   （WIN32CRYPT_AVAILABLE/dpapi_unprotect，4A.2 D2 收敛 win32crypt 降级）
+# 类型：BrowserCredential（workspace_id + auth_cookie + 来源标注）、
+#   _TaskProcess（tasklist 输出的最小进程包装，C3 提为模块级）
 # 函数：
+#   credential_dedup_key()：凭据去重键（workspace_id::auth_cookie，D4 共享）
 #   find_browser_credentials()：主入口——遍历 Chrome/Edge × profile，
 #     AES key 提取 → cookie 解密 → 历史提取 workspaceID → 笛卡尔组合候选（去重）；
 #     仅覆盖 v10（老 Chrome/Edge ≤126），v20 走 CDP 引导（见下）
+#   _local_appdata()：LOCALAPPDATA 目录（带默认值推导，多处路径构造共用）
 #   _browser_user_data_dirs()：Chrome/Edge 的 User Data 标准路径
 #   _profile_dirs()：Default + Profile* 枚举（Default 优先）
+#   _read_local_state_json()：浏览器 Local State 宽容读取（复用 read_json）
 #   _load_aes_key()：Local State → os_crypt.encrypted_key（DPAPI 前缀剥离 +
-#     base64 解码）→ CryptUnprotectData 得到 AES-256 key
-#   _read_auth_cookies()：复制库 → 查 opencode.ai 的 auth cookie → 逐条解密
+#     base64 解码）→ dpapi_unprotect 得到 AES-256 key
+#   _read_auth_cookies_query()：查询并解密 auth cookie（返回列表与是否含 v20，C4 模块级）
+#   _read_auth_cookies()：复制库 → 查 opencode.ai 的 auth cookie → 逐条解密；
+#     v20 提示每探测会话一次
 #   _decrypt_cookie_value()：v10 = AES-GCM（nonce 12 + tag 16）；v20 无法离线解密
 #     （app-bound encryption），返回 None 由 CDP 路径兜底
-#   _read_workspace_ids()：History.urls 正则提取 workspaceID（去重）
+#   _workspace_ids_query() / read_workspace_ids()：History.urls 正则提取
+#     workspaceID（去重，公开 R13；查询函数 C4 模块级）
+#   _with_copied_db()：复制库到临时目录执行查询（*query_args 透传，C4）
 #   _safe_copy_db()：复制到临时文件；浏览器运行中独占锁定时尝试 esentutl /y
 #     兜底，仍失败则返回 None（降级提示关闭浏览器）
 #   has_v20_cookies()：检测库内是否存在 v20 cookie（UI 判断是否走 CDP 引导）
+#   _scan_v20_query() / _scan_cookie_db_for_v20()：单库 v20 检测（C4 模块级）
 #   is_chrome_running()：Chrome 进程检测（CDP 引导前必须关闭，单例模式下
 #     调试参数不生效）
 #   launch_chrome_debug()：以 --remote-debugging-port 启动 Chrome（独立临时
@@ -526,6 +561,7 @@ def psutil_process_iter() -> list[Any]:
 #     auth cookie 明文——**Chrome 自行解密，v10/v20/v30 通吃、跨版本稳定**
 #     （S6.1 调研结论：比 SYSTEM DPAPI 逆向 / DLL 注入更适合产品化）
 #   shutdown_chrome_debug()：终止调试实例（用户后续自行正常启动 Chrome）
+#   chrome_user_data_dir()：Chrome User Data 目录（公开入口，R13）
 #   _chrome_executable()：chrome.exe 三路径定位
 #   psutil_process_iter()：进程遍历（psutil 优先，回退 tasklist 解析）
 # 设计理由：零配置体验（目标用户打包分发场景）；v10 离线解密免打扰；

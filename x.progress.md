@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.10（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.11（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -304,6 +304,143 @@ models 接口与 auth.json 读取链（五函数/两常量/两字段/no_key 分�
 > V0.10 全量回归 **596 项断言全部通过**（s1-s14 基线 + v0808_p2-p8 + v0809_1-5 + v1010_1-3 新增 92 项）——2026-08-10 实施完毕
 > 三批整改全部完成：H1-H10 高价值（行为相关，H1 审计证伪保留）→ M1-M20 中价值（8 处死代码/内联/抽取/说明区，M11 结构性整改）→ L1-L16 低价值（行宽/魔法数字/冗余，base.json 新增 8 参数）
 > 遗留：P1/P9（多账户区分）、P11（明文兼容去留）待评估，P20（模型数据页+社交跟踪）V0.11 实施，见 y.problem.md
+
+---
+
+## 第三轮审计整改（依据 z.plan.md 第十三章，2026-08-11 规划）
+
+> 目标：57 条发现按三批整改（跨模块复用 15 → 小错误/边界 9 → 死代码/硬编码/其他约 25）；基线回归 596 项
+> 执行原则：每项完成后运行对应验证；全部完成后全量回归；版本号实施时定
+
+### 3A.1 第一批：跨模块复用（15 条，行为统一）
+
+- [x] R1 新建 `utils/network.py`：`http_get` 统一 GET 请求——go_quota._http_get（保留 401/403 auth 分类）、pricing 直接复用（删本地 _http_get）、browser_creds 两处内联 urlopen 接入；pricing 顺带 C8（retries/delay 走 base.json）
+- [x] R2 credential_store.read_credentials_file（缺失 WARNING + read_json 原子读）与 browser_creds._read_local_state_json 复用 `read_json(path, default=None, use_cache=False)`
+- [x] R3 `DashboardCredentials = browser_creds.BrowserCredential` 别名收敛（外部引用名兼容）
+- [x] R4 system_tray.update_quota_status 改用 `themes.quota_chunk_color`（None→灰分支保留，清理未用 QUOTA_* import）
+- [x] R5 retry._logger 改 `get_logger(__name__)`（统一日志入口）
+- [x] R6 `utils/convert.round_cost` 收敛 5 处成本舍入（opencode_usage ×3 + exporter ×2）
+- [x] R7 opencode_usage 改 `SUBPROCESS_TIMEOUT`（base.json 新键 `subprocess_timeout`: 10，与 http_timeout 分离）
+- [x] R8 `utils/network.RETRY_NETWORK_ERRORS` 常量，go_quota/pricing 复用
+- [x] R9 公共常量：`OAUTH_REDIRECT_MARKER`（OpenAuth 判定）；credential_store 定义 `WORKSPACE_ID_KEY`/`AUTH_COOKIE_KEY`，go_quota 字段集合首键引用
+- [x] R10 窗口标题与托盘 tooltip 由 `APP_NAME` 拼接（base.json app_name）
+- [x] R11 `_browser_user_data_dirs` 的 Chrome 项复用 `chrome_user_data_dir()`（单点维护）
+- [x] R12 总量明细弹窗费用复用 `_format_cost`（口径统一：0 显示 -）
+- [x] R13 browser_creds 公开入口去下划线：`_chrome_user_data_dir` → `chrome_user_data_dir`、`_read_workspace_ids` → `read_workspace_ids`；main_window 调用同步
+- [x] R14 exporter CSV 列名由 `flatten_tokens(TokenStats(), prefix="tokens_")` 键推导（SUMMARY/GROUP 两表单一来源）
+- [x] R15 opencode_usage 抽 `_by_field(json_expr, since, until, limit)` 收敛 by_model/by_provider/by_agent 三方法
+- [x] 检验：`.temp/verify_v3a1.py` 42 项（http_get 复用/401 分类行为、read_json 复用、别名、quota_chunk_color、get_logger、round_cost、SUBPROCESS_TIMEOUT、常量收敛、APP_NAME、公开入口、CSV 列、_by_field）+ 全量回归 30 脚本全绿（同步 s7/s9/s10/v1010_3 对改名引用的断言）+ import/GUI offscreen OK
+- 状态：✅ 已完成（2026-08-11）｜优先级：高
+
+### 3A.2 第二批：小错误/边界（9 条）
+
+- [x] S1 convert.to_float 入口排除 bool（与 to_int 语义一致：to_float(True) → default）
+- [x] S2 settings `type(interval) is int` 排除 bool（防 user_config 写 true → 1ms 刷新间隔）
+- [x] S3 opencode_usage `if min_ts is not None and max_ts is not None`（min_ts=0 纪元边界；行为验证 days=1）
+- [x] S4 cost_source 判定改看 `estimated_cost_totals` 非空（多币种时 total=None 但估算存在，标 mixed/estimated 而非 recorded）
+- [x] S5 CLI 补捕获 `sqlite3.Error` 统一中文提示（--db 指向坏库/目录时退出码 1 + 中文 stderr）
+- [x] S6 static_config 映射值 `isinstance(rel_path, str)` 校验（非字符串统一抛 RuntimeError）
+- [x] S7 main_window `CDP_POLL_INTERVAL`/`CDP_LOGIN_WAIT_SECONDS` 模块级解包（消除函数内解包）
+- [x] S8 system_tray 移除未使用 QApplication import
+- [x] S9 TokenStats 类注释补 total 字段（六字段清单）
+- [x] 检验：`.temp/verify_v3a2.py` 20 项（bool 语义、min_ts=0 行为、CLI 坏库中文提示、映射类型抛错、常量/导入/注释）+ 全量回归 31 脚本 **659 项全部通过**
+- 状态：✅ 已完成（2026-08-11）｜优先级：中
+
+### 3A.3 第三批：死代码/硬编码/其他清理（约 24 条）
+
+- [x] C1 file_utils `_json_cache` 评估结论：**保留**（通用 utils 能力，业务点显式 use_cache=False 属 TTL 语义，verify_s1 覆盖缓存行为）；说明区 clear_cache 残留删除并补评估说明
+- [x] C2 retry.py 不可达 if 分支简化（直接 raise last_error，注释说明必然非 None）
+- [x] C3 go_quota fetch_dashboard_usage 的 HTTPError 401/403 分支删除（_http_get 已分类，不可达；_http_get 内有效分支保留）
+- [x] C4 fetch_go_quota 冗余 global 声明删除（读写均在 _build_info/_fallback）
+- [x] C5 pricing `_rate_from_raw` 去 try/except（to_* 已消化异常），返回类型改 RateInfo，调用方去 is not None
+- [x] C6 browser_creds rmtree(ignore_errors=True) 外层 except OSError 删除
+- [x] C7 credential_store 说明区函数名更正（_read_credentials_json → read_credentials_file）
+- [x] C8 pricing retries/delay 走 base.json（3A.1 R1 顺带完成）
+- [x] C9 pricing `Path(str(...))` 冗余去除（3A.1 顺带完成）
+- [x] C10 pricing `_deserialize`/`_apply_local_overrides` 合并为 `_load_rate_items(raw, default_source)`
+- [x] C11 pricing 非 refresh 路径 TTL 过期同样回退旧缓存（`_read_stale_cache` 忽略 TTL，旧缓存优先于内置表；行为验证：过期缓存 + 远程失败 → 回退缓存非内置表）
+- [x] C12 browser_creds `import psutil` 顶层 try-import（函数内延迟导入移除）
+- [x] C13 go_quota `_capture_number` float() try/except 删除（正则已保证数字格式）
+- [x] C14 `_fetch_usage_with_fallback` 成功路径返回空 last_stage/last_error（消除前序失败残留）
+- [x] C15 opencode_usage by_session 复用 `_row_to_usage_row`（先转换再拼接 directory）
+- [x] C16 exporter datasets 单次遍历（CSV + JSON 组装合并）；C17 日志 CSV 数量动态 `len(datasets)-1`
+- [x] C18 说明区补齐：opencode_usage（_DAY_MS/SUBPROCESS_TIMEOUT）、go_quota（RETRY_COUNT/RETRY_DELAY/HTTP_TIMEOUT/OAUTH_REDIRECT_MARKER）、pricing（PRICE_CACHE_DIR/HTTP_TIMEOUT/RETRY_*）、exporter（_TOKEN_COLUMNS）
+- [x] C19 base.json 新增 `db_default_path`，opencode_usage DEFAULT_DB_PATH 走配置（~ 展开）
+- [x] C20 **跳过并记录**：BUNDLED_PRICES 内置表是有意设计（离线兜底，外置 json 增加加载失败风险）
+- [x] C21 main.py 气泡文案外置 ui.json（notify_title/notify_message_template，format 占位）
+- [x] C22 main_window 布局参数外置 ui.json（layout_margins/layout_spacing/quota_name_width）
+- [x] C23 system_tray 白点色值外置 ui.json（colors.quota_pie_dot）
+- [x] 检验：`.temp/verify_v3a3.py` 31 项（死代码源码断言 + 过期缓存回退行为 + 常量/外置核验）+ 全量回归 32 脚本 **690 项全部通过** + import/GUI offscreen OK
+- 状态：✅ 已完成（2026-08-11）｜优先级：低
+
+## 第四轮审计整改（2026-08-12 规划）
+
+> 目标：47 条发现按三批整改（错漏 11 → 重复实现收敛 5 → 清理/规范约 20）；基线回归 690 项
+> 依据：第四轮全量审计报告（AST 扫描 4 处嵌套 def + 三代理审读）；执行原则：每项完成后运行对应验证
+
+### 4A.1 第一批：错漏（行为相关，11 条）
+
+- [x] E1 exporter.py 日志 CSV 计数 `len(datasets)-1` → `len(datasets)`（实际写 7 个 CSV，summary 也是 CSV——C17 原实现有误）
+- [x] E2 删除 3 处未用 import：go_quota urllib.request、browser_creds urllib.request、exporter json
+- [x] E3 convert.to_optional_float 补 bool 排除（与 to_int/to_float 语义对齐）
+- [x] E4 file_utils read_json 解析失败不写缓存（防坏 JSON 毒化；行为验证：坏 JSON 后修复文件默认调用读到新值）
+- [x] E5 file_utils write_json unlink 竞态修复（except OSError: pass 包裹，去 exists 预判）
+- [x] E6 opencode_usage parse_time_arg 函数开头统一 `spec.strip()`（ISO 与相对时长行为一致）
+- [x] E7 sqlite URI 路径转义两处：opencode_usage OpenCodeDB / browser_creds _with_copied_db（`urllib.parse.quote` + 反斜杠转正斜杠；行为验证：路径含 # 的库打开成功）
+- [x] E8 main_window show_guide 永真判断精简（删 remaining==0/five_hour is None，行为由 verify_s9 回归覆盖）
+- [x] E9 pricing 说明区函数清单删除 `_deserialize` 残留（保留 C10 合并注释）
+- [x] E10 browser_creds v20 WARNING 每探测会话一次（warned_v20 标志；行为验证：两条 v20 cookie 只提示一次）
+- [x] E11 browser_creds CDP 响应非列表结构校验（防 AttributeError 逃逸；行为验证：返回 dict 时返回 None）
+- [x] 检验：`.temp/verify_v4a1.py` 19 项（计数/import/bool 语义/缓存毒化行为/unlink 源码/parse strip/含 # 库行为/永真条件/v20 提示计数/CDP 结构）+ 全量回归 33 脚本全绿（同步 v1010_3 L5 缓存计数语义、v3a3 C17 计数断言）+ import OK
+- 状态：✅ 已完成（2026-08-12）｜优先级：高
+
+### 4A.2 第二批：重复实现收敛（5 条）
+
+- [x] D1 APP_NAME 四处重复解包统一：utils.logger 导出，main.py/system_tray.py/main_window.py 改 `from utils.logger import APP_NAME`（源码断言无本地解包）
+- [x] D2 新建 `utils/windows.py`：win32crypt try-import 降级 + `WIN32CRYPT_AVAILABLE` 标记；credential_store/browser_creds 删除本地 try-import 并引用公共模块（缺 pywin32 浏览器探测降级行为验证）
+- [x] D3 `utils/windows.dpapi_protect/dpapi_unprotect`：credential_store 加密/解密与 browser_creds AES key 提取三处调用收敛（真实 DPAPI 往返验证；缺失返回 None）
+- [x] D4 `browser_creds.credential_dedup_key(workspace_id, auth_cookie)`：go_quota add 闭包与 browser_creds 内联去重键共用（闭包本身保留合理）
+- [x] D5 UI 文案与调色板外置 ui.json：dimension_labels / quota_window_labels（消除与 CLI 的"5 小时/每周/每月"重复）/ 引导卡片文案（guide_card_text/按钮）/ **palettes.light/dark 24 色整体迁入**（themes 从 ui.json 读，S8.3 颜色外置补齐）
+- [x] 检验：`.temp/verify_v4a2.py` 29 项（单一来源/真实 DPAPI 往返/降级/去重键/文案调色板外置+主题构建）+ 全量回归 34 脚本全绿（同步 verify_s6/s9/v0808_p4 的 win32crypt mock 至 utils.windows、v1010_2 M17 断言、v1010_3 L16 断言）+ import OK
+- 状态：✅ 已完成（2026-08-12）｜优先级：高
+
+### 4A.3 第三批：清理/规范（约 20 条）
+
+- [x] C1 删除 `_UsageTask` 的 `rows["total"]` 伪维度（从未消费；弹窗直接读 summary）
+- [x] C2 `used_percent()` getter **保留并记录**（测试专用控件读取接口，注释已声明）
+- [x] C3 browser_creds `_TaskProcess` 嵌套类提为模块级私有类（含 # 注释）
+- [x] C4 三处 `_with_copied_db` 回调闭包参数化提取：`_read_auth_cookies_query(conn, aes_key)`（返回 list + has_v20，提示上移每会话一次）/ `_workspace_ids_query(conn)` / `_scan_v20_query(conn)`；`_with_copied_db` 增加 `*query_args` 透传（AST 扫描确认无嵌套 def）
+- [x] C5 opencode_usage 8 处 `limit=100` 默认值收敛：新增 `TABLE_LIMIT_GROUP/TABLE_LIMIT_DAY` 常量（by_day 用 DAY，其余 GROUP），与 base.json 一致
+- [x] C6 settings `THEMES` 外置 ui.json（`themes: ["light","dark"]`）
+- [x] C7 settings hidden_columns 空白项 strip 过滤（行为验证：["cost"," ","reasoning"] → ("cost","reasoning")）
+- [x] C8 static_config mapping 非 dict 抛 RuntimeError（行为验证）
+- [x] C9 retry 加 `assert last_error is not None`（消除 Optional 语义）
+- [x] C10 browser_creds `DEFAULT_LOGIN_URL`（由 OPENCODE_HOST 派生）+ `CDP_PROBE_TIMEOUT`（2.0）接入
+- [x] C11 main_window `CARDS_SPACING` / `RESET_TIME_FORMAT`（ui.json）/ `PIE_START_ANGLE`+`FULL_CIRCLE_16` 角度常量 / `quota_chunk_color(int(round(...)))` 类型对齐
+- [x] C12 system_tray `__init__` 补 `parent: QWidget | None` 注解；说明区补 APP_NAME/PIE_DOT_COLOR；阈值描述去字面量（改引用 themes）
+- [x] C13 themes `DARK_THEME_NAME = "dark"` 命名常量（替代 THEMES[1]）；说明区去 50/80 字面量
+- [x] C14 说明区补齐：browser_creds（+6 函数 3 常量 1 状态）、main_window（+14 常量）、logger（APP_NAME/LOG_LEVEL）、main（APP_NAME）
+- [x] C15 go_quota "接口节流 60 秒"注释改"由 base.json min_fetch_interval 驱动"
+- [x] C16 第四轮审计报告写入 z.plan.md 第十四章
+- [x] 检验：`.temp/verify_v4a3.py` 49 项（伪维度/闭包提取/常量收敛/行为验证/说明区全覆盖）+ 全量回归 35 脚本 **793 项全部通过**（修复 C11 编辑缩进失误、同步 verify_v0808_p5 格式外置断言）+ import/GUI offscreen OK
+- 状态：✅ 已完成（2026-08-12）｜优先级：低
+
+### 3A.4 验证与收尾
+
+- [x] V.1 全量回归：verify_s1-s14 + v0808_p2-p8 + v0809_1-5 + v1010_1-3 + v3a1-3 + v4a1-3 共 **788 项断言全部通过**（覆盖第三/四轮审计全部整改）
+- [x] V.2 导入验证 + GUI offscreen 初始化 OK + `--version` 输出 ver 0.11
+- [x] V.3 `config/static/base.json` `version` → `ver 0.11`；README 配置表同步（base.json +subprocess_timeout/db_default_path；ui.json +themes/cards_spacing/reset_time_format/dimension_labels/quota_window_labels/guide__/notify__/palettes 等）；verify_s12 required 补 3 新字段
+- [x] V.4 z.plan.md 第十三/十四章标注"全部完成（V0.11）"；x.progress.md 回填（本节 + 总览 + 头部版本）
+- 状态：✅ 已完成（2026-08-12）｜优先级：高
+
+---
+
+## 第三/四轮审计整改验证总览（V0.11）
+
+> 全量回归 **788 项断言全部通过**（s1-s14 基线 + v0808/v0809/v1010 + 3A 三批 93 项 + 4A 三批 97 项）——2026-08-12 实施完毕
+> 第三轮（3A.1-3A.3）：跨模块复用 15 条收敛（utils/network.py 新建、read_json/http_get 复用、dataclass 别名、APP_NAME 等）+ 小错误 9 条 + 死代码/硬编码 22 条
+> 第四轮（4A.1-4A.3）：错漏 11 条（exporter 计数/缓存毒化/URI 转义/v20 提示等）+ 重复实现 5 条收敛（utils/windows.py 新建、调色板外置）+ 清理规范 16 条（闭包提取/limit 收敛/说明区补齐）
+> 遗留：P1/P9（多账户区分）、P11（明文兼容去留）、P22（测试专用接口）待评估，P20（模型数据页+社交跟踪）V0.11 实施，见 y.problem.md
 
 ---
 
