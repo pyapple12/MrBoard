@@ -15,13 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
-T = TypeVar("T")
-
-from config.static.static_config import get_static_config
-from utils.logger import get_logger
-
-logger = get_logger(__name__)
-
 try:
     import win32crypt
 except ImportError:  # 打包环境缺依赖时降级（不阻断 go_quota 主流程）
@@ -36,6 +29,13 @@ try:
     import websocket
 except ImportError:  # 打包环境缺依赖时降级（CDP 获取不可用，不影响其他路径）
     websocket = None
+
+from config.static.static_config import get_static_config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+T = TypeVar("T")
 
 OPENCODE_HOST = "opencode.ai"
 COOKIE_NAMES = ("auth",)
@@ -126,12 +126,23 @@ def _profile_dirs(user_data: Path) -> list[Path]:
     return [p for p in profiles if p.is_dir()]
 
 
+def _read_local_state_json(local_state_path: Path) -> dict[str, Any] | None:
+    # 读取浏览器 Local State JSON（宽容解析：缺失/损坏/非 dict 返回 None，M12 收敛重复）
+    try:
+        raw = json.loads(local_state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
 def _load_aes_key(local_state_path: Path) -> bytes | None:
     # 从 Local State 提取 AES key：base64 解码 encrypted_key（去 DPAPI 前缀）后 DPAPI 解密
-    if win32crypt is None or not local_state_path.is_file():
+    if win32crypt is None:
+        return None
+    local_state = _read_local_state_json(local_state_path)
+    if not local_state:
         return None
     try:
-        local_state = json.loads(local_state_path.read_text(encoding="utf-8"))
         encrypted_key_b64 = local_state.get("os_crypt", {}).get("encrypted_key")
         if not isinstance(encrypted_key_b64, str) or not encrypted_key_b64.startswith(
             "DPAPI"
@@ -140,7 +151,7 @@ def _load_aes_key(local_state_path: Path) -> bytes | None:
         encrypted_key = base64.b64decode(encrypted_key_b64[5:])
         _, aes_key = win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)
         return aes_key
-    except (OSError, json.JSONDecodeError, ValueError, TypeError) as exc:
+    except (ValueError, TypeError) as exc:
         logger.warning("提取浏览器 AES key 失败（%s）：%s", local_state_path, exc)
         return None
 
@@ -229,45 +240,50 @@ def _with_copied_db(
 
 
 def _safe_copy_db(db_path: Path) -> Path | None:
-    # 复制 SQLite 库到临时文件（浏览器运行中文件被独占锁定时降级返回 None）
+    # 复制 SQLite 库到临时文件（浏览器运行中文件被独占锁定时降级返回 None；
+    # 全部失败路径清理临时目录，防泄漏 H8）
     if not db_path.is_file():
         return None
     tmp_dir = Path(tempfile.mkdtemp(prefix="myboard_browser_"))
     copy_path = tmp_dir / db_path.name
+    success = False
     try:
-        shutil.copy2(db_path, copy_path)
-        return copy_path
-    except OSError as exc:
-        logger.warning("浏览器数据库被锁定（%s），尝试 esentutl：%s", db_path, exc)
         try:
-            result = subprocess.run(
-                ["esentutl.exe", "/y", str(db_path), "/d", str(copy_path)],
-                capture_output=True,
-                text=True,
-                timeout=ESENTUTL_TIMEOUT,
+            shutil.copy2(db_path, copy_path)
+            success = True
+            return copy_path
+        except OSError as exc:
+            logger.warning("浏览器数据库被锁定（%s），尝试 esentutl：%s", db_path, exc)
+            try:
+                result = subprocess.run(
+                    ["esentutl.exe", "/y", str(db_path), "/d", str(copy_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=ESENTUTL_TIMEOUT,
+                )
+                if result.returncode == 0 and copy_path.is_file():
+                    success = True
+                    return copy_path
+            except (OSError, subprocess.TimeoutExpired) as exc2:
+                logger.warning("esentutl 兜底失败：%s", exc2)
+            logger.warning(
+                "浏览器数据库被独占锁定且无法备份（%s）：请关闭浏览器后重试",
+                db_path,
             )
-            if result.returncode == 0 and copy_path.is_file():
-                return copy_path
-        except (OSError, subprocess.TimeoutExpired) as exc2:
-            logger.warning("esentutl 兜底失败：%s", exc2)
-        logger.warning(
-            "浏览器数据库被独占锁定且无法备份（%s）：请关闭浏览器后重试",
-            db_path,
-        )
-        return None
+            return None
+    finally:
+        if not success:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def has_v20_cookies(user_data: Path) -> bool:
     # 检测 Chrome/Edge 是否为 v20（app-bound）环境：优先查 Local State 的
+    # app_bound_encrypted_key 标记，缺失时回退扫描 cookie 库 v20 前缀
     if not user_data.is_dir():
         return False
-    local_state_path = user_data / "Local State"
-    try:
-        local_state = json.loads(local_state_path.read_text(encoding="utf-8"))
-        if local_state.get("os_crypt", {}).get("app_bound_encrypted_key"):
-            return True
-    except (OSError, json.JSONDecodeError):
-        pass
+    local_state = _read_local_state_json(user_data / "Local State")
+    if local_state and local_state.get("os_crypt", {}).get("app_bound_encrypted_key"):
+        return True
     return _scan_cookie_db_for_v20(user_data)
 
 
@@ -301,7 +317,8 @@ def is_chrome_running() -> bool:
 def launch_chrome_debug(
     port: int = CDP_PORT, login_url: str = "https://opencode.ai/"
 ) -> subprocess.Popen | None:
-    # 以远程调试模式启动 Chrome（独立临时 profile：Chrome 136+ 仅非默认
+    # 以远程调试模式启动 Chrome（独立临时 profile，全新环境需重新登录，
+    # --restore-last-session 对空 profile 无效已移除，M16）
     if wait_cdp_ready(port=port, timeout=1.0):
         logger.warning("CDP 端口 %d 已被占用（可能已有调试实例），放弃启动", port)
         return None
@@ -318,7 +335,6 @@ def launch_chrome_debug(
                 str(executable),
                 f"--remote-debugging-port={port}",
                 f"--user-data-dir={_cdp_profile_dir}",
-                "--restore-last-session",
                 # Chrome 137+ 校验 WebSocket Origin，不加则 CDP 连接 403 被拒
                 "--remote-allow-origins=*",
                 login_url,
@@ -503,8 +519,8 @@ def psutil_process_iter() -> list[Any]:
 #   has_v20_cookies()：检测库内是否存在 v20 cookie（UI 判断是否走 CDP 引导）
 #   is_chrome_running()：Chrome 进程检测（CDP 引导前必须关闭，单例模式下
 #     调试参数不生效）
-#   launch_chrome_debug()：以 --remote-debugging-port 启动 Chrome（保留登录态
-#     与上次会话，--restore-last-session）
+#   launch_chrome_debug()：以 --remote-debugging-port 启动 Chrome（独立临时
+#     profile，全新环境需重新登录；--remote-allow-origins=* 防 403）
 #   wait_cdp_ready()：轮询 http://127.0.0.1:9222/json/version 直到调试端口就绪
 #   fetch_auth_cookie_via_cdp()：CDP Network.getAllCookies 获取 opencode.ai
 #     auth cookie 明文——**Chrome 自行解密，v10/v20/v30 通吃、跨版本稳定**

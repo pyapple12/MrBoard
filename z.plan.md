@@ -4,7 +4,7 @@
 > 项目定位：Windows 桌面应用，展示 OpenCode 用量统计与 OpenCode Go 配额使用情况的信息窗口
 > 参考基准：AccelWorld 项目结构（utils/ → config/ → modules/ → ui/ → data/ 单向分层）与 AGENTS.md 代码规范；错误策略采用参考项目的当代模式（见第四章）
 > 参考仓库：reference/ 目录下 3 个开源项目（研读笔记见 w.study.md）
-> 实施状态：**S1-S8 + V0.08（P2-P8）+ V0.09（P12-P19/P21 UI 改版）全部实现完成**（全量回归 506 项断言通过，V0.09 已就绪）；当前计划见第十一章与 y.problem.md 待评估项
+> 实施状态：**S1-S8 + V0.08（P2-P8）+ V0.09（UI 改版）+ V0.10（二次审计整改）全部实现完成**（全量回归 596 项断言通过，V0.10 已就绪）；待评估项见 y.problem.md
 
 ---
 
@@ -168,3 +168,42 @@ mrboard/
 - **明细表格**：列顺序 标签/总 token/调用数/输入/输出/推理/缓存（读+写合并）/缓存率/费用（P13+P18）；"设置"按钮列开关（hidden_columns 持久化）
 - **配额饼图**：原"最紧窗口"文字位改为剩余量饼图（P16，正常显示/异常隐藏让位警告）
 - **会话维度**：`by_session()`（会话标题｜项目目录，LEFT JOIN session 表 + 旧库降级），GUI/CLI/导出齐全（P19）
+
+---
+
+## 十二、P10 二次审计问题汇总（2026-08-10 审计完成）
+
+> 范围：全部 16 个 .py 文件，对照 AGENTS.md 规范 + 10 类问题清单（优化/抽象/过简函数/import/嵌套/小错误/硬编码/默认值/防御性代码/死代码）
+> 结果：**59 条发现**（高价值 10 / 中价值 20 / 低价值 22）；无架构级问题，import 顶层化/注释规范/命名/可变默认参数均合规
+> **整改状态：✅ 全部完成（2026-08-10，V0.10）**——实施明细见 x.progress.md V0.10；H1/M11 两项审计建议经实测证伪（以行为验证为准）
+
+### 高价值（行为相关，10 条）
+
+- go_quota.py:183-184：`except GoQuotaError: raise` 死分支——retry_call 的 exceptions 不含 GoQuotaError，无拦截对象
+- go_quota.py:195：`"OpenAuth" in html or "<title>OpenAuth</title>" in html` 死条件——后者蕴含于前者
+- go_quota.py:254-258：`_add_seconds` if/else 两分支返回完全相同表达式，纯冗余
+- go_quota.py:287-288：`_http_get` 中 `if not 200 <= response.status < 300` 不可达（urlopen 对 4xx/5xx 直接抛 HTTPError）
+- main_window.py:289-299：`_CdpGuideTask` 默认 `login_wait_seconds=180` 硬编码，base.json `cdp_login_wait_seconds` 形同虚设（改 json 不生效）
+- pricing.py:96-109：`load_price_map(refresh=True)` 网络失败回退内置表（5 条）而非 TTL 内旧缓存——违反"网络失败返回上次缓存"策略
+- pricing.py:282：UA `"myboard/0.1"` 硬编码，与 base.json version 不一致（违反"版本号唯一来源"）
+- browser_creds.py:231-257：`_safe_copy_db` 失败路径（copy2 + esentutl 均失败）临时目录从不删除，资源泄漏
+- main.py:42：预警阈值 `>= 80` 魔法数字，ui.json `quota_danger_percent` 与 themes 导出的 `QUOTA_DANGER_PERCENT` 未复用
+- settings.py:72：说明区"凭据在 ~/.config/myboard/"失效（实际已迁移项目内 data/credentials/，P2）
+
+### 中价值（死代码/冗余/过简函数/规范，20 条）
+
+- **死代码（8 处）**：file_utils.py:59 `clear_cache()` 无调用；settings.py:12 `CONFIG_DIR` 无引用；retry.py:42 不可达 raise；main_window.py:67 `REFRESH_INTERVAL_MS` 未使用；main_window.py:412/666 `_quota_info` 只写不读；main_window.py:214 `_RemainingPieChart.used_percent()` 无调用；system_tray.py:32/60-71 `_quota_status` 只写不读；main_window.py:254/277/331/337 四处"调试："遗留注释；browser_creds.py:261/304 两处截断注释
+- **未用参数**：go_quota.py:299 `_throttled_cache(now, force)` 的 `now` 未使用
+- **过简函数（3 处）**：go_quota.py:150 `_read_credentials_json` 一行转发；pricing.py:287 `json_loads` 一行；main_window.py:684 `_status_bar_show` 一行转发（可选内联）
+- **重复逻辑（3 处）**：browser_creds.py `_load_aes_key` 与 `has_v20_cookies` 重复读 Local State JSON；opencode_usage.py:169-190 `totals()` 的 `_time_clause` 调用 6 次；opencode_usage.py:265 `_has_session_columns` 每次 PRAGMA 无缓存；exporter.py:49-80 维度名手写 3 次
+- **无效参数/说明不符**：browser_creds.py:302-325 `--restore-last-session` 对全新临时 profile 无效，说明区"保留登录态"与 9222 写死与实际不符
+- **import 分组**：browser_creds.py:20-38 第三方 try-import 位于本地模块之后、`T = TypeVar` 插在 import 中间；credential_store.py:12-15 同（win32crypt 位置）
+- **说明区不全/不符（4 文件）**：opencode_usage（"五个聚合入口"实为 7 个，漏 by_session 等）；go_quota（漏 9 函数 + CREDENTIALS_FILE）；main_window（漏 P13/P16 新增组件，`QTimer.singleShot(10)` 应为常量）；system_tray（漏常量）
+
+### 低价值（行宽/魔法数字/冗余包装，22 条）
+
+- **行宽 5 处超 100**：opencode_usage:173/188/544、go_quota:263、main_window:781
+- **`Path(str(...))` 冗余包装 3 处**：logger:12、settings:13、go_quota:36-38
+- **file_utils**：:22 注解 `path: Path` 与实现（接受 str）不符；:64 说明区漏 `_PROJECT_ROOT`；:27-39 缓存写入重复 3 次
+- **硬编码（多处）**：settings.py:44 主题枚举与 themes.py 重复；main_window.py:143-148 表格 limit=50/200；main_window.py:199-235 饼图色值/尺寸/字号；main_window.py:256/323 CDP 超时；system_tray.py:80-94 图标几何按 32×32 推算；opencode_usage.py:181/334/339 `86400_000`/`/1000` 与 `_EPOCH_MS` 重复；opencode_usage:127/go_quota:281/pricing:283 timeout 不统一（10/15）；main.py:27 应用名；logger.py:32-33 日志级别/文件名
+- **其他**：static_config.py:31 `result.get("base", {})` 静默兜底与失败策略不一致；exporter.py:46 `Path(out_dir)` 重复构造；opencode_usage.py:268 `row[1]` 数字索引应改 `row["name"]`

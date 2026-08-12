@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from config.static.static_config import get_static_config
 from modules import pricing
 from utils.convert import to_float, to_int
 from utils.logger import get_logger
@@ -23,6 +24,8 @@ UNKNOWN_LABEL = "未知"
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
 ASSISTANT_ROLE = "assistant"
 _EPOCH_MS = 1000
+_DAY_MS = 86_400_000  # 天毫秒数（_EPOCH_MS * 86400，L12 消除两处魔法数字）
+HTTP_TIMEOUT = float(get_static_config().base["http_timeout"])  # L13：统一超时
 
 # 聚合 SQL 列模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
 _TOKEN_SUM_SELECT = (
@@ -124,7 +127,7 @@ def _query_db_path_from_cli() -> Path | None:
             [binary, "db", "path"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=HTTP_TIMEOUT,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("调用 opencode db path 失败：%s", exc)
@@ -142,6 +145,8 @@ class OpenCodeDB:
         self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         self.conn.row_factory = sqlite3.Row
         self.db_path = db_path
+        # PRAGMA 检测结果缓存（by_session 周期调用避免重复查表结构，M14）
+        self._session_columns: bool | None = None
 
     @classmethod
     def auto(cls) -> "OpenCodeDB":
@@ -166,27 +171,28 @@ class OpenCodeDB:
     ) -> UsageSummary:
         # 全量聚合：会话数/消息数/活动跨度天数 + token/费用；estimate=True 时对库 cost 缺失的消息做定价估算
         summary = UsageSummary(since=since, until=until)
+        time_clause, time_params = self._time_clause(since, until)
         row = self._fetch_one(
             f"SELECT COUNT(DISTINCT session_id) AS sessions,"
             f" MIN(json_extract(data, '$.time.created')) AS min_ts,"
             f" MAX(json_extract(data, '$.time.created')) AS max_ts"
-            f" FROM message WHERE json_extract(data, '$.role') = ?{self._time_clause(since, until)[0]}",
-            [ASSISTANT_ROLE] + self._time_clause(since, until)[1],
+            f" FROM message WHERE json_extract(data, '$.role') = ?{time_clause}",
+            [ASSISTANT_ROLE] + time_params,
         )
         summary.sessions = to_int(row["sessions"])
         min_ts = row["min_ts"]
         max_ts = row["max_ts"]
         if min_ts and max_ts:
             # 活动跨度天数 = 跨度毫秒转天向下取整 + 1（对齐 opencode stats 的 Days 口径）
-            summary.days = int((to_int(max_ts) - to_int(min_ts)) / 86400_000) + 1
+            summary.days = int((to_int(max_ts) - to_int(min_ts)) / _DAY_MS) + 1
         agg = self._fetch_one(
             self._base_sql(since, until),
-            [ASSISTANT_ROLE] + self._time_clause(since, until)[1],
+            [ASSISTANT_ROLE] + time_params,
         )
         # 消息数按全量统计（含 user，对齐 opencode stats 的 Messages 口径）
         msg_row = self._fetch_one(
-            f"SELECT COUNT(*) AS messages FROM message WHERE 1=1{self._time_clause(since, until)[0]}",
-            self._time_clause(since, until)[1],
+            f"SELECT COUNT(*) AS messages FROM message WHERE 1=1{time_clause}",
+            time_params,
         )
         summary.messages = to_int(msg_row["messages"])
         summary.tokens = self._row_to_tokens(agg)
@@ -263,12 +269,18 @@ class OpenCodeDB:
         return result
 
     def _has_session_columns(self) -> bool:
-        # 检测 session 表是否含 title/directory 列（旧库可能缺表或缺列，by_session 降级用）
-        try:
-            cols = [row[1] for row in self.conn.execute("PRAGMA table_info(session)")]
-        except sqlite3.Error:
-            return False
-        return "title" in cols and "directory" in cols
+        # 检测 session 表是否含 title/directory 列（旧库可能缺表或缺列，by_session 降级用；
+        # 结果缓存于实例属性，只读连接生命周期内表结构不变）
+        if self._session_columns is None:
+            try:
+                cols = [
+                    row["name"]
+                    for row in self.conn.execute("PRAGMA table_info(session)")
+                ]
+                self._session_columns = "title" in cols and "directory" in cols
+            except sqlite3.Error:
+                self._session_columns = False
+        return self._session_columns
 
     def by_model(
         self, since: int | None = None, until: int | None = None, limit: int = 100
@@ -330,14 +342,17 @@ class OpenCodeDB:
         return ("".join(parts), params)
 
     def _day_expr(self) -> str:
-        # 按天分组表达式：毫秒时间戳转本地时区日期字符串
-        return "date(json_extract(data, '$.time.created') / 1000, 'unixepoch', 'localtime')"
+        # 按天分组表达式：毫秒时间戳转本地时区日期字符串（L12：复用 _EPOCH_MS）
+        return (
+            f"date(json_extract(data, '$.time.created') / {_EPOCH_MS},"
+            " 'unixepoch', 'localtime')"
+        )
 
     def _month_expr(self) -> str:
         # 按月分组表达式：毫秒时间戳转本地时区 %Y-%m 字符串（字符串排序 = 时间排序）
         return (
-            "strftime('%Y-%m', datetime(json_extract(data, '$.time.created')"
-            " / 1000, 'unixepoch', 'localtime'))"
+            f"strftime('%Y-%m', datetime(json_extract(data, '$.time.created')"
+            f" / {_EPOCH_MS}, 'unixepoch', 'localtime'))"
         )
 
     def _query_grouped(
@@ -541,7 +556,8 @@ def main() -> None:
                 if key == "rows":
                     for row in value:
                         print(
-                            f"  {row['label']}: {row['calls']} 次, tokens={row['tokens']['total']}, cost={row['cost']}"
+                            f"  {row['label']}: {row['calls']} 次, "
+                            f"tokens={row['tokens']['total']}, cost={row['cost']}"
                         )
                 else:
                     print(f"{key}: {value}")
@@ -557,6 +573,8 @@ if __name__ == "__main__":
 #   UNKNOWN_LABEL：分组缺失值显示（未知）
 #   DEFAULT_DB_PATH：XDG 默认数据库路径（%USERPROFILE%\.local\share\opencode\opencode.db）
 #   ASSISTANT_ROLE：只统计 assistant 消息（user 消息无 token 数据）
+#   _EPOCH_MS：毫秒换算基数（时间戳/分组表达式共用）
+#   _TOKEN_SUM_SELECT：聚合列 SQL 模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
 # 类型：
 #   TokenStats：token 五字段 + compute_total()（total 优先，五字段和兜底，兼容新旧格式）
 #   UsageRow：分组行（label/calls/tokens/cost）
@@ -565,11 +583,17 @@ if __name__ == "__main__":
 #   find_db_path()：三级探测——OPENCODE_DB 环境变量 → opencode db path 子进程
 #     （shutil.which + 10s 超时，失败返回 None）→ XDG 默认路径；参考 opencode-usage
 #     的探测链，GUI 每次启动只需调用一次
-#   OpenCodeDB：只读连接（mode=ro 防误写）+ row_factory；提供 totals/by_day/
-#     by_model/by_provider/by_agent 五个聚合入口，内部经 _base_sql/_query_grouped/
-#     _time_clause/_day_expr 组合 SQL；费用决策：库 cost 优先，estimate=True 时
-#     对 cost=0 且 token 非零的消息逐条走 pricing.estimate_cost（多币种分桶）
+#   _query_db_path_from_cli()：子进程查询 opencode db path（失败/超时返回 None）
+#   OpenCodeDB：只读连接（mode=ro 防误写）+ row_factory；聚合入口——totals 总览 /
+#     by_day（日期降序）/ by_month（%Y-%m 降序）/ by_model / by_provider / by_agent /
+#     by_session（会话标题｜项目目录，LEFT JOIN session 表，缺列降级 session_id）；
+#     内部经 _base_sql/_query_grouped/_time_clause/_day_expr/_month_expr 组合 SQL；
+#     _has_session_columns（PRAGMA 结果实例缓存）；费用决策：库 cost 优先，
+#     estimate=True 时对 cost=0 且 token 非零的消息逐条走 pricing.estimate_cost
+#     （多币种分桶）；_row_to_tokens/_row_to_usage_row/_fetch_one/_estimate_missing_costs
+#     为行转换与查询辅助
 #   parse_time_arg()：时间参数解析（7d/2w/3h 相对或 ISO 日期）
+#   _to_epoch_ms()：datetime 转毫秒时间戳（时间过滤用）
 #   main()：CLI 自测（--db/--since/--by/--limit/--json/--estimate），供对照
 #     `opencode stats` 验证数字一致性
 # 设计理由：SQL 用 json_extract + COALESCE 聚合，不依赖 tokens.total 存在

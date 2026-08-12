@@ -43,7 +43,6 @@ GROUP_CSV_COLUMNS = (
 
 def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
     # 导出全部用量数据到 out_dir：summary + 六维度 CSV（UTF-8 BOM）+ usage.json（P8 月份、P19 会话）
-    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = db.totals()
     datasets: dict[str, list[Any]] = {
@@ -56,28 +55,17 @@ def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
         "by_session": [_group_to_row(r) for r in db.by_session(limit=EXPORT_LIMIT)],
     }
     _write_csv(out_dir / "summary.csv", SUMMARY_CSV_COLUMNS, datasets["summary"])
-    for name in (
-        "by_month",
-        "by_day",
-        "by_model",
-        "by_provider",
-        "by_agent",
-        "by_session",
-    ):
-        _write_csv(out_dir / f"{name}.csv", GROUP_CSV_COLUMNS, datasets[name])
-    write_json(
-        out_dir / "usage.json",
-        {
-            "exported_at": datetime.now().isoformat(timespec="seconds"),
-            "summary": datasets["summary"][0],
-            "by_month": datasets["by_month"],
-            "by_day": datasets["by_day"],
-            "by_model": datasets["by_model"],
-            "by_provider": datasets["by_provider"],
-            "by_agent": datasets["by_agent"],
-            "by_session": datasets["by_session"],
-        },
-    )
+    # M15：维度名单一来源（datasets 键），新增维度只改一处
+    for name, rows in datasets.items():
+        if name == "summary":
+            continue
+        _write_csv(out_dir / f"{name}.csv", GROUP_CSV_COLUMNS, rows)
+    json_payload: dict[str, Any] = {
+        "exported_at": datetime.now().isoformat(timespec="seconds")
+    }
+    for name, rows in datasets.items():
+        json_payload[name] = rows[0] if name == "summary" else rows
+    write_json(out_dir / "usage.json", json_payload)
     logger.info("导出完成：%s（7 个 CSV + 1 个 JSON）", out_dir)
     return out_dir
 

@@ -1,5 +1,6 @@
 # 主题样式模块：QSS 模板 + 双调色板（浅/深），配额阈值/颜色外置 ui.json
 
+from config.settings import THEMES
 from config.static.static_config import get_static_config
 
 # ===== QSS 模板（{占位符} 由调色板替换；QSS 自身的 {} 保持不变） =====
@@ -149,8 +150,8 @@ DARK_THEME = _build_theme(_DARK_PALETTE)
 
 
 def get_theme(name: str) -> str:
-    # 按主题名返回 QSS 样式字符串（light/dark，未知返回浅色）
-    if name == "dark":
+    # 按主题名返回 QSS 样式字符串（THEMES[1] = dark，单一来源见 config.settings，未知返回浅色）
+    if name == THEMES[1]:
         return DARK_THEME
     return LIGHT_THEME
 

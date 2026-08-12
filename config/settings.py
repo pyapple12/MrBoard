@@ -9,10 +9,11 @@ from utils.file_utils import get_project_root, read_json, write_json
 
 # 静态配置解包（S8：参数外置 base.json，用户配置路径由 json 指定）
 _SC = get_static_config()
-CONFIG_DIR = get_project_root() / "config"
-CONFIG_FILE = get_project_root() / Path(str(_SC.base["user_config_path"]))
+CONFIG_FILE = get_project_root() / _SC.base["user_config_path"]
 DEFAULT_REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
 DEFAULT_THEME = str(_SC.base["default_theme"])
+# 主题枚举单一来源（themes.py 引用本常量，防两处定义不同步，L6）
+THEMES = ("light", "dark")
 
 
 @dataclass
@@ -41,7 +42,7 @@ class AppConfig:
         if isinstance(geometry, str) and geometry:
             config.window_geometry = geometry
         theme = raw.get("theme")
-        if theme in ("light", "dark"):
+        if theme in THEMES:
             config.theme = theme
         interval = raw.get("refresh_interval_ms")
         if isinstance(interval, int) and interval > 0:
@@ -67,10 +68,10 @@ def save_config(config: AppConfig) -> None:
 
 # ===== config/settings.py 模块说明 =====
 # 模块级常量：
-#   CONFIG_DIR / CONFIG_FILE：用户配置路径（项目内 config/user_config.json，
+#   CONFIG_FILE：用户配置路径（项目内 config/user_config.json，
 #     对齐 AccelWorld S9.5 定案；路径由 base.json user_config_path 指定，
-#     get_project_root() 拼接）；凭据 opencode-go.json 仍在 ~/.config/myboard/
-#     （S8 决策：敏感数据不随项目走）
+#     get_project_root() 拼接）；凭据 opencode-go.json 在项目内
+#     data/credentials/（P2 定案：所有数据目录集中项目内，不使用用户目录）
 #   DEFAULT_REFRESH_INTERVAL_MS / DEFAULT_THEME：默认值从静态配置现取（零硬编码）
 # 类型：
 #   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms/hidden_columns）

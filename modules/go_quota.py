@@ -30,12 +30,11 @@ _SC = get_static_config()
 MIN_FETCH_INTERVAL = int(_SC.base["min_fetch_interval"])
 RETRY_COUNT = int(_SC.base["retry_count"])
 RETRY_DELAY = float(_SC.base["retry_delay"])
+HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
 WORKSPACE_ID_FIELDS = ("workspaceId", "workspaceID", "workspace_id")
 AUTH_COOKIE_FIELDS = ("authCookie", "auth_cookie", "cookie")
 # dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
-CREDENTIALS_FILE = (
-    get_project_root() / Path(str(_SC.base["credentials_dir"])) / "opencode-go.json"
-)
+CREDENTIALS_FILE = get_project_root() / _SC.base["credentials_dir"] / "opencode-go.json"
 
 # 模块级缓存：上次成功结果与时间戳（网络失败兜底用，z.plan 第四章缓存兜底策略）
 _last_quota: "GoQuotaInfo | None" = None
@@ -122,7 +121,7 @@ def find_dashboard_credentials() -> list[DashboardCredentials]:
     if env_workspace and env_cookie:
         add(env_workspace, env_cookie, "Environment")
     for path in _dashboard_config_paths():
-        raw = _read_credentials_json(path)
+        raw = credential_store.read_credentials_file(path)
         if raw is None:
             continue
         add(
@@ -145,11 +144,6 @@ def _dashboard_config_paths() -> list[Path]:
         paths.append(Path(env_file).expanduser())
     paths.append(CREDENTIALS_FILE)
     return paths
-
-
-def _read_credentials_json(path: Path) -> dict[str, Any] | None:
-    # 读取凭据 JSON 文件（P4：经 credential_store 识别加密格式解密 / 明文旧格式兼容）
-    return credential_store.read_credentials_file(path)
 
 
 def _first_value(data: dict[str, Any], fields: tuple[str, ...]) -> str:
@@ -181,6 +175,8 @@ def fetch_dashboard_usage(
             delay=RETRY_DELAY,
         )
     except GoQuotaError:
+        # _http_get 的 401/403 分类错误经 retry_call 传播至此，须原样放行
+        # （否则被 except Exception 捕获包装成 network，破坏 auth 分类）
         raise
     except urllib.error.HTTPError as exc:
         # 重试耗尽后分类：401/403 为凭据问题，其余为 provider 错误
@@ -192,7 +188,7 @@ def fetch_dashboard_usage(
     except Exception as exc:
         raise GoQuotaError("network", f"请求 dashboard 失败：{exc}") from exc
     html = body.decode("utf-8", errors="replace")
-    if "OpenAuth" in html or "<title>OpenAuth</title>" in html:
+    if "OpenAuth" in html:
         # 未登录会话被重定向到 OpenAuth 登录页：凭据失效，按 auth 分类
         # （引导卡片据此显示，用户可一键重新获取）
         raise GoQuotaError(
@@ -252,15 +248,16 @@ def _parse_window(field_name: str, text: str, now: datetime) -> GoQuotaWindow | 
 
 
 def _add_seconds(now: datetime, seconds: int) -> datetime:
-    # datetime 加秒数（兼容 naive/aware，保持原时区语义）
-    if now.tzinfo is None:
-        return now + timedelta(seconds=seconds)
+    # datetime 加秒数（naive/aware 的 + 均保持原时区语义）
     return now + timedelta(seconds=seconds)
 
 
 def _capture_object_body(field_name: str, text: str) -> str | None:
     # 正则抓取字段对象体：兼容 {"field": {...}} 与 "field":$R[12]={...} 两种形态
-    pattern = rf"""["']?{re.escape(field_name)}["']?\s*:\s*(?:\$R\[\d+\]\s*=\s*)?\{{(?P<body>[^{{}}]*)\}}"""
+    pattern = (
+        rf"""["']?{re.escape(field_name)}["']?\s*:\s*"""
+        rf"""(?:\$R\[\d+\]\s*=\s*)?\{{(?P<body>[^{{}}]*)\}}"""
+    )
     match = re.search(pattern, text, re.DOTALL)
     return match.group("body") if match else None
 
@@ -278,14 +275,13 @@ def _capture_number(field_name: str, text: str) -> float | None:
 
 
 def _http_get(
-    url: str, headers: dict[str, str] | None = None, timeout: float = 15.0
+    url: str, headers: dict[str, str] | None = None, timeout: float = HTTP_TIMEOUT
 ) -> bytes:
     # 发送 GET 请求返回响应体；401/403 转 auth 分类，网络/其他 HTTP 异常原样抛出（交 retry_call 重试）
     request = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            if not 200 <= response.status < 300:
-                raise GoQuotaError("provider", f"HTTP {response.status}")
+            # urlopen 对非 2xx 直接抛 HTTPError（3xx 自动跟随），能返回必为 2xx
             return response.read()
     except urllib.error.HTTPError as exc:
         # 凭据问题不可重试 → auth 分类；其余（5xx/429）抛原异常由 retry_call 重试
@@ -296,7 +292,7 @@ def _http_get(
         raise
 
 
-def _throttled_cache(now: datetime, force: bool) -> GoQuotaInfo | None:
+def _throttled_cache(force: bool) -> GoQuotaInfo | None:
     # 节流检查：非强制且距上次成功不足 60s 时返回标注后的缓存（避免打爆接口）
     if (
         not force
@@ -365,7 +361,7 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
     # 主流程：节流 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误（P3：无 key 链路）
     global _last_quota, _last_success_at
     now = datetime.now(timezone.utc)
-    cached = _throttled_cache(now, force)
+    cached = _throttled_cache(force)
     if cached is not None:
         return cached
 
@@ -441,6 +437,8 @@ if __name__ == "__main__":
 #     （Cookie auth= 自动补前缀，参考 opencode-bar OpenCodeGoProvider.swift）
 #   MIN_FETCH_INTERVAL：接口节流 60 秒（z.plan 第四章节流策略）
 #   WORKSPACE_ID_FIELDS / AUTH_COOKIE_FIELDS：凭据字段兼容集合
+#   CREDENTIALS_FILE：dashboard 凭据文件（项目内 data/credentials/opencode-go.json，
+#     P2 定案集中项目内；含凭据严禁入库）
 # 模块级变量：_last_quota / _last_success_at——成功结果缓存与时间戳（缓存兜底）
 # 类型：
 #   GoQuotaWindow：单窗口（usage_percent/reset_in_sec/reset_date）
@@ -456,13 +454,22 @@ if __name__ == "__main__":
 #   _dashboard_config_paths()：$OPENCODE_GO_CONFIG_FILE → 项目内
 #     data/credentials/opencode-go.json（P2：凭据集中项目目录，不探测用户目录；
 #     P6：不读其他项目配置）
-#   _read_credentials_json()：经 credential_store.read_credentials_file 读取
-#     （加密格式解密 / 明文旧格式兼容，P4）
-#   fetch_dashboard_usage()：HTML 抓取 + 解析（HTTP 错误按分类抛 GoQuotaError）
+#   _first_value()：按字段优先级取第一个非空字符串（key 兼容集合）
+#   fetch_dashboard_usage()：HTML 抓取 + 解析（HTTP 错误按分类抛 GoQuotaError；
+#     401/403 经 _http_get 转 auth 后由 except GoQuotaError 原样放行）
+#   _cookie_header()：Cookie 头补 auth= 前缀
 #   parse_dashboard_html()：纯函数（可测）：实体反转义 → 逐窗口正则解析 →
 #     缺失窗口仅警告、全部缺失抛 decoding 错误
-#   _capture_object_body/_capture_number/_normalize_html：opencode-bar 正则移植
-#     （兼容 "field":$R[12]={...} 赋值形态与字符串/数字双形态值）
+#   _normalize_html()：HTML 实体反转义（含 \u0022 手动替换）
+#   _parse_window()：单窗口对象解析（usagePercent/resetInSec → GoQuotaWindow）
+#   _add_seconds()：datetime 加秒（naive/aware 保持原时区）
+#   _capture_object_body/_capture_number：opencode-bar 正则移植（兼容
+#     "field":$R[12]={...} 赋值形态与字符串/数字双形态值）
+#   _http_get()：GET 请求（401/403 转 auth 分类；其余异常原样抛交 retry 重试）
+#   _throttled_cache(force)：节流检查——非强制且距上次成功不足 60s 返回缓存
+#   _fetch_usage_with_fallback()：凭据候选逐个尝试（首成功返回 + 来源标注）
+#   _build_info()：组装成功配额信息并更新缓存（overall = max 三窗口）
+#   _mark_cached()：缓存兜底标注（浅拷贝防污染）
 #   fetch_go_quota(force)：主流程——节流检查 → 凭据候选逐个尝试（首成功返回）→
 #     组装 GoQuotaInfo；任一步失败走 _fallback 缓存兜底（P3：无 API key 链路，
 #     程序不接触任何 key）

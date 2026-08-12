@@ -22,7 +22,7 @@
   - **用户配置**（`config/settings.py`，可读写）：AppConfig dataclass，存项目内 `config/user_config.json`（路径由 base.json `user_config_path` 指定）
 - **参数约定**：可调参数一律走 `config/static/*.json`，禁止代码硬编码；版本号唯一来源为 `base.json` 的 `version` 字段；所有配置与数据目录集中在项目内——凭据（opencode-go.json）、日志、价格缓存路径由 base.json 的 `credentials_dir` / `logs_dir` / `prices_dir` 指定（相对项目根，运行时生成、已 gitignore），**不使用用户目录**
 - `main.py` 收编 GUI 分发；模块间顶层 import，不要使用函数内延迟 import
-- 提交信息用中文 conventional 风格并带版本号，如 `feat: V0.1，完成用量统计模块...`
+- 提交信息按 Git 注意章节的 Commit 提交规范（V2）书写，如 `feat: V0.09，UI 改版与维护...`
 - 项目规划与方案文档在 `z.plan.md`
 - `reference/` 目录是外部项目的 git clone（浅克隆），**不纳入本仓库版本控制**；需要更新时重新 clone
 
@@ -75,6 +75,18 @@
 
 - `.gitignore` 忽略 `.venv`、`reference/`、`archived/`、`.temp/`、`config/user_config.json`、`data/credentials/`、`data/logs/`、`data/prices/`、`opencode-go.json`（含配额凭据）—— 对这些文件的修改不会出现在 `git status` 中；`AGENTS.md` 已纳入版本控制
 - 严禁将 API key、authCookie、workspaceId 等凭据提交到仓库
+- 未经用户明确要求，不得擅自执行 `git add`、`git commit` 或任何其他 Git 写操作
+
+### Commit 提交规范（V2，2026-08-10 定稿）
+
+- **标题行**：`<type>: V<版本>，<摘要>`——版本号与 base.json `version` 字段一致；摘要一句话概括核心（可用括号列重点）
+- **type 全集**（conventional 风格）：
+  - `feat` 新功能 / `fix` 修复 / `refactor` 重构（行为不变）/ `perf` 性能
+  - `docs` 文档 / `test` 测试 / `style` 格式 / `build` 构建依赖 / `ci` CI / `chore` 杂项 / `revert` 回滚
+- **正文**（改动大时可选）：`- ` 列表，每个功能块一行自然中文描述，每行 ≤ 100 字符
+- **禁止项**：内部编号（P2/S8/D1 等规划编号）、验证/回归数字（如"全量回归 506 项通过"）、英文混排描述
+- **提交范围**：一个版本的所有连带改动一次提交（源码 + 配置 + 文档同步）
+- **流程**：由 AI 根据 `git status`/`git diff` 核对清单并草拟 commit 内容（git add 清单 + message）→ 用户审阅后自行执行 `git add`/`git commit`/`git push`（AI 不执行 git 写操作）
 
 ## 操作注意
 

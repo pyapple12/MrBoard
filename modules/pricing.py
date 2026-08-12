@@ -24,6 +24,7 @@ PRICE_CACHE_DIR = get_project_root() / Path(str(_SC.base["prices_dir"]))
 PRICE_CACHE_FILE = PRICE_CACHE_DIR / "prices.json"
 PRICE_LOCAL_FILE = PRICE_CACHE_DIR / "prices.local.json"
 PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效期：1 天
+HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
 
 # 内置常见模型价格表（单位：美元/百万 token，cache 价格缺省为 None 表示按无折扣计）
 # 来源：models.dev 快照与 opencode-bar 测试数据，仅作无网络/无缓存时的回退
@@ -95,13 +96,18 @@ def canonical_key(provider: str, model: str) -> str:
 
 def load_price_map(refresh: bool = False) -> dict[str, RateInfo]:
     # 加载定价表：缓存（TTL 内）→ 远程 models.dev（无缓存或 refresh）→ 内置表，最后合并本地覆盖
+    # （H6：refresh 且远程失败时回退 TTL 内旧缓存，不降级为内置表）
     price_map = _load_cached_prices(refresh)
     if not price_map:
+        cached_fallback = _load_cached_prices(False) if refresh else None
         remote = _fetch_remote_prices()
         if remote:
             price_map = remote
             write_json(PRICE_CACHE_FILE, _serialize(remote))
             logger.info("远程定价表已缓存：%d 条", len(remote))
+        elif cached_fallback:
+            price_map = cached_fallback
+            logger.info("远程定价刷新失败，回退旧缓存：%d 条", len(cached_fallback))
         else:
             price_map = _load_bundled()
             logger.info("远程定价不可用，回退内置表：%d 条", len(price_map))
@@ -250,7 +256,7 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
             exceptions=(urllib.error.URLError, TimeoutError),
             delay=1.0,
         )
-        data = json_loads(body)
+        data = json.loads(body.decode("utf-8"))
     except Exception as exc:
         logger.warning("拉取 models.dev 定价失败：%s", exc)
         return None
@@ -278,15 +284,13 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 
 
 def _http_get(url: str) -> bytes:
-    # 发送 GET 请求返回响应体（10 秒超时），供 retry_call 重试调用
-    request = urllib.request.Request(url, headers={"User-Agent": "myboard/0.1"})
-    with urllib.request.urlopen(request, timeout=10) as response:
+    # 发送 GET 请求返回响应体（超时走 base.json http_timeout，L13），供 retry_call 重试调用
+    # UA 版本跟随 base.json（H7）
+    request = urllib.request.Request(
+        url, headers={"User-Agent": f"myboard/{_SC.base['version']}"}
+    )
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
         return response.read()
-
-
-def json_loads(body: bytes) -> Any:
-    # 解码 JSON 响应体（UTF-8），供远程价格解析复用
-    return json.loads(body.decode("utf-8"))
 
 
 # ===== modules/pricing.py 模块说明 =====
@@ -309,8 +313,8 @@ def json_loads(body: bytes) -> Any:
 #     （禁止跨币种相加，参考 OpenCode-Token 的 estimated_cost_totals 设计）
 #   _load_bundled / _load_cached_prices / _serialize / _deserialize / _apply_local_overrides：
 #     定价表各层来源的装载与合并（坏条目逐条跳过，宽容解析）
-#   _fetch_remote_prices / _http_get / json_loads：models.dev 拉取与解析
-#     （urllib 实现，复用 utils/retry.py 指数退避重试，失败返回 None 不崩溃）
+#   _fetch_remote_prices / _http_get：models.dev 拉取与解析（urllib 实现，
+#     复用 utils/retry.py 指数退避重试，失败返回 None 不崩溃）
 #   弹性数字转换复用 utils/convert.py 的 to_float / to_optional_float
 #     （String/Int 兼容，z.plan 第四章宽容解析）
 # 设计理由：库 cost 优先（opencode_usage 聚合），估算仅作缺失回退；价格数据带

@@ -19,21 +19,17 @@ def get_project_root() -> Path:
     return _PROJECT_ROOT
 
 
-def read_json(path: Path, default: Any = None, use_cache: bool = True) -> Any:
+def read_json(path: Path | str, default: Any = None, use_cache: bool = True) -> Any:
     # 读取 JSON 文件（默认带内存缓存；use_cache=False 强制读最新文件），文件不存在或解析失败时返回 default
     path = Path(path)
     if use_cache and path in _json_cache:
         return _json_cache[path]
-    if not path.is_file():
-        if use_cache:
-            _json_cache[path] = default
-        return default
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-        if use_cache:
-            _json_cache[path] = default
-        return default
+    data = default
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            data = default
     if use_cache:
         _json_cache[path] = data
     return data
@@ -56,13 +52,9 @@ def write_json(path: Path, data: Any) -> None:
     _json_cache[path] = data
 
 
-def clear_cache() -> None:
-    # 清空内存缓存单例（文件被外部修改后调用以强制重读）
-    _json_cache.clear()
-
-
 # ===== utils/file_utils.py 模块说明 =====
 # 模块级变量：
+#   _PROJECT_ROOT：项目根目录（utils/ 的父目录，get_project_root 校验用）
 #   _json_cache：缓存单例 dict[Path, Any]，避免高频读配置重复 IO
 #     （对齐 AccelWorld 修复 D4"每次调用全量读文件"的思路）
 # 函数：

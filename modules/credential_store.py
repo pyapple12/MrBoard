@@ -5,14 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from utils.logger import get_logger
-
-logger = get_logger(__name__)
-
 try:
     import win32crypt
 except ImportError:  # 打包环境缺依赖时降级为 None（加密不可用，写入路径拒绝明文落盘）
     win32crypt = None
+
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # 加密格式标记：文件 dict 含该键时按 base64(DPAPI blob) 解密（P4）
 ENCRYPTED_KEY = "encrypted_v1"

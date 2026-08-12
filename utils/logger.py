@@ -7,10 +7,13 @@ from pathlib import Path
 from config.static.static_config import get_static_config
 from utils.file_utils import get_project_root
 
-# 静态配置解包（P2：日志目录外置 base.json logs_dir，集中项目内，不使用用户目录）
+# 静态配置解包（P2：日志目录外置 base.json logs_dir，集中项目内，不使用用户目录；
+# L16：应用名/日志级别同样由 base.json 驱动）
 _SC = get_static_config()
-LOG_DIR = get_project_root() / Path(str(_SC.base["logs_dir"]))
-LOG_FILE = LOG_DIR / "myboard.log"
+APP_NAME = str(_SC.base["app_name"])
+LOG_LEVEL = str(_SC.base["log_level"])
+LOG_DIR = get_project_root() / _SC.base["logs_dir"]
+LOG_FILE = LOG_DIR / f"{APP_NAME}.log"
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -29,7 +32,7 @@ def get_logger(name: str) -> logging.Logger:
 def _setup_handlers() -> None:
     # 初始化根日志器：控制台 handler + UTF-8 文件 handler（文件失败时降级仅控制台）
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
     root.addHandler(console_handler)

@@ -8,9 +8,12 @@ from config.static.static_config import get_static_config
 from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
+from ui.themes import QUOTA_DANGER_PERCENT
 
-# 版本号单一来源（S8.5：外置 base.json version 字段）
-VERSION = str(get_static_config().base["version"])
+# 版本号单一来源（S8.5：外置 base.json version 字段）；应用名同样 json 驱动（L16）
+_SC = get_static_config()
+VERSION = str(_SC.base["version"])
+APP_NAME = str(_SC.base["app_name"])
 
 
 def main() -> None:
@@ -24,7 +27,7 @@ def main() -> None:
 def run_gui() -> None:
     # 启动 GUI：创建应用/主窗口/托盘，连接托盘信号，进入事件循环
     app = QApplication(sys.argv)
-    app.setApplicationName("myboard")
+    app.setApplicationName(APP_NAME)
     window = MainWindow()
     tray = SystemTray(window)
     tray.refresh_requested.connect(window.refresh)
@@ -39,7 +42,7 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
     # 配额加载完成：更新托盘图标状态色；≥80% 时气泡预警（错误时图标置灰）
     if info.error is None:
         tray.update_quota_status(info.overall_used_percent)
-        if info.overall_used_percent >= 80:
+        if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
             tray.notify_quota(
                 "OpenCode Go 配额预警",
                 f"最紧窗口已使用 {info.overall_used_percent}%，剩余 {info.remaining_percent}%",

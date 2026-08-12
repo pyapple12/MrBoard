@@ -28,7 +28,11 @@ def _load_static_config() -> StaticConfig:
         if data is None:
             raise RuntimeError(f"静态配置文件缺失或损坏: {rel_path}")
         result[key] = data
-    return StaticConfig(base=result.get("base", {}), ui=result.get("ui", {}))
+    # L7：映射缺分类键与文件缺失同策略（不静默兜底，避免调用方后续 KeyError）
+    for key in ("base", "ui"):
+        if key not in result:
+            raise RuntimeError(f"静态配置映射缺少分类: {key}")
+    return StaticConfig(base=result["base"], ui=result["ui"])
 
 
 _static_config_cache: StaticConfig | None = None

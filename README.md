@@ -159,18 +159,20 @@ mrboard/
 
 可调参数一律外置于静态配置（代码零硬编码），按分类：
 
-| 文件                        | 参数                                                                                           | 说明                                 |
-| --------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `config/static/config.json` | 引导映射表                                                                                     | `base.json` / `ui.json` 分类对应关系 |
-| `config/static/base.json`   | `version`                                                                                      | 版本号唯一来源（ver 0.09）           |
-|                             | `window_width/height`、`refresh_interval_ms`、`auto_load_delay_ms`                             | 窗口尺寸与刷新调度                   |
-|                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                             | 配额接口节流与重试                   |
-|                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval` | 浏览器/CDP 引导参数                  |
-|                             | `export_limit`、`price_cache_ttl`、`models_dev_url`                                            | 导出与定价                           |
-|                             | `credentials_dir`、`logs_dir`、`prices_dir`                                                    | 运行数据目录（项目内，相对路径）     |
-|                             | `user_config_path`、`default_theme`                                                            | 用户配置路径与默认值                 |
-| `config/static/ui.json`     | `colors.quota_*`、`quota_warn_percent`、`quota_danger_percent`                                 | 配额颜色与阈值                       |
-|                             | `icon_size`、`notify_duration_ms`、`table_headers`                                             | 托盘图标/通知与表格表头              |
+| 文件                        | 参数                                                                                                                                    | 说明                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `config/static/config.json` | 引导映射表                                                                                                                              | `base.json` / `ui.json` 分类对应关系 |
+| `config/static/base.json`   | `version`                                                                                                                               | 版本号唯一来源（ver 0.09）           |
+|                             | `window_width/height`、`refresh_interval_ms`、`auto_load_delay_ms`                                                                      | 窗口尺寸与刷新调度                   |
+|                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                                                                      | 配额接口节流与重试                   |
+|                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval`、`cdp_fetch_timeout`、`cdp_wait_timeout` | 浏览器/CDP 引导参数与超时            |
+|                             | `export_limit`、`price_cache_ttl`、`models_dev_url`、`http_timeout`                                                                     | 导出、定价与网络超时                 |
+|                             | `credentials_dir`、`logs_dir`、`prices_dir`                                                                                             | 运行数据目录（项目内，相对路径）     |
+|                             | `table_limit_group`、`table_limit_day`                                                                                                  | 明细表格行数上限                     |
+|                             | `app_name`、`log_level`                                                                                                                 | 应用名与日志级别                     |
+|                             | `user_config_path`、`default_theme`                                                                                                     | 用户配置路径与默认值                 |
+| `config/static/ui.json`     | `colors.quota_*`（含饼图色值）、`quota_warn_percent`、`quota_danger_percent`                                                            | 配额颜色与阈值                       |
+|                             | `icon_size`、`notify_duration_ms`、`table_headers`、`pie_size`、`pie_font_size`                                                         | 托盘图标/通知、表格表头与剩余量饼图  |
 
 修改 json 后重启应用生效（`get_static_config()` 缓存单例，进程内只读一次）。
 

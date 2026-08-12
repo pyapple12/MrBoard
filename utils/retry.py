@@ -39,7 +39,7 @@ def retry_call(
             time.sleep(wait)
     if last_error is not None:
         raise last_error
-    raise RuntimeError("重试逻辑异常：未捕获到错误")
+    # 不可达：循环内成功即 return，异常必被 except 捕获（last_error 非 None）或类型不匹配直接传播
 
 
 # ===== utils/retry.py 模块说明 =====

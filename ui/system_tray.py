@@ -29,7 +29,6 @@ class SystemTray(QSystemTrayIcon):
     def __init__(self, parent=None) -> None:
         # 初始化托盘：构建图标与菜单，连接激活信号
         super().__init__(parent)
-        self._quota_status = 0  # 0 未知 / 1 正常 / 2 警告 / 3 危险
         self.setIcon(self._build_icon(QUOTA_COLOR_OK))
         self.setToolTip("myboard 用量与配额")
         menu = QMenu()
@@ -57,18 +56,14 @@ class SystemTray(QSystemTrayIcon):
     def update_quota_status(self, used_percent: int | None) -> None:
         # 按最紧窗口使用百分比更新图标颜色（绿/黄/红；阈值用 themes 常量）
         if used_percent is None:
-            self._quota_status = 0
             self.setIcon(self._build_icon(QColor(QUOTA_GRAY)))
             return
         if used_percent >= QUOTA_DANGER_PERCENT:
             color = QColor(QUOTA_COLOR_DANGER)
-            self._quota_status = 3
         elif used_percent >= QUOTA_WARN_PERCENT:
             color = QColor(QUOTA_COLOR_WARN)
-            self._quota_status = 2
         else:
             color = QColor(QUOTA_COLOR_OK)
-            self._quota_status = 1
         self.setIcon(self._build_icon(color))
 
     def notify_quota(self, title: str, message: str) -> None:
@@ -78,7 +73,7 @@ class SystemTray(QSystemTrayIcon):
         )
 
     def _build_icon(self, color: QColor | str) -> QIcon:
-        # 绘制圆形配额图标：中心填充状态色 + 白色边框（兼容字符串色值）
+        # 绘制圆形配额图标：中心填充状态色 + 白色圆点（几何按 ICON_SIZE 比例，L11）
         color = QColor(color)
         pixmap = QPixmap(ICON_SIZE, ICON_SIZE)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -86,10 +81,15 @@ class SystemTray(QSystemTrayIcon):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
-        painter.drawEllipse(8, 8, ICON_SIZE - 16, ICON_SIZE - 16)
+        margin = ICON_SIZE // 16  # 外圆边距（原 8/128）
+        painter.drawEllipse(
+            margin, margin, ICON_SIZE - margin * 2, ICON_SIZE - margin * 2
+        )
         painter.setPen(QColor("#ffffff"))
         painter.setBrush(QColor("#ffffff"))
-        painter.drawEllipse(ICON_SIZE // 2 - 14, ICON_SIZE // 2 - 14, 28, 28)
+        dot = ICON_SIZE // 8  # 白色中心圆点直径（原 28/128）
+        offset = (ICON_SIZE - dot) // 2
+        painter.drawEllipse(offset, offset, dot, dot)
         painter.end()
         return QIcon(pixmap)
 
@@ -103,7 +103,8 @@ class SystemTray(QSystemTrayIcon):
 
 
 # ===== ui/system_tray.py 模块说明 =====
-# 模块级常量：ICON_SIZE（图标像素尺寸）
+# 模块级常量：ICON_SIZE（图标像素尺寸）、NOTIFY_DURATION_MS（气泡通知时长）、
+#   QUOTA_GRAY（托盘灰色，错误/未知态）
 # 类：SystemTray(QSystemTrayIcon)
 #   信号：
 #     refresh_requested / quit_requested：菜单触发，由 main.py 装配连接
@@ -118,4 +119,4 @@ class SystemTray(QSystemTrayIcon):
 # 设计理由：常驻托盘形态（对齐 opencode-bar 菜单栏模式）；图标颜色一眼可见
 #   配额紧张度；退出信号与刷新信号解耦，装配逻辑集中在 main.py
 # 异常处理：托盘在 offscreen/无托盘环境下仅构造对象（不 show），不崩溃
-# 关联配置：QUOTA 三色常量来自 ui/themes.py
+# 关联配置：QUOTA 三色常量与阈值来自 ui/themes.py（ui.json 外置）
