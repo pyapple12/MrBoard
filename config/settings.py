@@ -101,7 +101,8 @@ def save_config(config: AppConfig) -> None:
 #   save_config(config)：write_json 原子写（.tmp + os.replace）
 # 设计理由：配置聚合用 dataclass（AGENTS.md 约定）；失败永不崩溃
 #   （z.plan 第四章宽容解析）；GUI 层只依赖本模块读写，几何序列化细节隔离
-# 异常处理：读写异常全部由 file_utils 宽容消化
+# 异常处理：读异常由 file_utils 宽容消化；写异常（save_config→write_json）失败
+#   时清理临时文件后 re-raise，由调用方决定降级策略（E3.6 修正，对齐 write_json E5 设计）
 # 关联配置：config/static/base.json（user_config_path/default_theme/refresh_interval_ms/
 #   min_refresh_interval_ms）
 #   + ui.json（themes 数组）

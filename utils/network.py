@@ -42,4 +42,4 @@ def http_get(
 # 异常处理：非 2xx 抛 urllib.error.HTTPError；网络/超时异常原样传播，均交调用方
 #   重试或分类（z.plan 第四章错误策略）
 # 关联配置：timeout 默认 None 回退 base.json http_timeout（A2.4 单一来源），
-#   调用方可显式覆盖（go_quota/pricing 的 HTTP_TIMEOUT）
+#   调用方可显式覆盖（go_quota 的 HTTP_TIMEOUT；pricing 走默认回退，E3.5 同步）

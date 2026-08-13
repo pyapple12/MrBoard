@@ -1,11 +1,12 @@
 {
-  "version": "ver 0.17",
+  "version": "ver 0.18",
   "window_width": 760,
   "window_height": 640,
   "refresh_interval_ms": 300000,
   "min_refresh_interval_ms": 1000,
   "auto_load_delay_ms": 10,
   "min_fetch_interval": 60,
+  "credentials_ttl": 30,
   "retry_count": 2,
   "retry_delay": 1.0,
   "cdp_port": 9222,

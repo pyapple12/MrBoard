@@ -89,7 +89,8 @@ class BrowserCredential:
 # D0.8：凭据探测结果短 TTL 缓存（刷新高频场景避免每轮复制多 profile 库 + DPAPI 解密）
 _creds_cache: list[BrowserCredential] | None = None
 _creds_cache_at: float = 0.0
-CREDS_CACHE_TTL = 30.0  # 秒
+# E2.2：TTL 走 base.json（观察项提升：避免修复规格自造硬编码）
+CREDS_CACHE_TTL = float(_SC.base["credentials_ttl"])
 
 
 def find_browser_credentials() -> list[BrowserCredential]:
@@ -99,7 +100,11 @@ def find_browser_credentials() -> list[BrowserCredential]:
     if _creds_cache is not None and time.time() - _creds_cache_at < CREDS_CACHE_TTL:
         return _creds_cache
     if not WIN32CRYPT_AVAILABLE or AES is None:
+        # E3.3：缺库也写空缓存——否则每次刷新重复 warning（TTL 对该场景失效，
+        # 与 E2.2 配置化配套；对 credential_store 的 6A.2 D6 降级策略看齐）
         logger.warning("缺少 pywin32/pycryptodome，跳过浏览器凭据探测")
+        _creds_cache = []
+        _creds_cache_at = time.time()
         return []
     result: list[BrowserCredential] = []
     seen: set[str] = set()
@@ -608,7 +613,9 @@ def psutil_process_iter() -> list[Any]:
 #     esentutl 超时、子进程超时、CDP 会话/就绪超时（base.json cdp_fetch/wait_timeout 驱动）、
 #     探测族固定值（3 个，base.json 无对应字段）、默认登录页（C14 补列，6A.1 E3 修正失实）
 # 模块级变量：_cdp_profile_dir——CDP 引导临时 profile（launch 创建，shutdown 清理）；
-#   _v20_warned——v20 提示会话级去重标志（5A.1 E1：首测才提示）
+#   _v20_warned——v20 提示会话级去重标志（5A.1 E1：首测才提示）；
+#   _creds_cache/_creds_cache_at/CREDS_CACHE_TTL——凭据探测短 TTL 缓存（D0.8 引入，
+#   E3.7 补列；TTL 走 base.json credentials_ttl，E2.2）
 # 模块级导入：AES/websocket/psutil 缺失时降级为 None；DPAPI 能力来自 utils.windows
 #   （WIN32CRYPT_AVAILABLE/dpapi_unprotect，4A.2 D2 收敛 win32crypt 降级）
 # 类型：BrowserCredential（workspace_id + auth_cookie + 来源标注）、
@@ -617,7 +624,8 @@ def psutil_process_iter() -> list[Any]:
 #   credential_dedup_key()：凭据去重键（workspace_id::auth_cookie，D4 共享）
 #   find_browser_credentials()：主入口——遍历 Chrome/Edge × profile，
 #     AES key 提取 → cookie 解密 → 历史提取 workspaceID → 笛卡尔组合候选（去重）；
-#     仅覆盖 v10（老 Chrome/Edge ≤126），v20 走 CDP 引导（见下）
+#     仅覆盖 v10（老 Chrome/Edge ≤126），v20 走 CDP 引导（见下）；
+#     D0.8 TTL 缓存 + E3.3 缺库分支写空缓存（TTL 对缺库场景同样生效）
 #   _local_appdata()：LOCALAPPDATA 目录（带默认值推导，多处路径构造共用）
 #   _browser_user_data_dirs()：Chrome/Edge 的 User Data 标准路径
 #   _profile_dirs()：Default + Profile* 枚举（Default 优先）
@@ -655,5 +663,6 @@ def psutil_process_iter() -> list[Any]:
 # 异常处理：DPAPI/JSON/SQLite/子进程/WebSocket 异常全部捕获降级；解密失败
 #   （坏 key/校验失败）单条跳过不中断
 # 关联配置：config/static/base.json（history_limit/cdp_port/esentutl_timeout/subprocess_timeout/
-#   cdp_fetch_timeout/cdp_wait_timeout，B3.1 补列）+ LOCALAPPDATA 环境变量；被 modules/go_quota.py
+#   cdp_fetch_timeout/cdp_wait_timeout，B3.1 补列；credentials_ttl，E2.2 补列）+
+#   LOCALAPPDATA 环境变量；被 modules/go_quota.py
 #   的 find_dashboard_credentials 集成

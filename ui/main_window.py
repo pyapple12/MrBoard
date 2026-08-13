@@ -999,7 +999,12 @@ class MainWindow(QMainWindow):
             self._hidden_columns.add(col_id)
         config = load_config()
         config.hidden_columns = self._sorted_hidden_columns()
-        save_config(config)
+        try:
+            # E0.3：列开关持久化失败仅 warning（与 D0.10 同式降级——磁盘满/权限
+            # 错误不逃逸 Qt 槽，状态已改、持久化失败可接受）
+            save_config(config)
+        except Exception as exc:
+            logger.warning("保存列配置失败：%s", exc)
 
     def _render_table(self) -> None:
         # 按当前维度渲染分组表格（P13 新列顺序：标签/总token/调用数/输入/输出/推理/缓存合并/缓存率/费用）
@@ -1109,7 +1114,8 @@ class MainWindow(QMainWindow):
 #       凭据缺失（错误且无缓存无来源）时显示引导卡片
 #     _show_total_detail：点击总览按钮弹出总量明细（QMessageBox，P15）
 #     _show_columns_menu/_on_column_toggle：列显示开关（QMenu 勾选，
-#       setColumnHidden + hidden_columns 持久化，P13）
+#       setColumnHidden + hidden_columns 持久化，P13；E0.3：持久化失败仅
+#       warning 降级，与 D0.10 同式）
 #     _export_data：QFileDialog 选目录 → 后台 _ExportTask（状态栏提示导出中）
 #     _render_cards/_render_quota/_render_table：卡片（P17 新顺序 + 缓存率）/进度条（颜色
 #       分级，使用 themes.quota_chunk_color）与剩余量饼图（P16，正常显示/异常隐藏）/

@@ -116,10 +116,8 @@ if __name__ == "__main__":
 #     消除循环依赖（审计 M1/M2 修复：原 VERSION 放 main.py 导致 ui 反向引用）
 #   APP_NAME：应用名（来自 utils.logger 单一来源，D1/C14）
 # 函数：
-#   main()：
-#     输入：sys.argv 命令行参数
-#     输出：--version/-V 时打印版本号；否则进入 GUI 事件循环
-#     逻辑步骤：判断参数含 --version 或 -V 则打印 VERSION 提前返回；否则 run_gui()
+#   main()：E3.4 同步 D0.13——仅分发 run_gui()；--version/-V 已在模块顶层
+#     （PyQt import 前）处理（D0.13，SystemExit 提前返回，CLI 不加载 GUI 依赖）
 #   run_gui()：
 #     逻辑步骤：QApplication → MainWindow → SystemTray（信号连接：刷新→window.refresh，
 #       退出→_quit_app，配额→_on_quota_updated 托盘图标/预警）→ 显示 → app.exec()

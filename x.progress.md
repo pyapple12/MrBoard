@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.17（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.18（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -339,3 +339,43 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] D4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
 - 状态：✅ 已完成（2026-08-13：全量回归 43/43 + import 19 模块 + GUI offscreen；z.plan A010 附录状态更新为已修复；版本推进 ver 0.17——base.json/README 徽章/README 版本说明/x.progress 头部 4 处一致）｜优先级：高
+
+## E. 第11轮审计修复任务清单（依据 z.plan.md 附录 A011）
+
+### E0 P0 正确性
+
+- [x] E0.1 C0.6 顺序契约修复（themes.py:117-125）——校验 tuple(palettes 键序) 与 THEME_NAMES 完全一致，否则导入期抛 RuntimeError；验证：真实改序 ui.json 导入断言抛错（probe_a011_c06 先 FAIL 后 PASS）
+- [x] E0.2 estimate LIMIT 补 ORDER BY（opencode_usage.py:463-465）——LIMIT 前加 ORDER BY time.created DESC（估算优先最新消息）；验证：断言 SQL 含 ORDER BY 且位置在 LIMIT 前
+- [x] E0.3 _on_column_toggle save_config 加 try（main_window.py:1000-1002）——与 D0.10 同式 try+warning 降级；验证：mock write_json 抛 OSError 断言槽函数不逃逸
+- [x] E0.4 min_ts=0 天数爆炸排查（opencode_usage.py:196-198，观察项提升）——确认 time.created=0 记录的过滤或告警（缺失形态已覆盖，补 0 值形态）；验证：构造 created=0 数据断言结果可控
+- 状态：✅ 已完成（2026-08-13：E0.1 键序完全一致校验（真实改序导入抛错）；E0.2 ORDER BY created DESC 先于 LIMIT；E0.3 列开关持久化降级 warning；E0.4 created=0 归零+告警。探针 4/4 + 修复验收 7/7 + 全量回归 43/43；测试资产同步：verify_6a4 版本断言 0.17、verify_v3a2 S3 days=0、verify_5a3 允许列表补 E0.3 文案）｜优先级：高
+
+### E1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### E2 P2 配置化
+
+- [x] E2.1 in-flight 提示文案外置（go_quota.py:391 + ui.json）——go_quota_error_messages 加 in_flight 键，代码改读 _SC.ui 键；验证：verify_6a3 同步断言新键存在
+- [x] E2.2 CREDS_CACHE_TTL 走 base.json（browser_creds.py:92，观察项提升）——常量改读 base.json 新键（credentials_ttl）；验证：grep 无硬编码 30.0 + 配置键有消费方
+- 状态：✅ 已完成（2026-08-13：E2.1 ui.json 加 in_flight 键 + 代码改读；E2.2 base.json 加 credentials_ttl=30 + 常量改读；护栏③文档同步：browser_creds 说明区 + README 配置表；探针 8/8 + 验收 16/16（含 E0 段）+ 全量回归 43/43；verify_6a3 补 in_flight 断言）｜优先级：高
+
+### E3 P3 清理
+
+- [x] E3.1 in-flight 分支删冗余调用（go_quota.py:386-388）——直返 _fallback，删重复 _throttled_cache；验证：grep 分支内无二次调用
+- [x] E3.2 嵌套闭包提为模块级函数（go_quota.py:127-137）——def add() 提为模块级私有函数（入参 seen/candidates）；验证：AST 扫描无 def 内 def
+- [x] E3.3 WIN32CRYPT/AES 缺失分支写空缓存（browser_creds.py:101-103）——与成功路径同式缓存；验证：mock 缺库断言缓存被写
+- [x] E3.4 main.py 说明区同步 D0.13（main.py:120-122）——main() 描述改"仅分发 run_gui()，--version 已顶层处理"；验证：grep 说明区关键字
+- [x] E3.5 network.py 说明区删 pricing 引用（network.py:45）——改"go_quota 的 HTTP_TIMEOUT；pricing 走默认回退"；验证：grep 无 pricing 字样
+- [x] E3.6 settings.py 说明区改写异常语义（settings.py:104）——补"写异常 re-raise 由调用方处理"；验证：grep 关键字
+- [x] E3.7 browser_creds 说明区补缓存符号（600-611）——补 _creds_cache/_creds_cache_at/CREDS_CACHE_TTL；验证：grep 三符号
+- [x] E3.8 pricing 关联配置补 retry 两键（pricing.py:342）——括号补 retry_count/retry_delay；验证：grep 两键
+- [x] E3.9 palette 值类型校验（themes.py:96-100，A010 遗留）——替换前 isinstance str 校验抛 RuntimeError；验证：改数字配置导入断言抛错
+- 状态：✅ 已完成（2026-08-13：E3.1 删冗余直返 _fallback；E3.2 _add_credential 模块级化；E3.3 缺库分支写空缓存；E3.4-E3.8 说明区 5 处同步 + go_quota 补 _add_credential 条目；E3.9 palette 值类型校验。探针 9/9 + 验收 26/26 + 全量回归 43/43）｜优先级：低
+
+### E4 验证与收尾
+
+- [x] E4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_e_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——含三项防漏损强制（A011 分析结论，2026-08-13 定）：①同根因调用点全扫（grep 全部 write_json/save_config/写配置点，确认每个调用点都在异常防护内，不止 E0.3 目标一处）②说明区全量一致性扫描（本轮修改过的 themes/go_quota/browser_creds/opencode_usage/main_window 5 文件，说明区与实现 diff 逐行核对——含 E0.1/E0.2/E2.1/E2.2 修改处）③配置键文档同步检查（base.json 新键 → README 配置表/契约键集/说明区"关联配置"段三处一致；E2.1/E2.2 新增键必查）
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 26/26 + 冒烟；防漏损①全调用点防护闭环（exporter/go_quota 任务层与槽函数 try 已核实）；②说明区扫描补 4 处漂移（go_quota in_flight/opencode_usage ORDER BY+归零/browser_creds 缺库/main_window toggle 降级）；③credentials_ttl 三处一致；z.plan A011 状态已修复；版本推进 ver 0.18（base.json/README×2/x.progress/verify_6a4 五处一致））｜优先级：高
+- 状态：⏳ 待开发｜优先级：高

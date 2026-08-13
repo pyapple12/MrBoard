@@ -94,6 +94,12 @@ def _build_theme(palette: dict[str, str]) -> str:
     # （6A.1 chunk_ok 事故根因），发现即抛错防再犯）
     result = _QSS_TEMPLATE
     for key, value in palette.items():
+        if not isinstance(value, str):
+            # E3.9：palette 值非字符串（手改配置）→ 契约风格 RuntimeError，
+            # 而非 TypeError（与 A3.5/B0.6 导入期校验同机制）
+            raise RuntimeError(
+                f"调色板 {key} 值必须是字符串，当前 {type(value).__name__}"
+            )
         result = result.replace("{" + key + "}", value)
     missing = re.findall(r"\{[a-zA-Z_]+\}", result)
     if missing:
@@ -114,14 +120,16 @@ if len(THEME_NAMES) < 2:
     raise RuntimeError(
         f"ui.json themes 数组至少需要 light/dark 两项，当前 {THEME_NAMES}"
     )
-# C0.6：主题名-调色板顺序契约（THEME_NAMES 顺序必须与 palettes 键对应且互异，
-# 否则 get_theme("light") 可能返回深色样式，名称与视觉效果错位）
-_palette_keys = set(_SC.ui["palettes"].keys())
-if any(name not in _palette_keys for name in THEME_NAMES) or len(
-    set(THEME_NAMES)
-) != len(THEME_NAMES):
+# C0.6：主题名-调色板顺序契约（E0.1 补全：键序必须与 palettes 完全一致——
+# 仅"⊆+互异"不防 ["dark","light"] 改序，名称与视觉效果错位）
+_palette_keys = tuple(_SC.ui["palettes"].keys())
+if (
+    any(name not in _palette_keys for name in THEME_NAMES)
+    or len(set(THEME_NAMES)) != len(THEME_NAMES)
+    or tuple(THEME_NAMES) != _palette_keys
+):
     raise RuntimeError(
-        f"ui.json themes 数组与 palettes 键不一致：{THEME_NAMES} vs {sorted(_palette_keys)}"
+        f"ui.json themes 数组与 palettes 键不一致：{THEME_NAMES} vs {list(_palette_keys)}"
     )
 LIGHT_THEME_NAME = THEME_NAMES[0]
 DARK_THEME_NAME = THEME_NAMES[1]

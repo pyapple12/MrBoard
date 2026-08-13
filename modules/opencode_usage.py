@@ -194,8 +194,18 @@ class OpenCodeDB:
         min_ts = row["min_ts"]
         max_ts = row["max_ts"]
         if min_ts is not None and max_ts is not None:
-            # 活动跨度天数 = 跨度毫秒转天向下取整 + 1（对齐 opencode stats 的 Days 口径）
-            summary.days = int((to_int(max_ts) - to_int(min_ts)) / _DAY_MS) + 1
+            min_v = to_int(min_ts)
+            max_v = to_int(max_ts)
+            if min_v <= 0 or max_v <= 0:
+                # E0.4：time.created=0 记录（未知创建时间）会让跨度虚高至数十年
+                # （0→now ≈ 20000+ 天）——视为无有效时间数据，天数归零并告警
+                logger.warning(
+                    "检测到 time.created=0 记录（未知创建时间），活动跨度归零"
+                )
+                summary.days = 0
+            else:
+                # 活动跨度天数 = 跨度毫秒转天向下取整 + 1（对齐 opencode stats 的 Days 口径）
+                summary.days = int((max_v - min_v) / _DAY_MS) + 1
         agg = self._fetch_one(
             self._base_sql(time_clause),
             [ASSISTANT_ROLE] + time_params,
@@ -462,7 +472,9 @@ class OpenCodeDB:
             " AND (COALESCE(json_extract(data, '$.cost'), 0) = 0)"
             f" AND COALESCE(json_extract(data, '$.tokens.total'), 0) > 0{time_clause}"
             # D0.11（大会战 A1）：估算加 LIMIT 防大库拖死（CLI --estimate 路径）
-            f" LIMIT {TABLE_LIMIT_GROUP}",
+            # E0.2：LIMIT 前补 ORDER BY created DESC——估算优先最新消息，否则
+            # 按 rowid 取最早插入样本，旧模型价格停售导致 unpriced 占比偏高
+            f" ORDER BY json_extract(data, '$.time.created') DESC LIMIT {TABLE_LIMIT_GROUP}",
             [ASSISTANT_ROLE] + time_params,
         ).fetchall()
         estimates: list[pricing.CostEstimate] = []
@@ -646,7 +658,9 @@ if __name__ == "__main__":
 #     内部经 _base_sql/_query_grouped/_time_clause/_day_expr/_month_expr 组合 SQL；
 #     _has_session_columns（PRAGMA 结果实例缓存）；费用决策：库 cost 优先，
 #     estimate=True 时对 cost=0 且 token 非零的消息逐条走 pricing.estimate_cost
-#     （多币种分桶）；_row_to_tokens/_row_to_usage_row/_fetch_one/_estimate_missing_costs
+#     （多币种分桶，E0.2：取最新样本 ORDER BY created DESC 再 LIMIT）；
+#     totals 活动跨度：E0.4 time.created=0 记录归零并告警（防虚高数十年）；
+#     _row_to_tokens/_row_to_usage_row/_fetch_one/_estimate_missing_costs
 #     为行转换与查询辅助
 #   parse_time_arg()：时间参数解析（7d/2w/3h/5m 相对或 ISO 日期）
 #   _to_epoch_ms()：datetime 转毫秒时间戳（时间过滤用）

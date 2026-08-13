@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.17-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.18-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -165,9 +165,9 @@ mrboard/
 | 文件                        | 参数                                                                                                                                                        | 说明                                                |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `config/static/config.json` | 引导映射表                                                                                                                                                  | `base.json` / `ui.json` 分类对应关系                |
-| `config/static/base.json`   | `version`                                                                                                                                                   | 版本号唯一来源（ver 0.17）                          |
+| `config/static/base.json`   | `version`                                                                                                                                                   | 版本号唯一来源（ver 0.18）                          |
 |                             | `window_width/height`、`refresh_interval_ms`、`min_refresh_interval_ms`、`auto_load_delay_ms`                                                               | 窗口尺寸与刷新调度（含下限防护）                    |
-|                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                                                                                          | 配额接口节流与重试                                  |
+|                             | `min_fetch_interval`、`retry_count`、`retry_delay`、`credentials_ttl`                                                                                       | 配额接口节流与重试、凭据探测缓存时长                |
 |                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval`、`cdp_fetch_timeout`、`cdp_wait_timeout`                     | 浏览器/CDP 引导参数与超时                           |
 |                             | `export_limit`、`price_cache_ttl`、`models_dev_url`、`http_timeout`、`subprocess_timeout`                                                                   | 导出、定价与网络/子进程超时                         |
 |                             | `credentials_dir`、`logs_dir`、`prices_dir`                                                                                                                 | 运行数据目录（项目内，相对路径）                    |

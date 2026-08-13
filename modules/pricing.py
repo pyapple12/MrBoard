@@ -338,5 +338,6 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 # 设计理由：库 cost 优先（opencode_usage 聚合），估算仅作缺失回退；价格数据带
 #   source 标记可审计；TTL 缓存避免每次启动打网络
 # 异常处理：网络失败/JSON 损坏/坏条目全部降级，绝不因价格问题阻断统计
-# 关联配置：config/static/base.json（prices_dir/models_dev_url/price_cache_ttl）；
+# 关联配置：config/static/base.json（prices_dir/models_dev_url/price_cache_ttl/
+#   retry_count/retry_delay，E3.8 补列）；
 #   PRICE_LOCAL_FILE 可由用户手写覆盖（data/prices/prices.local.json）

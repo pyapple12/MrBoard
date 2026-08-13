@@ -307,3 +307,20 @@ mrboard/
 - **外观/风格**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ $ 硬编码（OpenCode 计费固定 USD）/ PIE_FONT_SIZE / 托盘几何
 - **宽容行为**：restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）
 - **不可达/低价值**：login_timeout minutes=0（默认配置不可达）/ _CdpGuideTask 凭据写入不可注入（全链路难单测）/ toggle_theme 不即时持久化（退出即存设计）/ http_timeout 无类型契约（开发期暴露策略）/ retry 参数类型不校验（内部 API 调用方可控）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ hidden_columns 非法 id 回写（D0.15 修复后）/ go_quota html 局部遮蔽（D0.14 修复后）/ parse_time_arg ISO 时区偏移（CLI 自测，转文档：相对时长为主流）/ estimate 全表扫描（D0.11 修复后）/ write_json mkstemp 位置（D0.12 修复后）/ --version 在 PyQt import 后（D0.13 修复后）
+- **第 11 轮（A011）追加豁免 11 条**（用户复核，2 条已提升入 E 系列：min_ts=0、CREDS_CACHE_TTL）：settings refresh_interval_ms 无上限（仅手改配置可达）/ file_utils fdopen 理论 fd 泄漏（需验证）/ retry backoff clamp 宽于注释（内部 API 同族）/ main.py:6 import 场景 argv 误触发（无可达路径）/ pricing cost 空 dict 落入 pricing 分支（schema 数据语义 B3 族）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）/ notify 两模板未入契约组（三级兜底链）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ 窗口销毁 in-flight 信号（Qt 析构自动断连）/ _show_columns_menu 每次 new QMenu（父挂载自动回收）
+
+---
+
+## 附录 A011：全量代码审计报告（第11轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + AST 扫描 + 行为验证（C0.6 实测复现）
+> 结果：**P0-P3 级 15 条（中 3 / 低 12，含观察项提升 2 条）/ 参考级观察项 13 条（提升 2 条，维持豁免 11 条）**
+> 状态：✅ 已修复（2026-08-13：E 系列 E0 正确性 4 条 + E2 配置化 2 条 + E3 清理 9 条全部完成，E1 无条目；探针 4/8/9 全 PASS + 修复验收 26/26 + 全量回归 43/43；E4 收尾含三项防漏损强制——同根因调用点全扫（write_json/save_config 全部调用点防护闭环）、说明区全量一致性扫描（补 4 处漂移：go_quota/opencode_usage/browser_creds/main_window）、配置键文档同步（credentials_ttl 三处一致）；任务清单见 x.progress.md E 系列）
+
+- **上轮复核（A010 D 系列 17 项）**：D0.1-D0.15 + D3.1/D3.2 主体全部在位、零回退；发现 4 处"修复不完整"（main_window:1002 toggle save 漏 try、main.py 说明区未随 D0.13 同步、network.py 说明区残留 pricing 的 HTTP_TIMEOUT、pricing.py:342 关联配置漏 retry 两键）与 2 处"A010 已列未修"（C0.6 顺序契约、palette 值类型）
+- **P0-P3（15 条）**：
+  - 正确性：C0.6 顺序契约失效（改序导入不抛错，行为验证复现）；estimate LIMIT 无 ORDER BY（样本偏向最早消息）；_on_column_toggle save_config 无 try（D0.10 同类漏改）；min_ts=0 天数爆炸（观察项提升，需验证）
+  - 配置化：in-flight 提示文案硬编码（6A.3 H3 定案违反）；CREDS_CACHE_TTL 未走 base.json（观察项提升）
+  - 清理：in-flight 分支冗余调用；嵌套闭包 def add()；WIN32CRYPT/AES 缺失不写缓存（TTL 失效 + 重复 warning）；说明区 5 处失实/缺失；palette 值类型校验
+- **参考级观察项 13 条**（用户复核后**提升 2 条**：min_ts=0 天数爆炸、CREDS_CACHE_TTL 配置化；维持 11 条已并入豁免定案清单）：settings 无上限/理论 fd 泄漏/backoff clamp 语义/cost 空 dict/schema 语义依赖等
+- **亮点**：无高严重度（无确定性崩溃/错值）；三路交叉再次抓出"修复自身引入残留"模式（D0.10/D0.13/D3.1 同类漏改）；行为验证探针自毁还原机制经实测验证（git 兜底无损）

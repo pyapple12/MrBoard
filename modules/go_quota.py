@@ -119,39 +119,55 @@ class GoQuotaError(Exception):
         self.message = message
 
 
+def _add_credential(
+    candidates: list[DashboardCredentials],
+    seen: set[str],
+    workspace_id: str,
+    auth_cookie: str,
+    source: str,
+) -> None:
+    # E3.2：凭据候选去重追加（原 find_dashboard_credentials 内闭包提为模块级，
+    # 消除 def 内 def，闭包逻辑可单测）
+    workspace_id = workspace_id.strip()
+    auth_cookie = auth_cookie.strip()
+    if not workspace_id or not auth_cookie:
+        return
+    key = browser_creds.credential_dedup_key(workspace_id, auth_cookie)
+    if key in seen:
+        return
+    seen.add(key)
+    candidates.append(DashboardCredentials(workspace_id, auth_cookie, source))
+
+
 def find_dashboard_credentials() -> list[DashboardCredentials]:
     # 收集 dashboard 凭据候选：环境变量 → 配置文件多路径；去重键 workspace_id::auth_cookie
     candidates: list[DashboardCredentials] = []
     seen: set[str] = set()
 
-    def add(workspace_id: str, auth_cookie: str, source: str) -> None:
-        # 按去重键追加一个候选（已有则跳过）
-        workspace_id = workspace_id.strip()
-        auth_cookie = auth_cookie.strip()
-        if not workspace_id or not auth_cookie:
-            return
-        key = browser_creds.credential_dedup_key(workspace_id, auth_cookie)
-        if key in seen:
-            return
-        seen.add(key)
-        candidates.append(DashboardCredentials(workspace_id, auth_cookie, source))
-
     env_workspace = os.environ.get("OPENCODE_GO_WORKSPACE_ID", "")
     env_cookie = os.environ.get("OPENCODE_GO_AUTH_COOKIE", "")
     if env_workspace and env_cookie:
-        add(env_workspace, env_cookie, "Environment")
+        _add_credential(candidates, seen, env_workspace, env_cookie, "Environment")
     for path in _dashboard_config_paths():
         raw = credential_store.read_credentials_file(path)
         if raw is None:
             continue
-        add(
+        _add_credential(
+            candidates,
+            seen,
             _first_value(raw, WORKSPACE_ID_FIELDS),
             _first_value(raw, AUTH_COOKIE_FIELDS),
             str(path),
         )
     # 浏览器凭据（零配置体验，S6.1）：Chrome/Edge 登录 opencode.ai 后自动探测
     for cred in browser_creds.find_browser_credentials():
-        add(cred.workspace_id, cred.auth_cookie, f"浏览器:{cred.source}")
+        _add_credential(
+            candidates,
+            seen,
+            cred.workspace_id,
+            cred.auth_cookie,
+            f"浏览器:{cred.source}",
+        )
     return candidates
 
 
@@ -382,13 +398,12 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
     if cached is not None:
         return cached
     if _fetch_in_flight:
-        # 已有请求在途：返回节流缓存（可能为 None 时给进行中提示）
-        in_flight_cached = _throttled_cache(force)
-        if in_flight_cached is not None:
-            return in_flight_cached
+        # E3.1：已有请求在途——入口 _throttled_cache(force) 已返回 None 才进入
+        # 此分支，直返 _fallback（进行中提示），删重复节流查询
         return _fallback(
             now,
-            "配额请求进行中，请稍后刷新",
+            # E2.1：in-flight 提示文案外置 ui.json（与 no_credentials 同组，6A.3 H3）
+            str(_SC.ui["go_quota_error_messages"]["in_flight"]),
             stage=ERROR_STAGE_NETWORK,
         )
     _fetch_in_flight = True
@@ -483,6 +498,7 @@ if __name__ == "__main__":
 # 函数：
 #   save_dashboard_credentials()：DPAPI 加密写入凭据（P4：经 credential_store，
 #     win32crypt 缺失拒绝明文落盘）
+#   _add_credential()：凭据候选去重追加（E3.2 由闭包提为模块级，可单测）
 #   find_dashboard_credentials()：环境变量 → 配置文件多路径收集候选，
 #     去重键 workspace_id::auth_cookie；key 名兼容集合（workspaceId/workspaceID/
 #     workspace_id、authCookie/auth_cookie/cookie）
@@ -507,7 +523,8 @@ if __name__ == "__main__":
 #   _mark_cached()：缓存兜底标注（浅拷贝防污染）
 #   fetch_go_quota(force)：主流程——节流检查 → 凭据候选逐个尝试（首成功返回）→
 #     组装 GoQuotaInfo；任一步失败走 _fallback 缓存兜底（P3：无 API key 链路，
-#     程序不接触任何 key）
+#     程序不接触任何 key）；in-flight 在途去重直返 _fallback（E3.1，提示文案
+#     外置 ui.json go_quota_error_messages.in_flight，E2.1）
 #   _fallback()：失败返回缓存（标注 is_cached + error）或空白信息（带提示）
 #   main()：CLI 自测，仅打印展示数据，绝不打印凭据
 # 设计理由：错误分类统一（z.plan 第四章）；窗口缺失容忍（dashboard 非公开 API，
