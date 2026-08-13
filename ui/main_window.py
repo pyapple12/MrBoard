@@ -838,14 +838,16 @@ class MainWindow(QMainWindow):
                 time=datetime.now().strftime(STATUS_TIME_FORMAT)
             )
         )
-        # F0.2：连点期间的待补发请求——以最新序号再启动一次（_UsageTask.run
-        # 已提前复位在途标志，此处判定无竞态）
+        # F0.2：连点期间的待补发请求——以最新序号再启动一次（I3.1 措辞修正：
+        # 在途标志复位由 H0.6 finally 保证（emit 后），跨线程队列连接下
+        # 槽执行必然晚于 worker finally，此处判定无竞态）
         self._consume_pending()
 
     def _consume_pending(self) -> None:
-        # G0.1：消费待补发请求——以最新序号再启动一次（run 已提前复位在途标志，
-        # 主线程判定无竞态；补发任务完成时 seq 匹配、pending 已清，不会循环；
-        # 渲染路径与过期丢弃路径共用，防双路径漂移）
+        # G0.1：消费待补发请求——以最新序号再启动一次（I3.1 措辞修正：复位由
+        # H0.6 finally 保证，主线程判定安全依赖队列连接时序；补发任务完成时
+        # seq 匹配、pending 已清，不会循环；渲染路径与过期丢弃路径共用，
+        # 防双路径漂移）
         global _usage_pending
         if _usage_pending:
             _usage_pending = False
@@ -1134,6 +1136,7 @@ class MainWindow(QMainWindow):
 #   dimension_labels/detail_line_templates/status_messages 显式 18 键/guide_messages/
 #   tooltips/button_labels/menu_labels/go_quota_error_messages（F0.1 补列）等，
 #   B0.6/C0.8/D0.2）+ notify_title 标量键（D0.7）+
+#   notify_message_template/notify_message_fallback（H0.8，I3.5 补列）+
 #   table_headers 长度严格相等（C0.7）——删键/改键导入期抛错，防运行时 KeyError/IndexError
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）

@@ -313,11 +313,10 @@ mrboard/
 - **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）/ 连点启动 N 个 QuotaTask（go_quota 节流兜底）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）
 - **外观**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ PIE_FONT_SIZE / 托盘几何
 - **2026-08-13 新增定案（profile 正则）**：_profile_dirs 前缀匹配宽容为**刻意设计**——startswith("Profile") 兼容 Chrome 未来命名（官方命名 "Profile 1" 带空格，69 版起）；精确化收益（消除不可见毫秒级解析）< 规则依赖风险（未来命名变更致漏扫、凭据探测失效）；本机无 Profile 目录为验证盲区；误匹配目录已被单浏览器 try 兜底（无崩溃路径）
-- **已修复记账**（历史记录防重复报告）：hidden_columns 非法 id 回写（D0.15）/ go_quota html 局部遮蔽（D0.14）/ parse_time_arg ISO 时区偏移（CLI 自测转文档）/ estimate 全表扫描（D0.11）/ write_json mkstemp 位置（D0.12）/ --version 在 PyQt import 后（D0.13）/ min_ts=0（E0.4）/ CREDS_CACHE_TTL（E2.2）/ refresh 连点（F0.2）/ UsageRow 契约（F0.3）/ UsageSummary 契约（G0.2）
+- **已修复记账**（历史记录防重复报告）：hidden_columns 非法 id 回写（D0.15）/ go_quota html 局部遮蔽（D0.14）/ parse_time_arg ISO 时区偏移（CLI 自测转文档）/ estimate 全表扫描（D0.11）/ write_json mkstemp 位置（D0.12）/ --version 在 PyQt import 后（D0.13）/ min_ts=0（E0.4）/ CREDS_CACHE_TTL（E2.2）/ refresh 连点（F0.2）/ UsageRow 契约（F0.3）/ UsageSummary 契约（G0.2）/ H0.3 fdopen 泄漏（I3.4 记账，原② 段条目移除）
 
 ### ② 条件豁免（触发条件变化时重新评估）
 
-- file_utils fdopen 理论 fd 泄漏（触发：证明 fdopen 失败路径可达）——注：**H0.3 已排期修复**，完成后移出
 - 窗口销毁 in-flight 信号（触发：Qt 析构自动断连行为变化）
 - settings themes 空数组回退（触发：ui.json themes 被手改为空）
 - main.py:6 import 场景 argv 误触发（触发：第三方脚本 import main 且 argv 含 -V/--version）
@@ -333,6 +332,12 @@ mrboard/
 - notify 三级兜底链去留（H0.8 契约落地后评估是否删除过度防御链——2026-08-13 待评估，见 y.problem.md P24）
 - _CdpGuideTask 凭据写入不可注入（中成本依赖注入改造，全链路单测收益不确定）
 - QUOTA_COLOR 常量名重命名（纯命名洁癖，多处引用 + 说明区联动，收益极低）
+
+### ④ 第 14 轮（A014）观察项记录（2026-08-13 用户复核全部维持豁免）
+
+- **② 条件豁免**：失败路径 pending 不消费（触发：连点+失败场景需求变化，G0.1 对称性缺失）/ 阈值 warn>danger 无校验（触发：手改配置场景可达评估）/ reset_seconds 无上界（触发：外部 HTML 含 18 位 resetInSec，理论）/ 根键缺失裸 KeyError 家族（触发：全量根键契约化决策，33+ 根键覆盖成本评估）
+- **① 永久豁免**：估算忽略 reasoning token（设计定案，w.study.md 记录）/ 托盘不可用时 notify 无效调用（Qt 静默忽略，宽容行为族）
+- **③ 价值权衡**：_TEMPLATE_MAP notify 两键 .get 冗余（契约已保证，删除收益小）/ limit 双兜底冗余 max(1,)（H0.5 后幂等，删除验证成本 > 收益）/ Popen 无 creationflags 注释（纯可读性）/ hidden_columns 双 strip / DEFAULT 不经区间钳制（静态配置 git 可控）/ ui.json 数值键无类型契约（H0.4 范围限定 base）/ network 默认 UA / sqlite_utils 无自动 close / 内层 except fd 恒真 / base MAX<MIN 双改回退 / logger 说明区未列 system_tray
 
 ---
 
@@ -379,3 +384,18 @@ mrboard/
   - 清理：pricing 说明区 _price_line 主语写反 + _rate_from_raw cache 缺省描述不精确（F3.3 引入）；main.py 说明区 VERSION 段失实（F3.1 漏改，同根因第三次）；main.py 说明区漏 _SC/_notified_danger；main_window 说明区 refresh 行未同步 F0.2 + 关联配置 VERSION 失实
 - **参考级观察项 9 条**（用户复核后**提升 1 条**：UsageSummary 契约；维持 8 条已并入豁免定案清单）：_TOKEN_SUM_SELECT 无静态校验/契约与说明区无联动/契约块位置/QUOTA_COLOR 缩写/MENU_LABELS 导入顺序/连点 N 个 QuotaTask/双分支复位风格/契约列举省略/dialog 组/settings themes 空数组回退/logger 注释措辞
 - **亮点**：F0.1/F0.3 三方一致零失配；三路交叉 + 行为验证再次抓出"修复自身引入缺陷"（F0.2 挂起为确定性回归）
+
+---
+
+## 附录 A014：全量代码审计报告（第14轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + git show 逐行对比（abf3a23）
+> 结果：**P 级 5 条（全低）/ 参考级观察项 20 条（用户复核全部维持豁免）**
+> 状态：✅ 已修复（2026-08-13：I 系列 I0 正确性 1 条 + I3 清理 5 条全部完成，I1/I2 无条目；探针 1/6 + 修复验收 11/11 + 全量回归 43/43；I4 收尾防漏损——新增契约/校验块必进说明区交叉扫描（A014 教训落地：go_quota_error_messages/notify 两键/容器校验/数值键契约全在说明区）、说明区无残留 + 语义扫描（I 系列修改文件）、豁免清单状态一致性（fdopen 记账迁移）；附带修复 verify_s6 历史欠账（D0.8 注入缺失的 _reset_creds 定义与缩进、4 处缓存串场）；任务清单见 x.progress.md I 系列）
+
+- **上轮复核（H 批次 11 项）**：主体全部在位、零代码回归（白名单双向差集为空、fdopen 清理 5 路径矩阵全安全、三层钳制幂等收敛）；发现 5 处"修复自身引入"（全部文档/验证级）：G0.1 注释失实与 H0.6 finally 矛盾 + 验证盲区（路3 竞态推演经甄别不存在——跨线程队列连接下主线程处理必然晚于 worker finally）；palettes 根容器未校验（H3.1 不完整，裸 AttributeError）；file_utils 说明区未同步 fdopen（H0.3）；豁免清单 fdopen 条目未移入已修复记账（H 批次收尾遗漏）；main_window 契约块说明区未补 notify 两模板键（H0.8）
+- **P0-P3（5 条，全低）**：
+  - 防御：palettes 根容器类型未校验（themes.py:83，H3.1 不完整，C0.6 .keys() 连带）
+  - 清理：G0.1 注释同步（main_window.py:842/846）+ 补发任务 run 链路行为探针；file_utils 说明区补 fdopen；豁免清单 fdopen 移入已修复记账；main_window 契约块说明区补 notify 两键
+- **参考级观察项 20 条**（用户复核**全部维持豁免**，已并入豁免定案清单）：失败路径 pending 不消费/阈值 warn>danger 无校验/reset_seconds 无上界/根键缺失裸 KeyError 家族/_TEMPLATE_MAP .get 冗余/limit 双兜底冗余/估算忽略 reasoning（设计定案）/Popen 无注释/托盘不可用 notify/路1 理论 6 条等
+- **亮点**：H 批次零代码回归；三路交叉抓出 5 处文档/验证级残留——暴露"新增契约块必进说明区"扫描盲区（跨批次收尾流程改进点）

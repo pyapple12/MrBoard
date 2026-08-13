@@ -79,6 +79,12 @@ QMenu::item:selected { background-color: {menu_selected}; }
 _SC = get_static_config()
 # H3.1：palettes 容器类型校验（手改容器为 str/list 时 dict() 抛裸 ValueError——
 # 与 E3.9 值类型校验同式，契约风格 RuntimeError 统一诊断）
+# I0.1：根容器类型前置校验（根为 str/list 时 .get 抛裸 AttributeError——
+# H3.1 只护子容器，此处补全；C0.6 的 .keys() 连带受益）
+if not isinstance(_SC.ui.get("palettes"), dict):
+    raise RuntimeError(
+        f"ui.json palettes 必须是对象，当前 {type(_SC.ui.get('palettes')).__name__}"
+    )
 for _palette_name in ("light", "dark"):
     if not isinstance(_SC.ui["palettes"].get(_palette_name), dict):
         raise RuntimeError(

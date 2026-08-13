@@ -92,7 +92,8 @@ def write_json(path: Path, data: Any) -> None:
 #     输出：无
 #     逻辑步骤：确保父目录存在 → json.dumps（ensure_ascii=False 保中文，indent=2
 #       便于人工查看）→ tempfile.mkstemp 写临时文件 → os.replace 原子替换 →
-#       更新缓存
+#       更新缓存；异常路径：I3.3 补列——fdopen 失败（内存不足等极端）时
+#       os.close(fd)（OSError 吞掉，E5 同式）再清理临时文件
 #     设计理由：原子写避免写一半崩溃产生损坏文件（参考 opencode-usage insights
 #       缓存的 .tmp → os.rename 模式）
 #     _json_cache 缓存机制说明（C1 评估）：业务调用点均显式 use_cache=False

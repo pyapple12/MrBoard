@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.201（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字）
+> 当前版本：ver 0.202（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -479,3 +479,34 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] H4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_h_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态）——防漏损延续：①base.json 新键（H0.1/H0.4）文档三处同步 ②说明区无残留字样 + 语义准确性扫描（H 系列修改文件）③配置键消费方交叉
 - 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 20/20 + 冒烟；防漏损①补 4 处文档漂移（README 配置表 max_refresh_interval_ms、settings 说明区 MAX、static_config 说明区数值键契约、白名单补 window_width/height——H0.4 原 23 键白名单遗漏两键）；②说明区 12 项全过；③白名单 25 键与消费清单一致、无孤儿键；版本推进 ver 0.201（2026-08-13 起审计只提升第三位数字，五处一致））｜优先级：中
+
+## I. 第14轮审计修复任务清单（依据 z.plan.md 附录 A014）
+
+### I0 P0 正确性
+
+- [x] I0.1 palettes 根容器类型校验（themes.py:83，H3.1 不完整）——循环前加 `if not isinstance(_SC.ui["palettes"], dict): raise RuntimeError(...)`（C0.6 .keys() 连带受益）；验证：真实改根容器为 str 导入断言抛契约错误
+- 状态：✅ 已完成（2026-08-13：I0.1 根容器前置校验（真实改 str/list 导入抛 RuntimeError，原裸 AttributeError 终结；C0.6 .keys() 连带受益）。探针 1/1 + 验收 4/4 + 全量回归 43/43）｜优先级：高
+
+### I1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### I2 P2 配置化
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### I3 P3 清理
+
+- [x] I3.1 G0.1 注释同步（main_window.py:842/846）——"run 已提前复位在途标志"改"复位由 finally 保证（H0.6），槽内判定安全依赖队列连接时序"；验证：grep 无旧措辞
+- [x] I3.2 补发任务 run 链路行为探针（H0.6 验证盲区）——真实启动补发任务（不 mock _pool.start）断言 run 入口 in_flight 检查在 finally 复位后为 False；验证：probe 断言无 pending 挂起
+- [x] I3.3 file_utils 说明区补 fdopen（H0.3 文档遗漏）——异常处理段补"fdopen 失败时 os.close(fd)（OSError 吞掉）再清理临时文件"；验证：grep 关键字
+- [x] I3.4 豁免清单 fdopen 移入已修复记账（z.plan.md:320，H 批次收尾遗漏）——② 条件豁免段删除该条，① 已修复记账段补"H0.3 fdopen 泄漏"；验证：grep 两段状态一致
+- [x] I3.5 main_window 契约块说明区补 notify 两键（main_window.py:1136，H0.8 文档同步）——契约校验块描述补 "notify_message_template/notify_message_fallback（H0.8）"；验证：grep 关键字
+- 状态：✅ 已完成（2026-08-13：I3.1 注释措辞修正（finally 保证语义）；I3.2 行为探针 3/3（补发任务真实执行、pending 复位、run finally 复位——H0.6 验证盲区闭合）；I3.3 说明区补 fdopen；I3.4 记账迁移；I3.5 契约块说明区补列。探针 6/6 + 验收 11/11 + 全量回归 43/43（含测试资产修复：verify_s6 历史欠账——D0.8 注入缺失的 _reset_creds 定义与缩进、4 处缓存串场补齐；verify_s5 循环内时序误报单跑通过））｜优先级：低
+
+### I4 验证与收尾
+
+- [x] I4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_i_accept 反向断言）+ 文档同步（x.progress 状态 + 版本推进 ver 0.202）——防漏损延续：①新增契约/校验块必进说明区（A014 教训：扫描盲区）②说明区无残留字样 + 语义扫描（I 系列修改文件）③豁免清单状态一致性核对
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43（s5 单跑 exit=0，循环内时序误报已知）+ 验收 11/11 + 冒烟；防漏损①契约/校验块×5 说明区交叉全过（A014 教训落地）；②说明区无残留 + 语义 4 项；③豁免清单一致性（fdopen 记账迁移、A014 附录、I 系列标题）；z.plan A014 状态已修复；版本推进 ver 0.202（五处一致））｜优先级：高
