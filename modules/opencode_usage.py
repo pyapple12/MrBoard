@@ -21,20 +21,19 @@ from utils.sqlite_utils import open_readonly
 
 logger = get_logger(__name__)
 
-UNKNOWN_LABEL = str(
-    get_static_config().ui["unknown_label"]
-)  # 6A.3 H2：分组缺失标签外置
+# 静态配置单点解包（A3.4：与全项目 _SC 模式一致，运行时零 IO）
+_SC = get_static_config()
+
+UNKNOWN_LABEL = str(_SC.ui["unknown_label"])  # 6A.3 H2：分组缺失标签外置
 # C19：默认库路径由 base.json 驱动（~ 展开），消除代码内硬编码
-DEFAULT_DB_PATH = Path(str(get_static_config().base["db_default_path"])).expanduser()
+DEFAULT_DB_PATH = Path(str(_SC.base["db_default_path"])).expanduser()
 ASSISTANT_ROLE = "assistant"
 _EPOCH_MS = 1000
 _DAY_MS = _EPOCH_MS * 86400  # 天毫秒数（3A.1 R12 派生，消除魔法数字）
-SUBPROCESS_TIMEOUT = float(
-    get_static_config().base["subprocess_timeout"]
-)  # 子进程探测超时（R7）
+SUBPROCESS_TIMEOUT = float(_SC.base["subprocess_timeout"])  # 子进程探测超时（R7）
 # C5：分组查询默认行数收敛（消除 8 处 limit=100 魔法数字，与 GUI 配置一致）
-TABLE_LIMIT_GROUP = int(get_static_config().base["table_limit_group"])
-TABLE_LIMIT_DAY = int(get_static_config().base["table_limit_day"])
+TABLE_LIMIT_GROUP = int(_SC.base["table_limit_group"])
+TABLE_LIMIT_DAY = int(_SC.base["table_limit_day"])
 
 # 聚合 SQL 列模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
 _TOKEN_SUM_SELECT = (

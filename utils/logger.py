@@ -16,6 +16,15 @@ VERSION = str(_SC.base["version"])  # 6A.3 R4：版本号单点导出（main/mai
 LOG_LEVEL = str(_SC.base["log_level"])
 LOG_MAX_BYTES = int(_SC.base["log_max_bytes"])  # 6A.3 O5：单文件上限（轮转阈值）
 LOG_BACKUP_COUNT = int(_SC.base["log_backup_count"])  # 6A.3 O5：轮转保留份数
+# A1.1：标题中段单一来源（ui.json app_subtitle，主窗口/托盘共引）
+APP_SUBTITLE = str(_SC.ui["app_subtitle"])
+
+
+def build_app_title() -> str:
+    # 应用标题单点（主窗口标题与托盘 tooltip 共用，A1.1 消除跨文件重复拼接）
+    return f"{APP_NAME} {APP_SUBTITLE} {VERSION}"
+
+
 LOG_DIR = get_project_root() / _SC.base["logs_dir"]
 LOG_FILE = LOG_DIR / f"{APP_NAME}.log"
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -69,10 +78,13 @@ def _setup_handlers() -> None:
 #   APP_NAME / LOG_LEVEL：应用名与日志级别（base.json 驱动，C14 补列）
 #   VERSION：版本号单点导出（base.json version 字段，main/main_window 共引，6A.3 R4）
 #   LOG_MAX_BYTES / LOG_BACKUP_COUNT：日志轮转参数（base.json 驱动，6A.3 O5）
+#   APP_SUBTITLE：标题中段（ui.json app_subtitle，A1.1）
 #   LOG_FORMAT / DATE_FORMAT：统一日志格式（时间 | 级别 | 模块名 | 消息）
 #   _configured：模块级状态标记，保证 handler 只初始化一次（幂等）
 #   _config_lock：初始化互斥锁（6A.2 D4：双检查锁防并发竞态）
 # 函数：
+#   build_app_title()：应用标题单点（APP_NAME + APP_SUBTITLE + VERSION，
+#     主窗口标题与托盘 tooltip 共引，A1.1 消除跨文件重复拼接）
 #   get_logger(name)：
 #     输入：模块名（通常传 __name__）
 #     输出：配置好的 logging.Logger 实例
@@ -85,4 +97,5 @@ def _setup_handlers() -> None:
 #     设计理由：文件日志落盘便于排查常驻应用问题；控制台便于 CLI/开发调试
 # 异常处理：文件 handler 创建失败（目录无权限/磁盘满）捕获 OSError 后仅保留
 #   控制台输出，绝不阻断应用启动（z.plan 第四章"不崩溃"策略）
-# 关联配置：config/static/base.json（logs_dir 字段）
+# 关联配置：config/static/base.json（logs_dir/app_name/log_level/log_max_bytes/log_backup_count）
+#   + ui.json（app_subtitle）

@@ -95,4 +95,5 @@ if __name__ == "__main__":
 #     逻辑步骤：window.save_state() → tray.hide() → app.quit()
 #     设计理由：任何退出路径都先保存状态（对齐 AccelWorld B2 修复经验）
 # 异常处理：GUI 异常由 Qt 事件循环处理；本模块无网络/文件操作
-# 关联配置：config/static/base.json（version 字段）
+# 关联配置：config/static/base.json（version）；ui.json（notify_title/notify_message_template）；
+#   ui/themes.py（quota_danger_percent）

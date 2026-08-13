@@ -43,8 +43,8 @@ T = TypeVar("T")
 OPENCODE_HOST = "opencode.ai"
 COOKIE_NAMES = ("auth",)
 WORKSPACE_ID_RE = re.compile(r"/workspace/(wrk_[A-Za-z0-9]+)")
-# C10：CDP 探测超时与默认登录页（消除魔法值/与 OPENCODE_HOST 重复）
-CDP_PROBE_TIMEOUT = 2.0
+# C10：CDP 探测超时与默认登录页（消除魔法值/与 OPENCODE_HOST 重复；
+# CDP_PROBE_TIMEOUT 定义在下方配置解包区，A0.2 去重）
 DEFAULT_LOGIN_URL = f"https://{OPENCODE_HOST}/"
 
 
@@ -163,8 +163,12 @@ def _load_aes_key(local_state_path: Path) -> bytes | None:
     local_state = _read_local_state_json(local_state_path)
     if not local_state:
         return None
+    # A0.1：os_crypt 可能为 truthy 非 dict（Local State 损坏形态），isinstance 兜底防 AttributeError
+    os_crypt = local_state.get("os_crypt")
+    if not isinstance(os_crypt, dict):
+        return None
     try:
-        encrypted_key_b64 = (local_state.get("os_crypt") or {}).get("encrypted_key")
+        encrypted_key_b64 = os_crypt.get("encrypted_key")
         if not isinstance(encrypted_key_b64, str) or not encrypted_key_b64.startswith(
             "DPAPI"
         ):
@@ -184,8 +188,10 @@ def _read_auth_cookies_query(
 ) -> tuple[list[str], bool]:
     # 查询并解密 opencode.ai 的 auth cookie（返回 cookie 列表与是否含 v20；C4 提取模块级）
     rows = conn.execute(
-        "SELECT name, encrypted_value FROM cookies WHERE host_key = ?",
-        (OPENCODE_HOST,),
+        # A0.3：Chrome domain cookie 的 host_key 常带前导点（.opencode.ai），
+        # 两种形态都查（上层按 workspace_id::cookie 去重，无重复风险）
+        "SELECT name, encrypted_value FROM cookies WHERE host_key IN (?, ?)",
+        (OPENCODE_HOST, f".{OPENCODE_HOST}"),
     ).fetchall()
     result: list[str] = []
     has_v20 = False
@@ -319,9 +325,9 @@ def has_v20_cookies(user_data: Path) -> bool:
     if not user_data.is_dir():
         return False
     local_state = _read_local_state_json(user_data / "Local State")
-    if local_state and (local_state.get("os_crypt") or {}).get(
-        "app_bound_encrypted_key"
-    ):
+    # A0.1：os_crypt 可能为 truthy 非 dict（Local State 损坏形态），isinstance 兜底防 AttributeError
+    os_crypt = local_state.get("os_crypt") if local_state else None
+    if isinstance(os_crypt, dict) and os_crypt.get("app_bound_encrypted_key"):
         return True
     return _scan_cookie_db_for_v20(user_data)
 

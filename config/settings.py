@@ -12,8 +12,17 @@ CONFIG_FILE = get_project_root() / _SC.base["user_config_path"]
 DEFAULT_REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
 # 6A.2 D3：刷新间隔最小下限（base.json 驱动，防手改 1ms 疯狂刷新）
 MIN_REFRESH_INTERVAL_MS = int(_SC.base["min_refresh_interval_ms"])
-DEFAULT_THEME = str(_SC.base["default_theme"])
-# 主题枚举单一来源（C6：外置 ui.json；themes.py 引用本常量，防两处定义不同步）
+# A2.2：default_theme 与 themes 数组一致性防护——base 默认值不在 themes 中时
+# 回退 themes[0]（改 ui.json 主题名后默认主题仍生效，不静默失效）
+_themes = tuple(str(item) for item in _SC.ui["themes"])
+_base_default_theme = str(_SC.base["default_theme"])
+DEFAULT_THEME = (
+    _base_default_theme
+    if _base_default_theme in _themes
+    else (_themes[0] if _themes else _base_default_theme)
+)
+# 主题枚举单一来源（C6：外置 ui.json themes 数组；themes.py 从同一数组派生
+# THEME_NAMES/LIGHT/DARK——两处同源，不互相引用，A3.2 注释修正）
 THEMES = tuple(str(item) for item in _SC.ui["themes"])
 
 
@@ -92,4 +101,6 @@ def save_config(config: AppConfig) -> None:
 # 设计理由：配置聚合用 dataclass（AGENTS.md 约定）；失败永不崩溃
 #   （z.plan 第四章宽容解析）；GUI 层只依赖本模块读写，几何序列化细节隔离
 # 异常处理：读写异常全部由 file_utils 宽容消化
-# 关联配置：config/static/base.json（user_config_path/default_theme/refresh_interval_ms）
+# 关联配置：config/static/base.json（user_config_path/default_theme/refresh_interval_ms/
+#   min_refresh_interval_ms）
+#   + ui.json（themes 数组）

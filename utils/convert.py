@@ -1,5 +1,6 @@
 # 弹性类型转换模块：外部数据（数据库/JSON）数字字段可能是字符串，宽容转换不崩溃
 
+import math
 from typing import Any
 
 
@@ -19,23 +20,31 @@ def to_int(value: Any, default: int = 0) -> int:
 
 
 def to_float(value: Any, default: float = 0.0) -> float:
-    # 弹性浮点转换：数字/数字字符串均可，失败返回 default（bool 语义非数值，S1 与 to_int 一致）
+    # 弹性浮点转换：数字/数字字符串均可，失败返回 default（bool 语义非数值，S1 与 to_int 一致；
+    # A0.8：nan 视为非法回落 default——"nan" 会被 float() 接受但不该进入计算/显示）
     try:
         if isinstance(value, bool):
             return default
-        return float(value)
+        result = float(value)
+        if math.isnan(result):
+            return default
+        return result
     except (TypeError, ValueError):
         return default
 
 
 def to_optional_float(value: Any) -> float | None:
-    # 弹性浮点转换（可空）：None/空/非法时返回 None（区分"未记录"与 0；bool 语义非数值，E3）
+    # 弹性浮点转换（可空）：None/空/非法时返回 None（区分"未记录"与 0；bool 语义非数值，E3；
+    # A0.8：nan 视为非法返回 None）
     if value is None:
         return None
     try:
         if isinstance(value, bool):
             return None
-        return float(value)
+        result = float(value)
+        if math.isnan(result):
+            return None
+        return result
     except (TypeError, ValueError):
         return None
 

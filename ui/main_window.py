@@ -60,7 +60,7 @@ from modules.opencode_usage import (
     find_db_path,
 )
 from ui.themes import DARK_THEME_NAME, LIGHT_THEME_NAME, get_theme, quota_chunk_color
-from utils.logger import APP_NAME, VERSION, get_logger
+from utils.logger import build_app_title, get_logger
 
 logger = get_logger(__name__)
 
@@ -100,7 +100,7 @@ GUIDE_CARD_TEXT = str(_SC.ui["guide_card_text"])
 GUIDE_AUTO_BUTTON = str(_SC.ui["guide_auto_button"])
 GUIDE_MANUAL_BUTTON = str(_SC.ui["guide_manual_button"])
 # R5：窗口标题中段统一来自 ui.json（主窗口标题与托盘 tooltip 共用）
-APP_SUBTITLE = str(_SC.ui["app_subtitle"])
+# A1.1：标题拼接单点 utils.logger.build_app_title（本文件不再本地解包 APP_SUBTITLE）
 # 5A.3 C3/C4/C5：文案外置（卡片标题/区域标题/按钮/tooltip/状态栏/对话框/前缀）
 TOTAL_TOKEN_PREFIX = str(_SC.ui["total_token_prefix"])
 CARD_TITLES = dict(_SC.ui["card_titles"])
@@ -119,6 +119,11 @@ COST_ZERO_EPSILON = float(_SC.ui["cost_zero_epsilon"])
 TOTAL_TOKENS_UNIT = str(_SC.ui["total_tokens_unit"])
 TOTAL_TOKENS_UNIT_THRESHOLD = float(_SC.ui["total_tokens_unit_threshold"])
 STATUS_TIME_FORMAT = str(_SC.ui["status_time_format"])
+# A2.1：K/M/B/G 缩写单位外置（阈值→后缀映射，JSON 保序即从大到小）
+TOKEN_ABBR_UNITS = tuple(
+    (float(threshold), suffix)
+    for threshold, suffix in dict(_SC.ui["token_abbr_units"]).items()
+)
 TABLE_HEADERS = tuple(_SC.ui["table_headers"])
 # 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
 COLUMN_IDS = (
@@ -371,13 +376,10 @@ class _CdpGuideTask(QRunnable):
 
 
 def _format_tokens(count: int) -> str:
-    # token 数格式化：K/M/B/G 缩写（千/百万/十亿/万亿）
-    if count >= 1e9:
-        return f"{count / 1e9:.1f}B"
-    if count >= 1e6:
-        return f"{count / 1e6:.1f}M"
-    if count >= 1e3:
-        return f"{count / 1e3:.1f}K"
+    # token 数格式化：K/M/B/G 缩写（阈值与后缀来自 ui.json token_abbr_units，A2.1）
+    for threshold, suffix in TOKEN_ABBR_UNITS:
+        if count >= threshold:
+            return f"{count / threshold:.1f}{suffix}"
     return str(count)
 
 
@@ -448,8 +450,10 @@ class MainWindow(QMainWindow):
         self._guide_signals = _CdpGuideSignals()
         self._guide_signals.success.connect(self._on_guide_success)
         self._guide_signals.failed.connect(self._on_guide_failed)
+        # A0.6/A0.7：CDP 引导进行中标志（抑制引导卡重现 + 禁用手动填写防并发写）
+        self._guide_active = False
 
-        self.setWindowTitle(f"{APP_NAME} {APP_SUBTITLE} {VERSION}")
+        self.setWindowTitle(build_app_title())
         self.resize(int(_SC.base["window_width"]), int(_SC.base["window_height"]))
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
@@ -680,10 +684,12 @@ class MainWindow(QMainWindow):
         self.quota_updated.emit(info)
         # 引导卡片显示条件：CDP 可解决的凭据类错误（无 dashboard 凭据/cookie 失效），
         # 且无缓存（历史成功过则不打扰）；其他阶段 CDP 解决不了，不显示
-        # （E8：remaining==0/five_hour is None 在错误非缓存路径恒真，精简）
+        # （E8：remaining==0/five_hour is None 在错误非缓存路径恒真，精简；
+        #   A0.6：引导进行中不重现引导卡，防界面状态混乱）
         show_guide = (
             info.error is not None
             and not info.is_cached
+            and not self._guide_active
             and info.error_stage in (ERROR_STAGE_NO_CREDS, ERROR_STAGE_AUTH)
         )
         self._guide_frame.setVisible(show_guide)
@@ -696,6 +702,9 @@ class MainWindow(QMainWindow):
         # 一键自动获取：后台执行 CDP 引导流程（独立临时 Chrome，不影响用户浏览器）
         self._guide_frame.hide()
         self._auto_guide_button.setEnabled(False)
+        # A0.6/A0.7：引导期间禁用手动填写（防与 worker 并发写凭据）+ 抑制引导卡重现
+        self._manual_guide_button.setEnabled(False)
+        self._guide_active = True
         self._status_bar.showMessage(STATUS_MESSAGES["guide_starting"])
         self._pool.start(_CdpGuideTask(self._guide_signals))
 
@@ -724,12 +733,16 @@ class MainWindow(QMainWindow):
     def _on_guide_success(self, message: str) -> None:
         # 引导成功：提示并立即刷新配额（凭据已落盘，凭据链可读到）
         self._auto_guide_button.setEnabled(True)
+        self._manual_guide_button.setEnabled(True)
+        self._guide_active = False
         self._status_bar.showMessage(message)
         self.refresh()
 
     def _on_guide_failed(self, message: str) -> None:
         # 引导失败：状态栏提示，保留引导卡片供重试/手动填写
         self._auto_guide_button.setEnabled(True)
+        self._manual_guide_button.setEnabled(True)
+        self._guide_active = False
         self._guide_frame.show()
         self._status_bar.showMessage(message)
 
@@ -767,7 +780,10 @@ class MainWindow(QMainWindow):
             bar = self._quota_bars[key]
             reset_label = self._quota_reset[key]
             if window is None:
+                # A0.5：重置格式与 chunk 样式（防窗口值→None 过渡残留旧百分比）
                 bar.setValue(0)
+                bar.setFormat("")
+                bar.setStyleSheet("")
                 reset_label.setText(STATUS_MESSAGES["not_fetched"])
                 continue
             percent = int(round(window.usage_percent))
@@ -881,7 +897,7 @@ class MainWindow(QMainWindow):
 #     BUTTON_LABELS / TOOLTIPS / STATUS_MESSAGES / DIALOG_TITLES / DIALOG_PROMPTS：
 #     界面文案外置 ui.json（5A.3 C3/C4：卡片/区域/按钮/状态栏/对话框文案单一来源）
 #   COST_ZERO_EPSILON / TOTAL_TOKENS_UNIT / TOTAL_TOKENS_UNIT_THRESHOLD /
-#     STATUS_TIME_FORMAT：容差/单位/时间格式外置（6A.3 H5/H6）
+#     STATUS_TIME_FORMAT / TOKEN_ABBR_UNITS：容差/单位/时间格式外置（6A.3 H5/H6 + A2.1）
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
 #   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）
@@ -899,6 +915,7 @@ class MainWindow(QMainWindow):
 #   _format_cost()：费用格式化（0 显示 -，≥1 两位小数）
 #   _cache_rate_percent()：缓存率计算（(缓存读+缓存写)/总 token，卡片与表格共用，P17）
 #   _format_cache_rate()：缓存率格式化（一位小数百分比）
+#   _format_cache_rate_of()：缓存率计算+格式化复合（卡片/明细弹窗/表格 3 处共用，6A.4 O3）
 #   _format_total_tokens()：总览总 token 格式化（千分位 + 亿单位，P15）
 #   _wait_for_login_cookie()：端到端轮询登录（实测 dashboard 可解析才算完成，
 #     返回验证通过的 workspace_id，多账户场景防保存错误）

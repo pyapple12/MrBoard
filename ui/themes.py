@@ -1,5 +1,7 @@
 # 主题样式模块：QSS 模板 + 双调色板（浅/深），配额阈值/颜色外置 ui.json
 
+import re
+
 from config.static.static_config import get_static_config
 
 # ===== QSS 模板（{占位符} 由调色板替换；QSS 自身的 {} 保持不变） =====
@@ -87,10 +89,15 @@ QUOTA_COLOR_DANGER = str(_SC.ui["colors"]["quota_danger"])
 
 
 def _build_theme(palette: dict[str, str]) -> str:
-    # 按调色板构建 QSS（str.replace 注入占位符，避开 QSS 自身花括号）
+    # 按调色板构建 QSS（str.replace 注入占位符，避开 QSS 自身花括号；
+    # A3.5：构建后检测残留 {占位符}——palette 缺键会静默残留无效值
+    # （6A.1 chunk_ok 事故根因），发现即抛错防再犯）
     result = _QSS_TEMPLATE
     for key, value in palette.items():
         result = result.replace("{" + key + "}", value)
+    missing = re.findall(r"\{[a-zA-Z_]+\}", result)
+    if missing:
+        raise RuntimeError(f"调色板缺少占位符对应键：{sorted(set(missing))}")
     return result
 
 
@@ -102,6 +109,11 @@ DARK_THEME = _build_theme(_DARK_PALETTE)
 # 数组顺序即 light/dark 契约；替代 THEMES[1] 魔法索引与 "dark"/"light" 魔法字符串，
 # main_window 切换与持久化共用）
 THEME_NAMES = tuple(str(item) for item in _SC.ui["themes"])
+# A3.5：主题名长度契约校验（数组被手改短会致下方索引越界，导入期即抛错）
+if len(THEME_NAMES) < 2:
+    raise RuntimeError(
+        f"ui.json themes 数组至少需要 light/dark 两项，当前 {THEME_NAMES}"
+    )
 LIGHT_THEME_NAME = THEME_NAMES[0]
 DARK_THEME_NAME = THEME_NAMES[1]
 

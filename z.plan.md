@@ -230,57 +230,22 @@ mrboard/
 > 质量趋势：函数内 import 零、嵌套 def 仅 1 处确认保留、docstring 零、timeout/sleep 魔法值零——但 C6"命名收敛"遗留说明区失实 + base.json 已定义字段未引用
 > **整改状态：✅ 全部完成（2026-08-13）**——实施明细见 x.progress.md 第六轮章节（6A.1-6A.4 按批次执行）；新增 utils/sqlite_utils.py（只读连接收敛）、VERSION 单点导出 utils.logger、主题名/文案/容差/单位全量外置
 
-### 错漏（7 条）
+- **错漏 7 条**：themes `{chunk_ok}` 占位符残留与 convert.to_int OverflowError 逃逸（行为验证真实缺陷）；browser_creds CDP 说明区失实且常量与配置数值冲突；launch 失败路径临时目录泄漏；parse_time_arg 注释失实；find_db_path CLI 分支静默；network 说明区失实
+- **防御性 6 条**：by_session 缺列崩溃；system_tray QMenu 防 GC；刷新间隔无下限（1ms 疯狂刷新）；logger 初始化竞态；retry 参数校验；缺文件 WARNING 日志噪音
+- **硬编码 8 条 + 未用 import 5 条**：CDP 探测族/round(10)/UNKNOWN_LABEL/凭据文案/DPAPI 双源/容差与亿单位/时间格式/任务文案 4 处；Path×3、to_float、Any
+- **重复实现 4 条 + 优化 6 条**：sqlite 只读连接两处同构/窗口键字面量两处/主题名双源/标题格式不一致；time_clause 重算/estimate_cost 四段/缓存率组合/预警去重/日志轮转/to_float 合并存疑
+- **确认保留 2 条**：go_quota add 闭包（第五轮确认项）；network HTTPError 重试有意设计（5xx/429 重试，401/403 已分类）
 
-- **themes.py:41 `{chunk_ok}` 占位符残留**（真实缺陷，行为验证）：\_build_theme 只注入调色板键，ui.json 两套 palettes 均无 chunk_ok，最终 QSS 残留字面量——仅靠 main_window 动态 setStyleSheet 掩盖
-- **convert.py:11-17 `to_int("inf")`/`"1e999"` 抛 OverflowError 逃逸**（行为验证崩溃）：int(float()) 的 OverflowError 不在 except (TypeError, ValueError) 内——违反宽容解析绝不外抛
-- **browser_creds.py:573 说明区失实**（CDP 探测族标称 base.json 驱动）：实际 4 常量全为字面量，base.json 已有 cdp_fetch_timeout(10)/cdp_wait_timeout(30) 未引用（数值冲突 5.0 vs 10）
-- browser_creds.py:362-368 launch_chrome_debug 未找到 chrome.exe 提前 return 时临时 profile 目录泄漏
-- opencode_usage.py:482 parse_time_arg 注释/help 写 "7d/2w/3h" 但正则实际支持 m（分钟）
-- opencode_usage.py:120-124 find_db_path CLI 探测分支失败静默落到默认路径（env 分支有 warning）
-- utils/network.py:40 说明区"超时由调用方传入"与签名默认 timeout=15.0 兜底并存（声明失实）
+---
 
-### 防御性（6 条）
+## 附录 A007：全量代码审计报告（第7轮，2026-08-13）
 
-- **opencode_usage.py:262-266 by_session 降级缺口**：\_has_session_columns 只查 title/directory，旧库缺 s.id 列时 LEFT JOIN 抛 sqlite3.OperationalError 直接崩溃
-- **system_tray.py:32 QMenu() 无父对象**：setContextMenu 不接管所有权（对比 main_window QMenu(self)），Python 引用消失后菜单可能被 GC
-- settings.py:49 refresh_interval_ms 仅 >0 无下限：手改 1ms → 定时器每秒约 1000 次查库+网络刷新
-- logger.py:26-28 \_configured 无锁竞态：并发首次 get_logger 时 handler 双挂日志翻倍
-- retry.py:44 retries<0 时空循环 → assert 崩溃（参数无校验）
-- credential_store.py:66-68 无凭据用户每轮刷新打"文件不存在" WARNING（日志噪音）
+> 范围：全部 19 个 .py + 3 个 JSON（2319 行业务代码 + 配置）；AST 扫描 + 三路代理全文审读（utils+config / modules / ui）+ 行为验证
+> 结果：**P2 级 2 条 / P3 级 16 条 / 参考级观察项 15 条**——无 P0/P1（无确定性崩溃/错值）
+> **整改状态：✅ 全部完成（2026-08-13）**——A 系列任务清单见 x.progress.md（A0-A3 已实施，A4 收尾）；新增契约校验（themes 残留占位符/数组长度）、_SC 单点解包、build_app_title 标题单点
 
-### 硬编码（8 条）
-
-- browser_creds CDP 探测族 4 常量（CDP_PROBE_TIMEOUT/CDP_HTTP_TIMEOUT/CDP_POLL_DELAY/CDP_PORT_CHECK_TIMEOUT，与 base.json 数值冲突）
-- pricing.py:157/175 round(cost, 10) 两处魔法数字 10（无说明）
-- opencode_usage.py:24 UNKNOWN_LABEL = "未知" 未入 ui.json 外置体系
-- go_quota.py:379-381 凭据缺失错误提示文案硬编码（同类已在 ui.json status_messages）
-- windows.py:13 DPAPI_DESCRIPTION = "myboard" 与 base.json app_name 双源（改 app_name 后已存凭据无法解密）
-- main_window.py:371 0.00005 容差（E5 引入无配置来源）；:393-394 "亿"/1e8
-- main_window.py:629 "%H:%M:%S" 与已外置 RESET_TIME_FORMAT 不一致
-- main_window.py:182/201/222/224 任务错误文案 4 处（上轮 C4 有意保留项，标注争议可外置）
-
-### 未用 import（5 条，AST+行扫描双重确认）
-
-- config/settings.py:4 Path；modules/opencode_usage.py:19 to_float（R6 收敛后残留）；modules/pricing.py:6 Path（L2 后残留）；utils/logger.py:5 Path；utils/network.py:5 Any
-
-### 重复实现（4 条）
-
-- **sqlite 只读 URI 连接构造两处同构**：opencode_usage.py:153-154 vs browser_creds.py:263-264（quote 转义 + mode=ro + row_factory）——提 utils 公共函数
-- main_window.py:507 + 749-751 配额窗口键字面量两处（5A.2 R2 只收敛 go_quota 侧）——引用 QUOTA_WINDOW_KEYS
-- themes.py:103 DARK_THEME_NAME 与 settings.py:16 ui.json themes 数组主题名双源（改名后 main_window 判断静默失效）
-- main_window.py:432 标题带 VERSION vs system_tray.py:31 tooltip 不带（格式不一致）
-
-### 优化（6 条）
-
-- opencode_usage \_base_sql 内部重算 \_time_clause 而 totals() 外部已生成（SQL 与参数两处独立，改字段易漏同步）
-- pricing.py:142-155 estimate_cost 四段相同 count/1e6\*rate 复制粘贴可抽取
-- main_window 733/651/832 \_format_cache_rate(\_cache_rate_percent()) 组合 3 处可抽复合函数
-- main.py:45-53 配额预警无去重：持续超限每 5 分钟弹气泡
-- logger.py:41-43 FileHandler 无轮转，常驻应用日志无限增长
-- convert.py to_float/to_optional_float 几乎完全重复可合并（动调用方，收益存疑）
-
-### 确认保留（2 条）
-
-- go_quota.py:126 add 闭包（第五轮确认项无变化）
-- network.py RETRY_NETWORK_ERRORS 含 URLError：**核实为有意设计**（\_http_get 注释明确 5xx/429 抛原异常重试，401/403 已转 auth 分类）
+- **上轮复核（第六轮 38 条）**：38/38 在位（2 项断言格式误报已澄清，非回退）；发现 1 回归（CDP_PROBE_TIMEOUT 重名重复定义）+ 1 漏改（os_crypt 非 dict 容错只覆盖 None/空，truthy 非 dict 仍 AttributeError 逃逸，行为验证崩溃）
+- **P2 修复 2 条**：CDP_PROBE_TIMEOUT 重名去重（删 47 行保留 70 行）；os_crypt isinstance 检查后 return None（167/322 两处）
+- **P3 修复 16 条**：host_key 带点 domain cookie 兼容（需验证）；OpenAuth 特征收紧防误判（需验证）；进度条 None 分支重置格式（需验证）；CDP 引导期状态管理×2（定时刷新重现引导卡/手动填写并发写凭据，均需验证）；themes 契约校验（残留占位符检测 + 数组长度）；说明区漏 _format_cache_rate_of；标题格式单点（build_app_title）；说明区失实 4 处（windows/main/settings/logger）；network 默认值双源；to_float("nan") 穿透（需验证）；opencode_usage 5 处 _SC 单点；K/M/B/G 单位外置（争议决策）；跨组提示 3 条（settings.py:16 注释失实/default_theme 双源/CLI 时间格式）
+- **参考级观察项 15 条**（用户确认均不提升）：browser_creds（--remote-allow-origins=* 必需/每 profile 整库复制/CDP 探测族 3 固定值）；go_quota（DASHBOARD 请求参数/模块级缓存无锁）；pricing（BUNDLED_PRICES 快照/COST_COMPARE_DIGITS）；opencode_usage（时间基准常量）；exporter（查询全量驻留）；main_window/system_tray（绘制细节）；static_config/file_utils/retry/convert（无锁单例/缓存引用/默认值分离/下划线字面量——均无可达触发路径）
+- **亮点**：无 P0/P1；无函数内 import/docstring/未用 import/配置死键（base.json 26 键、ui.json 42 键全有消费方）；弹性转换实测无崩溃路径；README 徽章与版本一致

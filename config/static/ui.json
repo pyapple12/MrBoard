@@ -1,10 +1,16 @@
 {
   "app_subtitle": "用量与配额",
   "unknown_label": "未知",
-  "cost_zero_epsilon": 0.00005,
+  "cost_zero_epsilon": 5e-05,
   "total_tokens_unit": "亿",
   "total_tokens_unit_threshold": 100000000,
   "status_time_format": "%H:%M:%S",
+  "token_abbr_units": {
+    "1000000000": "B",
+    "1000000": "M",
+    "1000": "K"
+  },
+  "cli_reset_time_format": "%Y-%m-%d %H:%M:%S",
   "go_quota_error_messages": {
     "no_credentials": "未找到 dashboard 凭据（设置 OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE 或创建 opencode-go.json 配置文件）"
   },
@@ -25,12 +31,20 @@
   "notify_message_template": "最紧窗口已使用 {used}%，剩余 {remaining}%",
   "pie_size": 56,
   "pie_font_size": 7.5,
-  "layout_margins": [16, 12, 16, 8],
+  "layout_margins": [
+    16,
+    12,
+    16,
+    8
+  ],
   "layout_spacing": 10,
   "quota_name_width": 60,
   "cards_spacing": 8,
   "reset_time_format": "%m-%d %H:%M",
-  "themes": ["light", "dark"],
+  "themes": [
+    "light",
+    "dark"
+  ],
   "dimension_labels": {
     "month": "按月份",
     "day": "按日期",

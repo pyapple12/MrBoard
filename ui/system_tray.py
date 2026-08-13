@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from config.static.static_config import get_static_config
 from ui.themes import QUOTA_COLOR_OK, quota_chunk_color
-from utils.logger import APP_NAME, VERSION
+from utils.logger import build_app_title
 
 # 图标/通知参数（S8.3：外置 ui.json，静态配置解包）
 _SC = get_static_config()
@@ -14,7 +14,7 @@ ICON_SIZE = int(_SC.ui["icon_size"])
 NOTIFY_DURATION_MS = int(_SC.ui["notify_duration_ms"])
 QUOTA_GRAY = str(_SC.ui["colors"]["quota_gray"])
 PIE_DOT_COLOR = str(_SC.ui["colors"]["quota_pie_dot"])  # C23：白点色值外置
-APP_SUBTITLE = str(_SC.ui["app_subtitle"])  # R5：tooltip 标题中段（ui.json 单一来源）
+# A1.1：标题拼接单点 utils.logger.build_app_title（tooltip 与主窗口标题一致）
 MENU_LABELS = dict(_SC.ui["menu_labels"])  # 5A.3 C5：菜单文案外置 ui.json
 
 
@@ -28,7 +28,7 @@ class SystemTray(QSystemTrayIcon):
         # 初始化托盘：构建图标与菜单，连接激活信号（C12 补类型注解）
         super().__init__(parent)
         self.setIcon(self._build_icon(QUOTA_COLOR_OK))
-        self.setToolTip(f"{APP_NAME} {APP_SUBTITLE} {VERSION}")
+        self.setToolTip(build_app_title())
         # 6A.2 D2：QSystemTrayIcon 非 QWidget 不能挂父，菜单存实例属性防 GC
         # （setContextMenu 不接管所有权，局部变量在 Python 引用消失后会被销毁）
         self._menu = QMenu()

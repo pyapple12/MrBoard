@@ -61,4 +61,4 @@ def dpapi_unprotect(data: bytes) -> bytes | None:
 #     设计理由：credential_store 解密与 browser_creds AES key 提取共用
 #     （browser_creds 原 `_, aes_key = CryptUnprotectData(...)` 同款）
 # 异常处理：加解密异常捕获并打 WARNING，返回 None（调用方决定降级策略）
-# 关联配置：无（Windows 系统 DPAPI，绑定当前用户）
+# 关联配置：config/static/base.json（app_name 派生 DPAPI_DESCRIPTION，6A.3 H4）

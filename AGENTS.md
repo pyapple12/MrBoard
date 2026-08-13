@@ -5,7 +5,7 @@
 ## 运行与验证
 
 - 入口 `main.py`：GUI 为默认模式；版本号 `VERSION` 单一来源在 `config/static/base.json` 的 `version` 字段，由 `utils/logger.py` 单点导出（main.py/main_window.py/system_tray.py 共引，D1/R4 模式）
-- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_s1.py`、`.temp/verify_s2.py`、`.temp/verify_s3.py`、`.temp/verify_s4.py`、`.temp/verify_s5.py`、`.temp/verify_s6.py`、`.temp/verify_s7.py`、`.temp/verify_s8.py`、`.temp/verify_s9.py`、`.temp/verify_s10.py`、`.temp/verify_s11.py`、`.temp/verify_s12.py`、`.temp/verify_s13.py`（各自模块开发完成后运行）
+- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_*.py`（当前 43 个：s1-s14 基线 + v0808/v0809/v1010/3A/4A/5A/6A 各批次，全量回归 = 全部运行；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护）
 - GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
 - 依赖（`requirements.txt`）：PyQt6（其余按需添加，见 z.plan.md）
 
@@ -25,6 +25,48 @@
 - 提交信息按 Git 注意章节的 Commit 提交规范（V2）书写，如 `feat: V0.09，UI 改版与维护...`
 - 项目规划与方案文档在 `z.plan.md`
 - `reference/` 目录是外部项目的 git clone（浅克隆），**不纳入本仓库版本控制**；需要更新时重新 clone
+
+## 工程原则（设计哲学，所有项目通用）
+
+> 设计哲学总纲（18 条 / 5 大类，与用户级 instructions.md 同源）；下文"代码规范"为项目细则，两者冲突时以本项目边界为准。
+
+### 核心思想
+
+- 以第一性原理思考问题：理解需求背后的真实目标，而非直接套用已有模式或技术方案。
+- 优先解决本质问题，避免为假设中的未来需求提前设计复杂系统。
+- 在保证长期可维护性的前提下，选择当前最简单、可靠、清晰的实现方案。
+
+### 简洁与设计
+
+- 遵循 KISS：优先选择简单直接的实现，避免不必要的复杂度。
+- 遵循 DRY：避免重复逻辑，但不要为了消除少量重复而创建过度抽象。
+- 遵循 SOLID 思想：职责清晰、降低模块耦合，提高可维护性和扩展能力。
+
+### 架构
+
+- 不长期保留废弃方案：优先删除过时代码，而不是增加兼容层、fallback 或临时迁移逻辑。
+- 不进行未经验证的架构设计：避免提前引入抽象、配置和间接层。
+- 从最小可工作的版本开始逐步演进，每次修改建立在已有可运行系统之上。
+- 永远不要用未来可能需要的复杂性，牺牲当前产品的可用性。
+
+### 代码质量
+
+- 保持模块职责明确，避免一个模块承担过多职责。
+- 优先使用成熟、稳定、维护良好的第三方库，而不是重复造轮子。
+- 使用项目已有依赖解决问题之前，不要随意新增依赖。
+- 在引入新方案前，先检查已有代码、依赖、文档和能力。
+- 避免为了"看起来更优雅"而增加实际复杂度。
+
+### 工程决策
+
+- 优先选择长期可维护的方案，而不是只能临时运行的解决方案。
+- 代码应该服务于业务目标，而不是为了展示技术复杂度。
+- 如果简单方案已经满足需求，不要主动升级为复杂方案。
+
+### 本项目边界（消解原则与项目规范的表面张力）
+
+- **参数外置 vs 避免过度配置化**：以 S8 定案为准——业务逻辑常量（SQL/正则/维度枚举）不抽，只抽"可调参数"；原则"避免提前引入配置和间接层"不覆盖既有外置体系
+- **审计整改机制 vs 不升级复杂度**：原则约束编码决策；项目审计/文档/验证流程为用户既定工作流，不受"简单方案不升级"覆盖
 
 ## 代码规范
 
@@ -90,6 +132,7 @@
 
 ## 操作注意
 
+- **任务前强制 skill 搜索**：每轮新任务开始，先检查系统提示中 available_skills 列表，按触发词匹配（"推进任务/研究 progress.md 章节" → progress-task；"审计项目/全量审计/再次审计" → audit-project；"归档审计报告/写入 plan" → audit-report；"创建/编辑 opencode 自身配置" → customize-opencode），匹配即调用 skill 工具加载并严格按其指令执行（流程/TDD/验证/硬性约束逐条遵守，与记忆冲突时以 skill 为准）；无匹配才自行处理并说明。禁止仅凭上下文记忆执行 skill 流程（指令可能被上下文冲淡）
 - 执行命令前先检测当前 shell（Windows 下为 pwsh）：使用 PowerShell 兼容命令（`Select-String` 替代 `grep`，`Get-ChildItem` 替代 `ls` 等），避免 Linux-only 工具
 - pwsh 会话带 `-NoProfile` 不加载 `$PROFILE`，输出中文前必须先设置编码：`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;`
 - 未经用户明确要求，不得擅自执行 `git add`、`git commit` 或任何其他 Git 写操作

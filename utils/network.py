@@ -3,6 +3,8 @@
 import urllib.error
 import urllib.request
 
+from config.static.static_config import get_static_config
+
 # 网络类可重试异常元组（retry_call 的 exceptions 参数共用，R8）
 RETRY_NETWORK_ERRORS: tuple[type[Exception], ...] = (
     urllib.error.URLError,
@@ -13,10 +15,13 @@ RETRY_NETWORK_ERRORS: tuple[type[Exception], ...] = (
 def http_get(
     url: str,
     headers: dict[str, str] | None = None,
-    timeout: float = 15.0,
+    timeout: float | None = None,
 ) -> bytes:
     # 发送 GET 请求返回响应体；urlopen 对非 2xx 直接抛 HTTPError（3xx 自动跟随），
     # 网络异常原样传播（交 retry_call 重试或调用方分类）
+    # （A2.4：默认 None 回退 base.json http_timeout——单一来源，调用方可显式覆盖）
+    if timeout is None:
+        timeout = float(get_static_config().base["http_timeout"])
     request = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
@@ -27,7 +32,7 @@ def http_get(
 #   RETRY_NETWORK_ERRORS：网络类可重试异常元组（URLError/TimeoutError），
 #     go_quota/pricing 的 retry_call 共用（3A.1 R8：消除两处重复书写）
 # 函数：
-#   http_get(url, headers=None, timeout=15.0)：
+#   http_get(url, headers=None, timeout=None)：
 #     输入：URL、可选请求头、超时秒数
 #     输出：响应体 bytes
 #     逻辑步骤：构造 Request → urlopen（带超时）→ 返回响应体
@@ -36,5 +41,5 @@ def http_get(
 #       捕获 HTTPError 处理（utils 层不依赖业务异常类型）
 # 异常处理：非 2xx 抛 urllib.error.HTTPError；网络/超时异常原样传播，均交调用方
 #   重试或分类（z.plan 第四章错误策略）
-# 关联配置：签名默认 timeout=15.0 仅为兜底（6A.1 E7：与说明区一致）——调用方
-#   一律从 base.json http_timeout 显式传入（go_quota/pricing 的 HTTP_TIMEOUT）
+# 关联配置：timeout 默认 None 回退 base.json http_timeout（A2.4 单一来源），
+#   调用方可显式覆盖（go_quota/pricing 的 HTTP_TIMEOUT）

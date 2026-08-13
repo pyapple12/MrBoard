@@ -41,8 +41,9 @@ AUTH_COOKIE_FIELDS = (
     "auth_cookie",
     "cookie",
 )
-# OpenAuth 登录页特征标记（凭据失效判定，R9 收敛魔法字符串）
-OAUTH_REDIRECT_MARKER = "OpenAuth"
+# OpenAuth 登录页特征标记（凭据失效判定，R9 收敛魔法字符串；
+# A0.4：限定 <title> 特征防正常页面误判）
+OAUTH_REDIRECT_MARKER = "<title>OpenAuth"
 # dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
 CREDENTIALS_FILE = get_project_root() / _SC.base["credentials_dir"] / "opencode-go.json"
 # 窗口键映射：GoQuotaInfo 字段名 → dashboard HTML 窗口键（解析与组装共用；
@@ -205,7 +206,8 @@ def fetch_dashboard_usage(
     html = body.decode("utf-8", errors="replace")
     if OAUTH_REDIRECT_MARKER in html:
         # 未登录会话被重定向到 OpenAuth 登录页：凭据失效，按 auth 分类
-        # （引导卡片据此显示，用户可一键重新获取）
+        # （A0.4：title 精确特征，防正常 dashboard 页面含 OpenAuth 字样误判；
+        #   如真实登录页 title 有变体需调整常量）
         raise GoQuotaError(
             "auth", "OpenCode Go 登录会话已失效，请点击一键自动获取重新登录"
         )
@@ -423,7 +425,9 @@ def main() -> None:
         if window:
             print(
                 f"  {label}：已用 {window.usage_percent:.0f}%"
-                f"，重置于 {window.reset_date.astimezone().strftime('%Y-%m-%d %H:%M:%S')}"
+                # A2.3：CLI 重置时间格式外置 ui.json（与 GUI reset_time_format 分离）
+                f"，重置于 "
+                f"{window.reset_date.astimezone().strftime(str(_SC.ui['cli_reset_time_format']))}"
             )
         else:
             print(f"  {label}：未获取到")
