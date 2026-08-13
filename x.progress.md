@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.15（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.16（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -253,3 +253,44 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] B4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
 - 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；README 补 notify_message_fallback、z.plan 附录 A008 标注已修复）｜优先级：高
+
+## C. 第9轮审计修复任务清单（依据 z.plan.md 附录 A009）——✅ 全部完成（2026-08-13，C0-C4）
+
+> 目标：P1 1 + P2 2 + P3 9 + 观察项提升 1（ui.json 契约扩展）共 13 条按五组整改；基线回归 43 个验证脚本
+> 执行原则：每项完成后运行对应验证；全部完成后全量回归
+
+### C0 P0 正确性
+
+- [x] C0.1 pricing 远程定价结构重构（pricing.py:253-282，P1）——遍历顶层 provider → 其 models dict，canonical_key(provider, model) 构造 key（结构判断 + key 解析一起改）；验证：用现网 api.json 样例片段（openai/gpt-4o + anthropic/claude-sonnet-4-5）断言解析成功且 key 含 provider 前缀
+- [x] C0.2 B0.7 防护补全（main.py:55-65）——except (KeyError, ValueError, IndexError) + fallback 二次 try 或纯静态拼接；验证：3 种坏模板（{used/!q/{}）实测不逃逸
+- [x] C0.3 pricing 缓存写异常降级（pricing.py:115）——write_json 包 try/except OSError 仅 warning（与 _fetch_remote_prices 降级风格一致）；验证：mock write_json 抛 OSError 断言 load_price_map 仍返回内存表
+- [x] C0.4 convert inf 拦截（convert.py:29-31/45-47）——if not math.isfinite(result) 统一覆盖 nan/inf/-inf；验证：to_float("inf") 返回 0.0、to_optional_float("inf") 返回 None
+- [x] C0.5 quota/error 信号序号去重（main_window.py:192/252-254/745）——quota_ready/error 携带 seq 与 usage 同机制（或 go_quota in-flight 去重二选一）；验证：模拟乱序断言旧结果不覆盖
+- [x] C0.6 themes 主题名-调色板顺序契约（themes.py:111-118）——校验 THEME_NAMES 与 palettes 键对齐且互异；验证：改序配置断言导入期抛错
+- [x] C0.7 TABLE_HEADERS 严格相等校验（main_window.py:174-177）——!= 替代 <；验证：加列配置断言抛错
+- [x] C0.8 ui.json 契约扩展（观察项 A1 提升）——B0.6 键集扩至全部消费键（status_messages 18 键/dialog_titles/dialog_prompts/guide_messages/tooltips/button_labels/menu_labels/notify_*）+ 模板类键占位符校验；验证：删键配置断言导入期抛错
+- 状态：✅ 完成（2026-08-13，验证：probe_9c0 14 项 + 行为验证 C0.5/C0.6 + 全量回归 43/43；同步 verify_s4/s7/s8/s9/5a3/6a4 断言）｜优先级：高
+
+### C1 P1 去重
+
+- 无新增条目（观察项均不提升）
+- 状态：— ｜优先级：—
+
+### C2 P2 配置化
+
+- 无新增条目（观察项均不提升）
+- 状态：— ｜优先级：—
+
+### C3 P3 清理
+
+- [x] C3.1 opencode_usage 缩进修正（opencode_usage.py:586-589）——参数行与闭括号缩进对齐；验证：v1010_3 行宽/格式断言
+- [x] C3.2 go_quota 说明区 60s 动态化（go_quota.py:308+481 两处）——"不足 60s" 改"不足 MIN_FETCH_INTERVAL 秒"；验证：grep 无 "60s" 字面量
+- [x] C3.3 main_window 说明区 VERSION 尾巴清理（main_window.py:950）——删括号内 VERSION 说明；验证：grep 说明区无 VERSION
+- [x] C3.4 main_window 说明区 PIE 归属修正（main_window.py:954-955）——PIE_START_ANGLE/FULL_CIRCLE_16 移出 ui.json 标注；验证：grep 说明区归属正确
+- [x] C3.5 system_tray build_app_title 归类修正（system_tray.py:102-103）——移入函数区；验证：说明区结构断言
+- 状态：✅ 完成（2026-08-13，验证：probe_9c3 5 项 + 全量回归 43/43；全部 edit 工具修改）｜优先级：低
+
+### C4 验证与收尾
+
+- [x] C4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
+- 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；z.plan 附录 A009 标注已修复）｜优先级：高

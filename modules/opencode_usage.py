@@ -584,9 +584,9 @@ def main() -> None:
                 "session": db.by_session,
             }
             rows = methods[args.by](
-            since=since_ms,
-            limit=max(1, args.limit),  # B0.10：limit 下界
-        )
+                since=since_ms,
+                limit=max(1, args.limit),  # B0.10：limit 下界
+            )
             data = {
                 "period": since_label,
                 "rows": [

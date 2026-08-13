@@ -114,6 +114,15 @@ if len(THEME_NAMES) < 2:
     raise RuntimeError(
         f"ui.json themes 数组至少需要 light/dark 两项，当前 {THEME_NAMES}"
     )
+# C0.6：主题名-调色板顺序契约（THEME_NAMES 顺序必须与 palettes 键对应且互异，
+# 否则 get_theme("light") 可能返回深色样式，名称与视觉效果错位）
+_palette_keys = set(_SC.ui["palettes"].keys())
+if any(name not in _palette_keys for name in THEME_NAMES) or len(
+    set(THEME_NAMES)
+) != len(THEME_NAMES):
+    raise RuntimeError(
+        f"ui.json themes 数组与 palettes 键不一致：{THEME_NAMES} vs {sorted(_palette_keys)}"
+    )
 LIGHT_THEME_NAME = THEME_NAMES[0]
 DARK_THEME_NAME = THEME_NAMES[1]
 

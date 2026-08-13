@@ -112,7 +112,11 @@ def load_price_map(refresh: bool = False) -> dict[str, RateInfo]:
         remote = _fetch_remote_prices()
         if remote:
             price_map = remote
-            write_json(PRICE_CACHE_FILE, _serialize(remote))
+            try:
+                write_json(PRICE_CACHE_FILE, _serialize(remote))
+            except OSError as exc:
+                # C0.3：缓存写失败仅降级提示（缓存是加速项非正确性依赖）
+                logger.warning("远程定价缓存写入失败：%s", exc)
             logger.info("远程定价表已缓存：%d 条", len(remote))
         else:
             stale = _read_stale_cache()
@@ -251,7 +255,8 @@ def _apply_local_overrides(price_map: dict[str, RateInfo]) -> None:
 
 
 def _fetch_remote_prices() -> dict[str, RateInfo] | None:
-    # 从 models.dev 拉取全量定价并转 RateInfo 字典；网络失败返回 None（宽容降级）
+    # 从 models.dev 拉取全量定价并转 RateInfo 字典；网络失败返回 None（宽容降级；
+    # C0.1：现网结构为顶层 provider 键 → 其 models dict，model key 无 provider/ 前缀）
     try:
         body = retry_call(
             http_get,
@@ -265,28 +270,31 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
     except Exception as exc:
         logger.warning("拉取 models.dev 定价失败：%s", exc)
         return None
-    if not isinstance(data, dict) or not isinstance(data.get("models"), dict):
+    if not isinstance(data, dict):
         return None
     result: dict[str, RateInfo] = {}
-    for model_key, model_info in data["models"].items():
-        if not isinstance(model_info, dict):
+    for provider, provider_info in data.items():
+        if not isinstance(provider_info, dict):
             continue
-        pricing = model_info.get("pricing")
-        if not isinstance(pricing, dict):
+        models = provider_info.get("models")
+        if not isinstance(models, dict):
             continue
-        provider, _, model = model_key.partition("/")
-        if not provider or not model:
-            continue
-        result[canonical_key(provider, model)] = _rate_from_raw(
-            {
-                **{
-                    target: pricing.get(source)
-                    for source, target in PRICE_KEY_MAP.items()
+        for model, model_info in models.items():
+            if not isinstance(model_info, dict):
+                continue
+            pricing = model_info.get("pricing")
+            if not isinstance(pricing, dict):
+                continue
+            result[canonical_key(provider, model)] = _rate_from_raw(
+                {
+                    **{
+                        target: pricing.get(source)
+                        for source, target in PRICE_KEY_MAP.items()
+                    },
+                    "currency": pricing.get("currency", "USD"),
                 },
-                "currency": pricing.get("currency", "USD"),
-            },
-            "remote",
-        )
+                "remote",
+            )
     return result or None
 
 

@@ -133,6 +133,7 @@
 ## 操作注意
 
 - **任务前强制 skill 搜索**：每轮新任务开始，先检查系统提示中 available_skills 列表，按触发词匹配（"推进任务/研究 progress.md 章节" → progress-task；"审计项目/全量审计/再次审计" → audit-project；"归档审计报告/写入 plan" → audit-report；"创建/编辑 opencode 自身配置" → customize-opencode），匹配即调用 skill 工具加载并严格按其指令执行（流程/TDD/验证/硬性约束逐条遵守，与记忆冲突时以 skill 为准）；无匹配才自行处理并说明。禁止仅凭上下文记忆执行 skill 流程（指令可能被上下文冲淡）
+- **代码修改必须用 edit 工具**：修改既有 .py 文件一律使用 edit 的精确 oldString/newString 替换，禁止用 Python 脚本（python -c / .temp/impl_*.py）执行文件内容替换（易踩引号/缩进/控制字符坑）；新建 .temp 探针/verify 脚本不受限（write 创建）
 - 执行命令前先检测当前 shell（Windows 下为 pwsh）：使用 PowerShell 兼容命令（`Select-String` 替代 `grep`，`Get-ChildItem` 替代 `ls` 等），避免 Linux-only 工具
 - pwsh 会话带 `-NoProfile` 不加载 `$PROFILE`，输出中文前必须先设置编码：`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;`
 - 未经用户明确要求，不得擅自执行 `git add`、`git commit` 或任何其他 Git 写操作

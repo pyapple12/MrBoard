@@ -16,7 +16,7 @@ from PyQt6.QtCore import (
     Qt,
     pyqtSignal,
 )
-from PyQt6.QtGui import QCloseEvent, QColor, QPaintEvent, QPainter
+from PyQt6.QtGui import QAction, QCloseEvent, QColor, QPaintEvent, QPainter
 from PyQt6.QtWidgets import (
     QApplication,
     QSystemTrayIcon,
@@ -145,7 +145,8 @@ COLUMN_IDS = (
     "cost",
 )
 
-# B0.6：ui.json 结构性键契约校验（配置删键/改键 → 导入期抛错，防运行时 KeyError/IndexError）
+# B0.6：ui.json 结构性键契约校验（配置删键/改键 → 导入期抛错，防运行时 KeyError/IndexError；
+# C0.8：键集扩至全部消费键（含 system_tray/main.py 消费的文案组））
 _UI_STRUCT_KEYS = (
     ("card_titles", ("tokens", "input", "output", "cache_rate", "cost"), CARD_TITLES),
     ("quota_window_labels", tuple(QUOTA_WINDOW_KEYS), QUOTA_WINDOW_LABELS),
@@ -166,15 +167,77 @@ _UI_STRUCT_KEYS = (
         ),
         DETAIL_LINE_TEMPLATES,
     ),
+    ("status_messages", tuple(STATUS_MESSAGES), STATUS_MESSAGES),
+    (
+        "dialog_titles",
+        ("total_detail", "manual_creds", "export_dir"),
+        DIALOG_TITLES,
+    ),
+    (
+        "dialog_prompts",
+        ("workspace_id", "auth_cookie"),
+        DIALOG_PROMPTS,
+    ),
+    (
+        "guide_messages",
+        (
+            "v10_detect",
+            "launch_failed",
+            "cdp_not_ready",
+            "login_timeout_template",
+            "creds_saved_template",
+            "auto_fetch_failed",
+        ),
+        GUIDE_MESSAGES,
+    ),
+    ("tooltips", ("total_detail", "columns", "pie_remaining"), TOOLTIPS),
+    (
+        "button_labels",
+        ("refresh", "export", "theme", "settings"),
+        BUTTON_LABELS,
+    ),
+    ("menu_labels", ("show_window", "refresh", "quit"), dict(_SC.ui["menu_labels"])),
 )
 for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
     _missing = [k for k in _required if k not in _actual]
     if _missing:
         raise RuntimeError(f"ui.json {_cfg_name} 缺少必需键：{_missing}")
-if len(TABLE_HEADERS) < len(COLUMN_IDS):
+# C0.7：table_headers 严格相等（防短防长——加列后多出列渲染为空且列开关无法控制）
+if len(TABLE_HEADERS) != len(COLUMN_IDS):
     raise RuntimeError(
-        f"ui.json table_headers 长度不足（需要 ≥{len(COLUMN_IDS)}，实际 {len(TABLE_HEADERS)}）"
+        f"ui.json table_headers 长度与 COLUMN_IDS 不一致"
+        f"（需要 {len(COLUMN_IDS)}，实际 {len(TABLE_HEADERS)}）"
     )
+# C0.8：模板类键占位符校验（花括号配对 + 无未知命名占位符，format_map 统一探测）
+_TEMPLATE_PLACEHOLDERS = {
+    "time": "",
+    "error": "",
+    "dir": "",
+    "used": 0,
+    "remaining": 0,
+    "percent": 0,
+    "minutes": 0,
+    "workspace_id": "",
+}
+_TEMPLATE_KEYS = tuple(
+    k
+    for k in tuple(STATUS_MESSAGES) + tuple(GUIDE_MESSAGES)
+    if "{" in STATUS_MESSAGES.get(k, GUIDE_MESSAGES.get(k, ""))
+)
+_TEMPLATE_KEYS += (
+    "notify_message_template",
+    "notify_message_fallback",
+)
+for _tname in _TEMPLATE_KEYS:
+    _tmpl = (
+        STATUS_MESSAGES.get(_tname)
+        or GUIDE_MESSAGES.get(_tname)
+        or str(_SC.ui.get(_tname, ""))
+    )
+    try:
+        _tmpl.format_map(_TEMPLATE_PLACEHOLDERS)
+    except (KeyError, ValueError, IndexError) as _exc:
+        raise RuntimeError(f"ui.json 模板键 {_tname} 占位符异常：{_exc}") from None
 
 
 @dataclass
@@ -189,8 +252,8 @@ class _LoadSignals(QObject):
     # 用量/配额加载信号载体（usage_ready 携带刷新序号，B0.5 去重用）
 
     usage_ready = pyqtSignal(int, object)
-    quota_ready = pyqtSignal(object)
-    error = pyqtSignal(str)
+    quota_ready = pyqtSignal(int, object)
+    error = pyqtSignal(int, str)  # C0.5：携带刷新序号
 
 
 class _ExportSignals(QObject):
@@ -231,7 +294,8 @@ class _UsageTask(QRunnable):
             )
         except Exception as exc:
             self.signals.error.emit(
-                STATUS_MESSAGES["usage_failed_template"].format(error=exc)
+                self.seq,
+                STATUS_MESSAGES["usage_failed_template"].format(error=exc),
             )
 
 
@@ -239,22 +303,27 @@ class _QuotaTask(QRunnable):
     # Go 配额后台任务：网络请求不阻塞 UI，完成后发信号
 
     def __init__(
-        self, signals: _LoadSignals, quota_fetcher: Callable[..., GoQuotaInfo]
+        self,
+        signals: _LoadSignals,
+        quota_fetcher: Callable[..., GoQuotaInfo],
+        seq: int = 0,
     ) -> None:
-        # 初始化任务：记录信号对象与配额获取函数（支持测试注入）
+        # 初始化任务：记录信号对象、配额获取函数与刷新序号（C0.5 去重）
         super().__init__()
         self.signals = signals
         self.quota_fetcher = quota_fetcher
+        self.seq = seq
 
     def run(self) -> None:
         # 后台执行：拉取 Go 配额（内部含节流与缓存兜底）
         try:
-            self.signals.quota_ready.emit(self.quota_fetcher())
+            self.signals.quota_ready.emit(self.seq, self.quota_fetcher())
         except Exception as exc:
             self.signals.quota_ready.emit(
+                self.seq,
                 GoQuotaInfo(
                     error=STATUS_MESSAGES["quota_failed_template"].format(error=exc)
-                )
+                ),
             )
 
 
@@ -671,7 +740,9 @@ class MainWindow(QMainWindow):
             self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
         else:
             self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
-        self._pool.start(_QuotaTask(self._signals, self.quota_fetcher))
+        self._pool.start(
+            _QuotaTask(self._signals, self.quota_fetcher, self._refresh_seq)
+        )
 
     def toggle_theme(self) -> None:
         # 切换亮/暗主题并应用
@@ -726,8 +797,11 @@ class MainWindow(QMainWindow):
         ]
         QMessageBox.information(self, DIALOG_TITLES["total_detail"], "\n".join(lines))
 
-    def _on_quota_ready(self, info: GoQuotaInfo) -> None:
+    def _on_quota_ready(self, seq: int, info: GoQuotaInfo) -> None:
         # 配额加载完成：渲染进度条与状态；凭据类错误时显示引导卡片；发射更新信号
+        # （C0.5：旧任务乱序晚完成直接丢弃，与 usage 同机制）
+        if seq != self._refresh_seq:
+            return
         self._render_quota(info)
         self.quota_updated.emit(info)
         # 引导卡片显示条件：CDP 可解决的凭据类错误（无 dashboard 凭据/cookie 失效），
@@ -742,8 +816,11 @@ class MainWindow(QMainWindow):
         )
         self._guide_frame.setVisible(show_guide)
 
-    def _on_load_error(self, message: str) -> None:
-        # 加载失败：仅状态栏提示（保留旧 view，z.plan 第四章保留旧数据策略）
+    def _on_load_error(self, seq: int, message: str) -> None:
+        # 加载失败：仅状态栏提示（保留旧 view，z.plan 第四章保留旧数据策略；
+        # C0.5：旧任务失败消息不覆盖新任务状态）
+        if seq != self._refresh_seq:
+            return
         self._status_bar.showMessage(message)
 
     def _start_cdp_guide(self) -> None:
@@ -876,7 +953,9 @@ class MainWindow(QMainWindow):
         # 弹出列显示开关菜单（P13：勾选 = 显示，取消 = 隐藏）
         menu = QMenu(self)
         for col, col_id in enumerate(COLUMN_IDS):
-            action = menu.addAction(TABLE_HEADERS[col])
+            # C 方案：QAction 构造式（绕开 PyQt6 stub 对 addAction 的 Optional 返回标注）
+            action = QAction(TABLE_HEADERS[col], menu)
+            menu.addAction(action)
             action.setCheckable(True)
             action.setChecked(col_id not in self._hidden_columns)
             action.toggled.connect(
@@ -947,12 +1026,12 @@ class MainWindow(QMainWindow):
 
 # ===== ui/main_window.py 模块说明 =====
 # 模块级常量：
-#   AUTO_LOAD_DELAY_MS：启动延迟加载毫秒数（base.json 驱动；VERSION 已由 utils.logger 单点导出，B3.1）
+#   AUTO_LOAD_DELAY_MS：启动延迟加载毫秒数（base.json 驱动）
 #   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：表格行数上限（base.json）
 #   CDP_FETCH_TIMEOUT / CDP_WAIT_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：
 #     CDP 引导参数（base.json）
-#   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG / PIE_COLOR_TEXT / PIE_START_ANGLE /
-#     FULL_CIRCLE_16：剩余量饼图参数与绘制角度（ui.json）
+#   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG / PIE_COLOR_TEXT：剩余量饼图参数（ui.json）
+#   PIE_START_ANGLE / FULL_CIRCLE_16：饼图绘制角度常量（Qt 角度单位，代码内，C11）
 #   LAYOUT_MARGINS / LAYOUT_SPACING / QUOTA_NAME_WIDTH / CARDS_SPACING：
 #     布局参数（ui.json）；RESET_TIME_FORMAT：重置时间显示格式（ui.json）
 #   DIMENSIONS / DIMENSION_LABELS / QUOTA_WINDOW_LABELS / GUIDE_* / TABLE_HEADERS /

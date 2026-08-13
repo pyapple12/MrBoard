@@ -305,7 +305,7 @@ def _http_get(
 
 
 def _throttled_cache(force: bool) -> GoQuotaInfo | None:
-    # 节流检查：非强制且距上次成功不足 60s 时返回标注后的缓存（避免打爆接口）
+    # 节流检查：非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒时返回标注后的缓存（避免打爆接口）
     if (
         not force
         and _last_quota is not None
@@ -478,7 +478,7 @@ if __name__ == "__main__":
 #   _capture_object_body/_capture_number：opencode-bar 正则移植（兼容
 #     "field":$R[12]={...} 赋值形态与字符串/数字双形态值）
 #   _http_get()：GET 请求（401/403 转 auth 分类；其余异常原样抛交 retry 重试）
-#   _throttled_cache(force)：节流检查——非强制且距上次成功不足 60s 返回缓存
+#   _throttled_cache(force)：节流检查——非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒返回缓存
 #   _fetch_usage_with_fallback()：凭据候选逐个尝试（首成功返回 + 来源标注）
 #   _build_info()：组装成功配额信息并更新缓存（overall = max 三窗口）
 #   _mark_cached()：缓存兜底标注（浅拷贝防污染）

@@ -26,7 +26,7 @@ def to_float(value: Any, default: float = 0.0) -> float:
         if isinstance(value, bool):
             return default
         result = float(value)
-        if math.isnan(result):
+        if not math.isfinite(result):
             return default
         return result
     except (TypeError, ValueError, OverflowError):
@@ -42,7 +42,7 @@ def to_optional_float(value: Any) -> float | None:
         if isinstance(value, bool):
             return None
         result = float(value)
-        if math.isnan(result):
+        if not math.isfinite(result):
             return None
         return result
     except (TypeError, ValueError, OverflowError):

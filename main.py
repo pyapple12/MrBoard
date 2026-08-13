@@ -57,12 +57,20 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
                         used=info.overall_used_percent,
                         remaining=info.remaining_percent,
                     )
-                except KeyError:
-                    # B0.7：模板被手改引入未知占位符时回退固定文案（不逃逸）
-                    message = str(_SC.ui["notify_message_fallback"]).format(
-                        used=info.overall_used_percent,
-                        remaining=info.remaining_percent,
-                    )
+                except (KeyError, ValueError, IndexError):
+                    # B0.7：模板被手改引入未知占位符/坏格式时回退固定文案（不逃逸）
+                    try:
+                        message = str(_SC.ui["notify_message_fallback"]).format(
+                            used=info.overall_used_percent,
+                            remaining=info.remaining_percent,
+                        )
+                    except (KeyError, ValueError, IndexError):
+                        # fallback 模板本身损坏时纯静态拼接兜底
+                        message = (
+                            f"配额已使用 {info.overall_used_percent}%"
+                            f"，剩余 {info.remaining_percent}%"
+                        )
+                # notify_quota 在 try/except 链之外（模板正常与回退路径都执行）
                 tray.notify_quota(str(_SC.ui["notify_title"]), message)
         else:
             _notified_danger = False

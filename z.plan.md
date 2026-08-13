@@ -263,3 +263,18 @@ mrboard/
 - **P3（13 条）**：to_float/to_optional_float 缺 OverflowError（10**400 实测逃逸，与 to_int 不对称）；pricing currency/source None → "None" 错值（实测）；launch Popen OSError 分支临时目录泄漏（A007 漏改）；刷新无 in-flight 去重（连点+定时叠加旧任务覆盖新数据）；ui.json 结构性键无契约校验（删键确定性 KeyError/IndexError）；说明区失实/残留 6 处（main_window VERSION、system_tray APP_NAME、themes 异常处理无、exporter/browser_creds/go_quota 关联配置）；notify 模板 .format 无防护（KeyError 逃逸）；settings _themes/THEMES 重复构造
 - **参考级观察项 15 条**（用户复核后**提升 6 条**入 B 系列：A1 键序排序/B7 托盘不可用/B6 引导定时器/B8 节流文案/D2 CLI 下界/D1 排序提函数；维持 9 条）：TOKEN_ABBR_UNITS 键序依赖、托盘不可用窗口不可恢复、导出无防重入、ws.recv 不按 id 匹配、pricing cache_write 单键映射、estimate 全表扫描、CLI --limit 无下界、节流文案滞后、跨节流并发、network 每次 get_static_config、write_json mkstemp 位置、sqlite_utils 线程契约、双份 themes 解析、paintEvent 无显式 end、hidden_columns 排序两处重复
 - **亮点**：无 P0/P1；A007 零回退；无函数内 import/docstring/未用 import/配置死键（base.json 33 键、ui.json 44 键全有消费方）；README/ base.json / x.progress 三处 ver 0.14 一致
+
+---
+
+## 附录 A009：全量代码审计报告（第9轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；AST 扫描 + 三路代理全文审读 + 现网实测 + 行为验证
+> 结果：**P1 级 1 条 / P2 级 2 条 / P3 级 9 条 / 参考级观察项 10 条**
+> 状态：✅ 全部完成（2026-08-13）——C 系列任务清单见 x.progress.md（C0-C3 已实施，C4 收尾）；远程定价重构（P1）、信号序号去重、契约键集扩展、isfinite 终结修复等 13 项
+
+- **上轮复核（A008 B 系列 16 项）**：22/22 全部在位、零回退；发现 3 处 B 系列遗留尾巴（opencode_usage 缩进错乱 B0.10 引入 / go_quota 说明区 60s B3.2 漏改 / main_window 说明区 VERSION 尾巴 B3.1 不彻底）
+- **P1（1 条）**：pricing.py:261-289 远程定价确定性失效（**现网实测**：models.dev/api.json 顶层为 provider 键无 "models" 键、model key 无 "provider/" 前缀）——远程定价层死路径，非内置模型估算永远 unpriced；需遍历顶层 provider → models dict 重构整段
+- **P2（2 条）**：main.py:55-65 B0.7 防护不完整（'{used'/'{used!q}' 抛 ValueError、'{}' 抛 IndexError 实测逃逸，fallback 无二次保护）；pricing.py:115 缓存写失败 OSError 传播拖垮 estimate 链路（缓存是加速项非正确性依赖）
+- **P3（9 条）**：convert to_float("inf") 穿透（实测，与 nan 不对称）；quota_ready/error 信号无序号去重（B0.5 只覆盖 usage）；themes THEME_NAMES 顺序契约缺失（数组改序 → 名称与调色板错位）；TABLE_HEADERS 契约只防短不防长；缩进错乱 + 说明区残留/失实 4 处（go_quota 60s、main_window VERSION 尾巴、main_window PIE 归属、system_tray build_app_title 归类）
+- **参考级观察项 10 条**（用户确认均不提升）：go_quota URL 模板 .format（**实测不抛，误报已排除**）、retry 参数类型、hidden_columns 脏 id、http_timeout 类型契约、logger LOG_LEVEL 回退、sqlite_utils busy_timeout、file_utils 缓存、static_config 无锁单例、network 每次 get_static_config、browser_creds 定案；ui.json 契约扩展（status_messages 等 7 组文案键 + 13 处 .format）代理建议下轮并入 B0.6
+- **亮点**：A008 零回退；无函数内 import/嵌套 def/docstring/未用 import；ui.json 45 键、base.json 33 键全有消费方；README/base.json/x.progress 三处 ver 0.15 一致；现网实测首次抓出"配置活但路径死"类问题
