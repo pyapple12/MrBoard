@@ -324,3 +324,20 @@ mrboard/
   - 清理：in-flight 分支冗余调用；嵌套闭包 def add()；WIN32CRYPT/AES 缺失不写缓存（TTL 失效 + 重复 warning）；说明区 5 处失实/缺失；palette 值类型校验
 - **参考级观察项 13 条**（用户复核后**提升 2 条**：min_ts=0 天数爆炸、CREDS_CACHE_TTL 配置化；维持 11 条已并入豁免定案清单）：settings 无上限/理论 fd 泄漏/backoff clamp 语义/cost 空 dict/schema 语义依赖等
 - **亮点**：无高严重度（无确定性崩溃/错值）；三路交叉再次抓出"修复自身引入残留"模式（D0.10/D0.13/D3.1 同类漏改）；行为验证探针自毁还原机制经实测验证（git 兜底无损）
+
+---
+
+- **第 12 轮（A012）追加豁免 8 条**（用户复核，2 条已提升入 F 系列：refresh 连点、UsageRow 契约）：get_theme 第三主题静默错位（需验证，硬性 2 主题假设）/ palettes 容器类型非 dict 抛 ValueError（导入期即抛仅错误类型不统一）/ ORDER BY 无索引（仅 CLI 路径毫秒级）/ _parse_window usage_percent 未钳制（消费端双兜底 D0.6）/ subprocess 无 CREATE_NO_WINDOW（外观类）/ CLI --limit 无上界（自测路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ _profile_dirs 前缀匹配过宽（需验证，单浏览器 try 吞掉）
+
+## 附录 A012：全量代码审计报告（第12轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + AST 扫描 + 行为验证（契约缺口实测）
+> 结果：**P0-P3 级 7 条（中 1 / 低 6，含观察项提升 2 条）/ 参考级观察项 10 条（提升 2 条，维持豁免 8 条）**
+> 状态：✅ 已修复（2026-08-13：F 系列 F0 正确性 3 条 + F3 清理 4 条全部完成，F1/F2 无条目；探针 5/5 + 修复验收 15/15 + 全量回归 43/43；F4 收尾防漏损延续——契约组与消费方交叉（go_quota_error_messages/quota_window_labels 全在契约块）、说明区扩展扫描补 3 处漂移（main_window 契约组/_usage 标志、opencode_usage 字段契约键集）、配置键无漂移；任务清单见 x.progress.md F 系列）
+
+- **上轮复核（A011 E 系列 15 项）**：15/15 全部在位、零回退；E4 防漏损机制覆盖 5 文件但漏出 3 处"修复自身残留"（main.py 不在扫描范围漏网 ×2、pricing/themes 同文件漏改 ×2）；三处均为低危文档/死代码类
+- **P0-P3（7 条）**：
+  - 正确性：go_quota_error_messages 组未入契约键集（删 in_flight 键导入不抛，行为验证复现，运行时分支 KeyError——B0.6/C0.8 历史遗漏 + E2.1 未同步）；refresh 连点排队多任务（观察项提升）；UsageRow 字段与 _render_table 硬绑定无契约（观察项提升）
+  - 清理：main.py:19 VERSION 未使用 import（D0.13 残留，E3.4 只修说明区未清代码）；main.py 说明区漏 notify_message_fallback（main.py 不在 E4 扫描范围）；pricing 说明区缺 _price_line/_rate_from_raw；themes 说明区未同步 E0.1 键序语义
+- **参考级观察项 10 条**（用户复核后**提升 2 条**：refresh 连点、UsageRow 契约；维持 8 条已并入豁免定案清单）：第三主题静默错位/palettes 容器类型/ORDER BY 无索引/usage_percent 未钳制/subprocess 无 CREATE_NO_WINDOW/CLI --limit 无上界/浏览器文案硬编码/_profile_dirs 前缀过宽
+- **亮点**：E 系列零回退；防漏损机制本轮当场抓出 3 处残留（证明机制有效，扩展扫描范围即可收敛）；credentials_ttl/in_flight 单点定义单点消费无漂移

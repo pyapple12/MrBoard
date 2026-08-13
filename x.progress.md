@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.18（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.19（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -378,4 +378,35 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] E4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_e_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——含三项防漏损强制（A011 分析结论，2026-08-13 定）：①同根因调用点全扫（grep 全部 write_json/save_config/写配置点，确认每个调用点都在异常防护内，不止 E0.3 目标一处）②说明区全量一致性扫描（本轮修改过的 themes/go_quota/browser_creds/opencode_usage/main_window 5 文件，说明区与实现 diff 逐行核对——含 E0.1/E0.2/E2.1/E2.2 修改处）③配置键文档同步检查（base.json 新键 → README 配置表/契约键集/说明区"关联配置"段三处一致；E2.1/E2.2 新增键必查）
 - 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 26/26 + 冒烟；防漏损①全调用点防护闭环（exporter/go_quota 任务层与槽函数 try 已核实）；②说明区扫描补 4 处漂移（go_quota in_flight/opencode_usage ORDER BY+归零/browser_creds 缺库/main_window toggle 降级）；③credentials_ttl 三处一致；z.plan A011 状态已修复；版本推进 ver 0.18（base.json/README×2/x.progress/verify_6a4 五处一致））｜优先级：高
-- 状态：⏳ 待开发｜优先级：高
+
+## F. 第12轮审计修复任务清单（依据 z.plan.md 附录 A012）
+
+### F0 P0 正确性
+
+- [x] F0.1 go_quota_error_messages 契约组（main_window.py:150-223 契约块 + go_quota.py:406/416）——_UI_STRUCT_KEYS 补 `("go_quota_error_messages", ("no_credentials","in_flight"), GO_QUOTA_ERROR_MESSAGES)` 组（含模块级解包与消费方同步）；验证：真实删 in_flight 键导入断言抛错（probe_a012_contract 先 FAIL 后 PASS）
+- [x] F0.2 refresh 连点排队排查（main_window.py:759-767，观察项提升）——确认 _UsageTask 排队上限或 in-flight 去重（QThreadPool 有界 + 序号丢弃是否足够）；验证：并发调用断言任务不叠加（需验证后定案）
+- [x] F0.3 UsageRow 契约校验（opencode_usage.py UsageRow + main_window.py:1015-1026，观察项提升）——dataclass 字段显式键集与 _render_table 消费属性比对（防字段改名 AttributeError 逃逸 Qt 槽）；验证：删字段断言导入/渲染抛契约错误
+- 状态：✅ 已完成（2026-08-13：F0.1 契约组补 no_credentials/in_flight 两键（真实删键导入抛错）；F0.2 refresh 入口 in-flight 去重 + _UsageTask.run 提前复位 + _on_usage_ready pending 补发（行为验证：在途不叠加/pending 复位）；F0.3 TokenStats/UsageRow 显式字段键集契约（与 dataclass 字段比对，不一致导入期抛错）。探针 5/5 + 验收 10/10 + 全量回归 43/43；verify_s11 抓出 F0.2 的 global 声明插注释前违规并已修正）｜优先级：高
+
+### F1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### F2 P2 配置化
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### F3 P3 清理
+
+- [x] F3.1 main.py:19 删未用 VERSION import（D0.13 残留，E3.4 同根因漏改）——import 改 `from utils.logger import APP_NAME, get_logger`；验证：grep main.py 函数体无 VERSION 引用
+- [x] F3.2 main.py:132 说明区补 notify_message_fallback（main.py 不在 E4 扫描范围漏网）——关联配置段补列；验证：grep 关键字
+- [x] F3.3 pricing.py:321-337 说明区补 _price_line/_rate_from_raw 两函数——函数段补两条（count/1e6*price 与弹性构建语义）；验证：grep 两符号
+- [x] F3.4 themes.py:170-171 说明区同步 E0.1 键序语义——补"且顺序必须与 palettes 键序完全一致"；验证：grep 关键字
+- 状态：✅ 已完成（2026-08-13：F3.1 删 VERSION import（同步 4 个测试资产 verify_s1/s9/s12/s14 改读 utils.logger 单点——main.VERSION 模块属性消费面确认仅测试资产）；F3.2 补 fallback 键；F3.3 补两函数；F3.4 键序语义。探针 5/5 + 验收 15/15 + 全量回归 43/43）｜优先级：低
+
+### F4 验证与收尾
+
+- [x] F4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_f_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——防漏损延续：①同根因调用点全扫（契约组新增后 go_quota 消费方与契约键集交叉核对）②说明区全量一致性扫描扩展（覆盖 main.py/pricing/themes + 上轮 5 文件，含 F3 修改处）③配置键文档同步检查（无新增键，核对 E 系列键无漂移）
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 15/15 + 冒烟；防漏损①消费组×契约块交叉（go_quota_error_messages/quota_window_labels 全在契约块）；②说明区扩展扫描补 3 处漂移（main_window 契约组/_usage 标志、opencode_usage 字段契约键集——F0 三修复的说明区同步漏网）；③E 系列键无漂移（credentials_ttl 单点定义/消费、README 徽章==base.json）；z.plan A012 状态已修复；E4 残留状态行清理；版本推进 ver 0.19（五处一致））｜优先级：高

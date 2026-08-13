@@ -220,6 +220,13 @@ _UI_STRUCT_KEYS = (
         BUTTON_LABELS,
     ),
     ("menu_labels", ("show_window", "refresh", "quit"), dict(_SC.ui["menu_labels"])),
+    # F0.1：go_quota_error_messages 组入契约（go_quota 消费方裸读 _SC.ui，
+    # 删键将运行时 KeyError——B0.6/C0.8 历史遗漏 + E2.1 新增键未同步）
+    (
+        "go_quota_error_messages",
+        ("no_credentials", "in_flight"),
+        dict(_SC.ui["go_quota_error_messages"]),
+    ),
 )
 for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
     _missing = [k for k in _required if k not in _actual]
@@ -285,8 +292,16 @@ class _ExportSignals(QObject):
     failed = pyqtSignal(str)
 
 
+# F0.2：usage 任务在途/待补发标志（连点去重——跨线程读写由 GIL 保证原子，
+# 与 go_quota._fetch_in_flight 同式）
+_usage_task_in_flight = False
+_usage_pending = False
+
+
 class _UsageTask(QRunnable):
     # 用量统计后台任务：独立打开只读连接（规避 sqlite 跨线程限制），完成后发信号
+    # F0.2：连点去重——run 入口检查模块级在途标志，已有任务执行时仅置 pending
+    # 不叠加查询；当前任务结束后由 _on_usage_ready 补发最新一次
 
     def __init__(self, db_path: Path, signals: _LoadSignals, seq: int = 0) -> None:
         # 初始化任务：记录数据库路径、信号对象与刷新序号（B0.5 去重）
@@ -297,6 +312,12 @@ class _UsageTask(QRunnable):
 
     def run(self) -> None:
         # 后台执行：totals + 全部分组查询，失败发 error 信号
+        # F0.2：连点去重——已有任务在途时仅标记待补发（序号已递增，最终取最新）
+        global _usage_task_in_flight, _usage_pending
+        if _usage_task_in_flight:
+            _usage_pending = True
+            return
+        _usage_task_in_flight = True
         try:
             db = OpenCodeDB(self.db_path)
             try:
@@ -311,10 +332,13 @@ class _UsageTask(QRunnable):
                 }
             finally:
                 db.close()
+            # F0.2：在途标志在 emit 前复位——槽内据此判断 pending 补发
+            _usage_task_in_flight = False
             self.signals.usage_ready.emit(
                 self.seq, UsageData(summary=summary, rows=rows)
             )
         except Exception as exc:
+            _usage_task_in_flight = False
             self.signals.error.emit(
                 self.seq,
                 STATUS_MESSAGES["usage_failed_template"].format(error=exc),
@@ -754,11 +778,19 @@ class MainWindow(QMainWindow):
 
     def refresh(self) -> None:
         # 手动/定时刷新入口：取消待执行自动加载，后台并行拉用量与配额
-        # （B0.5：递增序号，_on_usage_ready 据此丢弃乱序完成的过期结果）
+        # （B0.5：递增序号，_on_usage_ready 据此丢弃乱序完成的过期结果；
+        # F0.2：usage 任务在途时仅标记待补发，不叠加 DB 查询）
+        global _usage_task_in_flight, _usage_pending
         self._pending_auto_load = False
         self._refresh_seq += 1
         self._status_bar.showMessage(STATUS_MESSAGES["refreshing"])
         if self.db_path is not None:
+            if _usage_task_in_flight:
+                _usage_pending = True
+                self._pool.start(
+                    _QuotaTask(self._signals, self.quota_fetcher, self._refresh_seq)
+                )
+                return
             self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
         else:
             self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
@@ -782,6 +814,7 @@ class MainWindow(QMainWindow):
     def _on_usage_ready(self, seq: int, data: UsageData) -> None:
         # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view；
         # B0.5：序号不匹配（旧任务乱序晚完成）直接丢弃，防覆盖新数据）
+        global _usage_pending
         if seq != self._refresh_seq:
             return
         self._usage_data = data
@@ -795,6 +828,11 @@ class MainWindow(QMainWindow):
                 time=datetime.now().strftime(STATUS_TIME_FORMAT)
             )
         )
+        # F0.2：连点期间的待补发请求——以最新序号再启动一次（_UsageTask.run
+        # 已提前复位在途标志，此处判定无竞态）
+        if _usage_pending:
+            _usage_pending = False
+            self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
 
     def _show_total_detail(self) -> None:
         # 点击总览弹出总量明细：会话/消息/天数/tokens 分解/缓存率/费用（P15）
@@ -1073,9 +1111,12 @@ class MainWindow(QMainWindow):
 #     界面文案外置 ui.json（5A.3 C3/C4：卡片/区域/按钮/状态栏/对话框文案单一来源）
 #   COST_ZERO_EPSILON / TOTAL_TOKENS_UNIT / TOTAL_TOKENS_UNIT_THRESHOLD /
 #     STATUS_TIME_FORMAT / TOKEN_ABBR_UNITS：容差/单位/时间格式外置（6A.3 H5/H6 + A2.1）
+#   _usage_task_in_flight / _usage_pending：usage 任务在途/待补发标志（F0.2 补列，
+#     连点去重——跨线程读写 GIL 原子，与 go_quota._fetch_in_flight 同式）
 # 契约校验块：_UI_STRUCT_KEYS 逐组校验 ui.json 键集（card_titles/quota_window_labels/
 #   dimension_labels/detail_line_templates/status_messages 显式 18 键/guide_messages/
-#   tooltips/button_labels/menu_labels 等，B0.6/C0.8/D0.2）+ notify_title 标量键（D0.7）+
+#   tooltips/button_labels/menu_labels/go_quota_error_messages（F0.1 补列）等，
+#   B0.6/C0.8/D0.2）+ notify_title 标量键（D0.7）+
 #   table_headers 长度严格相等（C0.7）——删键/改键导入期抛错，防运行时 KeyError/IndexError
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）

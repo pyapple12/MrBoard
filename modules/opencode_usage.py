@@ -94,6 +94,29 @@ class UsageRow:
     cost: float = 0.0
 
 
+# F0.3：TokenStats/UsageRow 字段契约——显式键集与 dataclass 字段比对（非自证，
+# 键集独立于字段定义；_render_table 等跨模块消费方直读属性，改名 AttributeError
+# 会逃逸 Qt 槽，导入期拦截优于运行时崩溃）
+_TOKEN_STATS_FIELDS = (
+    "input",
+    "output",
+    "reasoning",
+    "cache_read",
+    "cache_write",
+    "total",
+)
+_USAGE_ROW_FIELDS = ("label", "calls", "tokens", "cost")
+for _name, _fields, _expected in (
+    ("TokenStats", TokenStats.__dataclass_fields__, _TOKEN_STATS_FIELDS),
+    ("UsageRow", UsageRow.__dataclass_fields__, _USAGE_ROW_FIELDS),
+):
+    _actual = tuple(_fields)
+    if _actual != _expected:
+        raise RuntimeError(
+            f"{_name} 字段与消费契约不一致：期望 {_expected}，实际 {_actual}"
+        )
+
+
 @dataclass
 class UsageSummary:
     # 全局用量总览：会话/消息/天数 + token/费用聚合结果
@@ -643,6 +666,8 @@ if __name__ == "__main__":
 #   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：分组/按日查询行数上限（base.json 驱动，
 #     各分组查询的默认 limit）
 #   _TOKEN_SUM_SELECT：聚合列 SQL 模板（_base_sql 与 _query_grouped 共用，加字段只改一处）
+#   _TOKEN_STATS_FIELDS / _USAGE_ROW_FIELDS：TokenStats/UsageRow 字段契约键集
+#     （F0.3 补列——与 dataclass 字段导入期比对，防跨模块消费方 AttributeError）
 # 类型：
 #   TokenStats：token 五字段 + compute_total()（total 优先，五字段和兜底，兼容新旧格式）
 #   UsageRow：分组行（label/calls/tokens/cost）

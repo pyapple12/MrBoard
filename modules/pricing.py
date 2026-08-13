@@ -324,6 +324,10 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 #     （无缓存或 refresh）→ 内置表；最后合并本地覆盖文件；任一层失败宽容降级
 #   estimate_cost()：单条成本估算 = input/M*in + output/M*out + cache_read/M*read
 #     + cache_write/M*write；查不到价格返回 unpriced（estimated_cost=None）
+#   _price_line()：单费率行成本 = count/1e6 × price（count 为 None 计 0，
+#     F3.3 补列；6A.3 O2 抽取，estimate_cost 四段共用）
+#   _rate_from_raw()：原始定价行 → RateInfo 弹性构建（缺字段按 0 兜底，
+#     F3.3 补列；内置/缓存/本地覆盖三来源共用，B4）
 #   aggregate_estimated_costs()：多币种分桶；仅 1 币种返回其和，≥2 币种返回 None
 #     （禁止跨币种相加，参考 OpenCode-Token 的 estimated_cost_totals 设计）
 #   _load_bundled / _load_cached_prices / _read_stale_cache / _serialize / _load_rate_items /
