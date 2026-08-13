@@ -19,6 +19,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QCloseEvent, QColor, QPaintEvent, QPainter
 from PyQt6.QtWidgets import (
     QApplication,
+    QSystemTrayIcon,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -119,10 +120,16 @@ COST_ZERO_EPSILON = float(_SC.ui["cost_zero_epsilon"])
 TOTAL_TOKENS_UNIT = str(_SC.ui["total_tokens_unit"])
 TOTAL_TOKENS_UNIT_THRESHOLD = float(_SC.ui["total_tokens_unit_threshold"])
 STATUS_TIME_FORMAT = str(_SC.ui["status_time_format"])
-# A2.1：K/M/B/G 缩写单位外置（阈值→后缀映射，JSON 保序即从大到小）
+# A2.1：K/M/B/G 缩写单位外置（阈值→后缀映射；B2.1：显式按阈值降序排序，
+# 消除对 JSON 键序的隐含依赖——调乱键序不再导致缩略错值）
 TOKEN_ABBR_UNITS = tuple(
-    (float(threshold), suffix)
-    for threshold, suffix in dict(_SC.ui["token_abbr_units"]).items()
+    sorted(
+        (
+            (float(threshold), suffix)
+            for threshold, suffix in dict(_SC.ui["token_abbr_units"]).items()
+        ),
+        reverse=True,
+    )
 )
 TABLE_HEADERS = tuple(_SC.ui["table_headers"])
 # 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
@@ -138,6 +145,37 @@ COLUMN_IDS = (
     "cost",
 )
 
+# B0.6：ui.json 结构性键契约校验（配置删键/改键 → 导入期抛错，防运行时 KeyError/IndexError）
+_UI_STRUCT_KEYS = (
+    ("card_titles", ("tokens", "input", "output", "cache_rate", "cost"), CARD_TITLES),
+    ("quota_window_labels", tuple(QUOTA_WINDOW_KEYS), QUOTA_WINDOW_LABELS),
+    ("dimension_labels", DIMENSIONS, DIMENSION_LABELS),
+    (
+        "detail_line_templates",
+        (
+            "sessions",
+            "messages",
+            "days",
+            "input",
+            "output",
+            "reasoning",
+            "cache_read",
+            "cache_write",
+            "cache_rate",
+            "cost",
+        ),
+        DETAIL_LINE_TEMPLATES,
+    ),
+)
+for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
+    _missing = [k for k in _required if k not in _actual]
+    if _missing:
+        raise RuntimeError(f"ui.json {_cfg_name} 缺少必需键：{_missing}")
+if len(TABLE_HEADERS) < len(COLUMN_IDS):
+    raise RuntimeError(
+        f"ui.json table_headers 长度不足（需要 ≥{len(COLUMN_IDS)}，实际 {len(TABLE_HEADERS)}）"
+    )
+
 
 @dataclass
 class UsageData:
@@ -148,9 +186,9 @@ class UsageData:
 
 
 class _LoadSignals(QObject):
-    # 后台任务信号载体：用量/配额就绪与错误（跨线程 emit 回主线程）
+    # 用量/配额加载信号载体（usage_ready 携带刷新序号，B0.5 去重用）
 
-    usage_ready = pyqtSignal(object)
+    usage_ready = pyqtSignal(int, object)
     quota_ready = pyqtSignal(object)
     error = pyqtSignal(str)
 
@@ -165,11 +203,12 @@ class _ExportSignals(QObject):
 class _UsageTask(QRunnable):
     # 用量统计后台任务：独立打开只读连接（规避 sqlite 跨线程限制），完成后发信号
 
-    def __init__(self, db_path: Path, signals: _LoadSignals) -> None:
-        # 初始化任务：记录数据库路径与信号对象
+    def __init__(self, db_path: Path, signals: _LoadSignals, seq: int = 0) -> None:
+        # 初始化任务：记录数据库路径、信号对象与刷新序号（B0.5 去重）
         super().__init__()
         self.db_path = db_path
         self.signals = signals
+        self.seq = seq
 
     def run(self) -> None:
         # 后台执行：totals + 全部分组查询，失败发 error 信号
@@ -187,7 +226,9 @@ class _UsageTask(QRunnable):
                 }
             finally:
                 db.close()
-            self.signals.usage_ready.emit(UsageData(summary=summary, rows=rows))
+            self.signals.usage_ready.emit(
+                self.seq, UsageData(summary=summary, rows=rows)
+            )
         except Exception as exc:
             self.signals.error.emit(
                 STATUS_MESSAGES["usage_failed_template"].format(error=exc)
@@ -337,10 +378,10 @@ class _CdpGuideTask(QRunnable):
         # 提取 workspaceID）→ 写凭据 → 清理
         proc = None
         try:
-            user_data = browser_creds.chrome_user_data_dir()
             if browser_creds.is_chrome_running():
                 logger.info("检测到用户 Chrome 正在运行（独立临时 profile 不冲突）")
-            if not browser_creds.has_v20_cookies(user_data):
+            # B0.1：双浏览器判定（Edge-only v20 用户不再误判为 v10）
+            if not browser_creds.has_v20_cookies():
                 self.signals.failed.emit(GUIDE_MESSAGES["v10_detect"])
                 return
             proc = browser_creds.launch_chrome_debug()
@@ -433,6 +474,8 @@ class MainWindow(QMainWindow):
         self.quota_fetcher = quota_fetcher
         self._usage_data: UsageData | None = None
         self._pending_auto_load = False
+        # B0.5：刷新序号（_UsageTask 乱序完成时丢弃过期结果）
+        self._refresh_seq = 0
         # globalInstance 可能返回 None（PyQt6 stub Optional），兜底新建实例
         self._pool = QThreadPool.globalInstance() or QThreadPool()
         self._signals = _LoadSignals()
@@ -620,10 +663,12 @@ class MainWindow(QMainWindow):
 
     def refresh(self) -> None:
         # 手动/定时刷新入口：取消待执行自动加载，后台并行拉用量与配额
+        # （B0.5：递增序号，_on_usage_ready 据此丢弃乱序完成的过期结果）
         self._pending_auto_load = False
+        self._refresh_seq += 1
         self._status_bar.showMessage(STATUS_MESSAGES["refreshing"])
         if self.db_path is not None:
-            self._pool.start(_UsageTask(self.db_path, self._signals))
+            self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
         else:
             self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
         self._pool.start(_QuotaTask(self._signals, self.quota_fetcher))
@@ -641,8 +686,11 @@ class MainWindow(QMainWindow):
                 get_theme(DARK_THEME_NAME if self._is_dark else LIGHT_THEME_NAME)
             )
 
-    def _on_usage_ready(self, data: UsageData) -> None:
-        # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view）
+    def _on_usage_ready(self, seq: int, data: UsageData) -> None:
+        # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view；
+        # B0.5：序号不匹配（旧任务乱序晚完成）直接丢弃，防覆盖新数据）
+        if seq != self._refresh_seq:
+            return
         self._usage_data = data
         self._render_cards(data.summary)
         self._total_button.setText(
@@ -705,6 +753,8 @@ class MainWindow(QMainWindow):
         # A0.6/A0.7：引导期间禁用手动填写（防与 worker 并发写凭据）+ 抑制引导卡重现
         self._manual_guide_button.setEnabled(False)
         self._guide_active = True
+        # B0.8：引导期暂停定时刷新（最长 3 分钟，避免无意义唤醒与节流纠缠）
+        self._refresh_timer.stop()
         self._status_bar.showMessage(STATUS_MESSAGES["guide_starting"])
         self._pool.start(_CdpGuideTask(self._guide_signals))
 
@@ -735,6 +785,9 @@ class MainWindow(QMainWindow):
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
+        self._refresh_timer.start(
+            self._config.refresh_interval_ms
+        )  # B0.8：恢复定时刷新
         self._status_bar.showMessage(message)
         self.refresh()
 
@@ -743,6 +796,9 @@ class MainWindow(QMainWindow):
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
+        self._refresh_timer.start(
+            self._config.refresh_interval_ms
+        )  # B0.8：恢复定时刷新
         self._guide_frame.show()
         self._status_bar.showMessage(message)
 
@@ -840,7 +896,7 @@ class MainWindow(QMainWindow):
         else:
             self._hidden_columns.add(col_id)
         config = load_config()
-        config.hidden_columns = tuple(sorted(self._hidden_columns))
+        config.hidden_columns = self._sorted_hidden_columns()
         save_config(config)
 
     def _render_table(self) -> None:
@@ -870,20 +926,28 @@ class MainWindow(QMainWindow):
         config.window_geometry = bytes(self.saveGeometry().toHex().data()).decode()
         config.theme = DARK_THEME_NAME if self._is_dark else LIGHT_THEME_NAME
         config.refresh_interval_ms = self._refresh_timer.interval()
-        config.hidden_columns = tuple(sorted(self._hidden_columns))
+        config.hidden_columns = self._sorted_hidden_columns()
         save_config(config)
 
+    def _sorted_hidden_columns(self) -> tuple[str, ...]:
+        # 隐藏列规范化排序（保存/关闭两处共用单点，B1.2）
+        return tuple(sorted(self._hidden_columns))
+
     def closeEvent(self, a0: QCloseEvent | None) -> None:
-        # 关闭按钮：保存状态并隐藏到托盘（常驻模式，不真正退出；签名对齐 PyQt6 stub）
+        # 关闭按钮：保存状态；托盘可用时隐藏到托盘（常驻模式，不真正退出），
+        # 不可用时真退出（隐藏将无法恢复，B0.9）
         self.save_state()
-        self.hide()
-        if a0 is not None:
-            a0.ignore()
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.hide()
+            if a0 is not None:
+                a0.ignore()
+        elif a0 is not None:
+            a0.accept()
 
 
 # ===== ui/main_window.py 模块说明 =====
 # 模块级常量：
-#   VERSION / AUTO_LOAD_DELAY_MS：版本（base.json version 字段）/ 启动延迟加载毫秒数
+#   AUTO_LOAD_DELAY_MS：启动延迟加载毫秒数（base.json 驱动；VERSION 已由 utils.logger 单点导出，B3.1）
 #   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：表格行数上限（base.json）
 #   CDP_FETCH_TIMEOUT / CDP_WAIT_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：
 #     CDP 引导参数（base.json）

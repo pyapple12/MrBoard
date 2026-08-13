@@ -2,7 +2,7 @@
 
 import sys
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from config.static.static_config import get_static_config
 from modules.go_quota import GoQuotaInfo
@@ -35,7 +35,9 @@ def run_gui() -> None:
     tray.refresh_requested.connect(window.refresh)
     tray.quit_requested.connect(lambda: _quit_app(app, window, tray))
     window.quota_updated.connect(lambda info: _on_quota_updated(tray, info))
-    tray.show()
+    # B0.9：托盘不可用（远程桌面/精简系统）时不 show，窗口关闭走真退出路径
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        tray.show()
     window.show()
     sys.exit(app.exec())
 
@@ -50,13 +52,18 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
             if not _notified_danger:
                 _notified_danger = True
                 # C21：气泡文案外置 ui.json（notify_title/notify_message_template）
-                tray.notify_quota(
-                    str(_SC.ui["notify_title"]),
-                    str(_SC.ui["notify_message_template"]).format(
+                try:
+                    message = str(_SC.ui["notify_message_template"]).format(
                         used=info.overall_used_percent,
                         remaining=info.remaining_percent,
-                    ),
-                )
+                    )
+                except KeyError:
+                    # B0.7：模板被手改引入未知占位符时回退固定文案（不逃逸）
+                    message = str(_SC.ui["notify_message_fallback"]).format(
+                        used=info.overall_used_percent,
+                        remaining=info.remaining_percent,
+                    )
+                tray.notify_quota(str(_SC.ui["notify_title"]), message)
         else:
             _notified_danger = False
     else:

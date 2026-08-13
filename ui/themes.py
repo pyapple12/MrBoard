@@ -149,5 +149,6 @@ def quota_chunk_color(percent: int) -> str:
 #   get_theme(name)：按主题名返回 QSS（默认浅色）
 #   quota_chunk_color(percent)：按使用百分比返回 chunk 颜色（阈值用常量，审计 D13）
 # 设计理由：样式集中管理；QProgressBar::chunk 动态颜色通过 setStyleSheet 单行覆盖
-# 异常处理：无（纯常量与纯函数）
+# 异常处理：_build_theme 残留占位符 / themes 数组长度不足时导入期抛 RuntimeError
+#   （配置契约校验，A3.5/B0.6 同机制）
 # 关联配置：主题名由 main_window 维护（S5 持久化）

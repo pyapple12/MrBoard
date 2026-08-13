@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.14-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.15-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -165,7 +165,7 @@ mrboard/
 | 文件                        | 参数                                                                                                                                                        | 说明                                                |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `config/static/config.json` | 引导映射表                                                                                                                                                  | `base.json` / `ui.json` 分类对应关系                |
-| `config/static/base.json`   | `version`                                                                                                                                                   | 版本号唯一来源（ver 0.14）                          |
+| `config/static/base.json`   | `version`                                                                                                                                                   | 版本号唯一来源（ver 0.15）                          |
 |                             | `window_width/height`、`refresh_interval_ms`、`min_refresh_interval_ms`、`auto_load_delay_ms`                                                               | 窗口尺寸与刷新调度（含下限防护）                    |
 |                             | `min_fetch_interval`、`retry_count`、`retry_delay`                                                                                                          | 配额接口节流与重试                                  |
 |                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval`、`cdp_fetch_timeout`、`cdp_wait_timeout`                     | 浏览器/CDP 引导参数与超时                           |
@@ -177,7 +177,7 @@ mrboard/
 | `config/static/ui.json`     | `colors.quota_*`（含饼图/托盘色）、`quota_warn_percent`、`quota_danger_percent`                                                                             | 配额颜色与阈值                                      |
 |                             | `icon_size`、`notify_duration_ms`、`table_headers`、`pie_size`、`pie_font_size`                                                                             | 托盘图标/通知、表格表头与剩余量饼图                 |
 |                             | `layout_*`、`cards_spacing`、`quota_name_width`、`reset_time_format`                                                                                        | 布局与重置时间显示格式                              |
-|                             | `themes`、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`、`app_subtitle`                                   | 主题枚举与 UI 文案                                  |
+|                             | `themes`、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`、`notify_message_fallback`、`app_subtitle`        | 主题枚举与 UI 文案                                  |
 |                             | `unknown_label`、`cost_zero_epsilon`、`total_tokens_unit`、`total_tokens_unit_threshold`、`status_time_format`、`token_abbr_units`、`cli_reset_time_format` | 分组缺失标签、费用容差、单位/K/M/B/G 缩写与时间格式 |
 |                             | `status_messages`（含任务错误模板）、`go_quota_error_messages`、`menu_labels`、`tooltips`、`dialog_titles`、`dialog_prompts`                                | 状态栏/错误/菜单/对话框文案                         |
 |                             | `palettes.light/dark`                                                                                                                                       | 浅/深主题调色板（含 chunk_ok，25 色）               |

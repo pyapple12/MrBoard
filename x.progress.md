@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.14（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.15（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -212,3 +212,44 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] A4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
 - 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；README ui.json 参数表补键、z.plan 附录 A007 标注已修复）｜优先级：高
+
+## B. 第8轮审计修复任务清单（依据 z.plan.md 附录 A008）——✅ 全部完成（2026-08-13，B0-B4）
+
+> 目标：14 条 P 级（P2 1 + P3 13，说明区 6 处合并 1 条任务）+ 观察项提升 6 条（A1 键序/B7 托盘/B6 引导定时器/B8 节流文案/D2 CLI 下界/D1 排序）共 15 条修复任务 + B4 收尾；基线回归 43 个验证脚本
+> 执行原则：每项完成后运行对应验证；全部完成后全量回归
+
+### B0 P0 正确性
+
+- [x] B0.1 Edge v20 判定下沉（main_window.py:343 + browser_creds.has_v20_cookies）——has_v20_cookies 改遍历 _browser_user_data_dirs() 任一命中即 True（复用既有单点）；验证：构造 Edge-only user data 断言判定 True
+- [x] B0.2 to_float/to_optional_float 补 OverflowError（convert.py:32/48）——except 元组加 OverflowError（与 to_int 对齐）；验证：to_float(10**400) 返回 default 不抛
+- [x] B0.3 pricing currency/source null 兜底（pricing.py:186-187）——item.get("currency") or "USD" / item.get("source") or default_source；验证：_rate_from_raw 传 None 断言非 "None"
+- [x] B0.4 launch Popen OSError 分支清理（browser_creds.py:399-401）——except OSError 分支补 rmtree + 置 None（与 376-378 对称）；验证：AST 断言两失败分支均清理
+- [x] B0.5 刷新 in-flight 去重（main_window.py:621-629/644-656）——refresh 递增序号，_on_usage_ready 校验丢弃过期结果；验证：模拟乱序完成断言旧任务不覆盖
+- [x] B0.6 ui.json 结构性键契约校验（main_window 消费点）——仿 themes A3.5：导入期校验 card_titles 5 键/quota_window_labels 对齐/table_headers 长度 ≥ COLUMN_IDS；验证：删键配置断言导入期抛错
+- [x] B0.7 notify 模板 .format 防护（main.py:55）——except KeyError 回退固定文案；验证：模板含未知占位符不抛
+- [x] B0.8 引导期暂停定时刷新（main_window.py _start_cdp_guide/_on_guide_*）——引导启动 stop 刷新定时器、结束恢复 start（与按钮恢复同处配对）；验证：引导期模拟定时触发断言不执行
+- [x] B0.9 托盘不可用检查（main.py:38）——tray.show 前 `QSystemTrayIcon.isSystemTrayAvailable()` 检查，不可用时 closeEvent 不 hide；验证：mock 不可用断言窗口不隐藏
+- [x] B0.10 CLI --limit 下界（opencode_usage CLI）——`limit = max(1, args.limit)` 防 0/负数语义；验证：--limit 0 断言不崩且行数正常
+- 状态：✅ 完成（2026-08-13，验证：probe_8b0 10 项 + 行为验证 8 项全 PASS + 全量回归 43/43；同步 verify_5a2/5a3/v3a1 断言）｜优先级：高
+
+### B1 P1 去重
+
+- [x] B1.1 settings _themes 重复构造（settings.py:17/26）——THEMES = _themes（保留两名称避免改数组双处同步）；验证：两常量值一致断言
+- [x] B1.2 hidden_columns 排序提函数（main_window.py:838-841/873）——抽 `_sorted_hidden_columns()` 单点；验证：两处调用点输出一致断言
+- 状态：✅ 完成（2026-08-13，验证：probe_8b1 4 项 + 行为验证 2 项 + 全量回归 43/43）｜优先级：中
+
+### B2 P2 配置化
+
+- [x] B2.1 TOKEN_ABBR_UNITS 键序排序（main_window.py:123-126）——解包时 `sorted(..., reverse=True)` 消除 JSON 键序契约（观察项提升）；验证：乱序配置断言缩略仍正确
+- 状态：✅ 完成（2026-08-13，验证：probe_8b2 3 项 + 行为验证（乱序配置缩略仍正确）+ 全量回归 43/43）｜优先级：中
+
+### B3 P3 清理
+
+- [x] B3.1 说明区失实/残留修正 6 处——main_window.py:886（删 VERSION 条目）/ system_tray.py:103（删 APP_NAME/APP_SUBTITLE，补 build_app_title）/ themes.py:152（异常处理补 RuntimeError）/ exporter.py:107 + browser_creds.py:633 + go_quota.py:496（关联配置补 base.json/ui.json 键）；验证：grep 各说明区关键字
+- [x] B3.2 节流文案动态化（go_quota.py:315）——"60 秒"改 f-string 引用 MIN_FETCH_INTERVAL（观察项提升）；验证：grep 无 "60 秒" 字面量
+- 状态：✅ 完成（2026-08-13，验证：probe_8b3 10 项 + 全量回归 43/43；B3.2 运行时消息已动态化无需改，同步 verify_v3a1/v4a3 断言）｜优先级：低
+
+### B4 验证与收尾
+
+- [x] B4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
+- 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；README 补 notify_message_fallback、z.plan 附录 A008 标注已修复）｜优先级：高

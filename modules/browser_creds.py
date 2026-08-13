@@ -319,9 +319,18 @@ def _safe_copy_db(db_path: Path) -> Path | None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def has_v20_cookies(user_data: Path) -> bool:
+def has_v20_cookies(user_data: Path | None = None) -> bool:
     # 检测 Chrome/Edge 是否为 v20（app-bound）环境：优先查 Local State 的
     # app_bound_encrypted_key 标记，缺失时回退扫描 cookie 库 v20 前缀
+    # （B0.1：None 时遍历双浏览器任一命中即 True，消除 Edge-only 用户误判；
+    #   显式传目录时保持单浏览器判定语义）
+    if user_data is not None:
+        return _has_v20_in_user_data(user_data)
+    return any(_has_v20_in_user_data(ud) for _, ud in _browser_user_data_dirs())
+
+
+def _has_v20_in_user_data(user_data: Path) -> bool:
+    # 单用户数据目录的 v20 检测（Local State 标记优先，cookie 库扫描回退）
     if not user_data.is_dir():
         return False
     local_state = _read_local_state_json(user_data / "Local State")
@@ -398,6 +407,9 @@ def launch_chrome_debug(
         return proc
     except OSError as exc:
         logger.warning("启动 Chrome 调试模式失败：%s", exc)
+        # B0.4：Popen 启动失败同样清理临时目录（与 executable-None 分支对称，6A.1 E4 漏改）
+        shutil.rmtree(_cdp_profile_dir, ignore_errors=True)
+        _cdp_profile_dir = None
         return None
 
 
@@ -630,5 +642,6 @@ def psutil_process_iter() -> list[Any]:
 #   所有失败路径宽容降级（错误策略：不崩溃不阻塞）
 # 异常处理：DPAPI/JSON/SQLite/子进程/WebSocket 异常全部捕获降级；解密失败
 #   （坏 key/校验失败）单条跳过不中断
-# 关联配置：无（路径来自 LOCALAPPDATA 环境变量）；被 modules/go_quota.py
+# 关联配置：config/static/base.json（history_limit/cdp_port/esentutl_timeout/subprocess_timeout/
+#   cdp_fetch_timeout/cdp_wait_timeout，B3.1 补列）+ LOCALAPPDATA 环境变量；被 modules/go_quota.py
 #   的 find_dashboard_credentials 集成

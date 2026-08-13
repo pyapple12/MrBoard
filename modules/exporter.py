@@ -105,4 +105,4 @@ def _write_csv(
 # 设计理由：导出数据与 GUI 展示解耦（CLI/脚本/未来功能可复用）；
 #   CSV 面向人（Excel/报表/归档），JSON 面向程序（jq/图表/迁移）
 # 异常处理：IO 异常由调用方处理（GUI 状态栏提示 / CLI 打印）
-# 关联配置：无（复用 OpenCodeDB 聚合接口）
+# 关联配置：config/static/base.json（export_limit 导出行数上限，B3.1 补列）

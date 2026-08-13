@@ -492,5 +492,7 @@ if __name__ == "__main__":
 #   程序从任何路径（本地读取或网络外发）都不接触 API key，仅使用 dashboard
 #   登录会话凭据（workspaceId + authCookie）
 # 异常处理：网络/解析/凭据错误全部分类化；单凭据失败继续尝试下一个候选
-# 关联配置：OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE/OPENCODE_GO_CONFIG_FILE
+# 关联配置：base.json（min_fetch_interval/retry_count/retry_delay/http_timeout/credentials_dir）+
+#   ui.json（go_quota_error_messages/quota_window_labels/cli_reset_time_format）+
+#   OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE/OPENCODE_GO_CONFIG_FILE
 #   环境变量；项目内 data/credentials/opencode-go.json 配置文件（含凭据，严禁入库）

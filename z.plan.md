@@ -249,3 +249,17 @@ mrboard/
 - **P3 修复 16 条**：host_key 带点 domain cookie 兼容（需验证）；OpenAuth 特征收紧防误判（需验证）；进度条 None 分支重置格式（需验证）；CDP 引导期状态管理×2（定时刷新重现引导卡/手动填写并发写凭据，均需验证）；themes 契约校验（残留占位符检测 + 数组长度）；说明区漏 _format_cache_rate_of；标题格式单点（build_app_title）；说明区失实 4 处（windows/main/settings/logger）；network 默认值双源；to_float("nan") 穿透（需验证）；opencode_usage 5 处 _SC 单点；K/M/B/G 单位外置（争议决策）；跨组提示 3 条（settings.py:16 注释失实/default_theme 双源/CLI 时间格式）
 - **参考级观察项 15 条**（用户确认均不提升）：browser_creds（--remote-allow-origins=* 必需/每 profile 整库复制/CDP 探测族 3 固定值）；go_quota（DASHBOARD 请求参数/模块级缓存无锁）；pricing（BUNDLED_PRICES 快照/COST_COMPARE_DIGITS）；opencode_usage（时间基准常量）；exporter（查询全量驻留）；main_window/system_tray（绘制细节）；static_config/file_utils/retry/convert（无锁单例/缓存引用/默认值分离/下划线字面量——均无可达触发路径）
 - **亮点**：无 P0/P1；无函数内 import/docstring/未用 import/配置死键（base.json 26 键、ui.json 42 键全有消费方）；弹性转换实测无崩溃路径；README 徽章与版本一致
+
+---
+
+## 附录 A008：全量代码审计报告（第8轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；AST 扫描 + 三路代理全文审读 + 行为验证
+> 结果：**P2 级 1 条 / P3 级 13 条 / 参考级观察项 15 条**——无 P0/P1
+> 状态：✅ 全部完成（2026-08-13）——B 系列任务清单见 x.progress.md（B0-B3 已实施，B4 收尾）；Edge 判定下沉双浏览器、刷新序号去重、配置契约校验等 15 项修复
+
+- **上轮复核（A007 第 7 轮 19 项）**：27/27 全部在位、零回退；发现 1 处 A007 漏改分支（launch Popen OSError 未清理）+ 3 处 A3.1 漏改的说明区（main_window/system_tray/themes）
+- **P2（1 条）**：main_window:343 只对 Chrome 调 has_v20_cookies——Edge-only v20 用户误判为 v10 收到无效指引，与 find_browser_credentials 双浏览器遍历口径不一致（建议判定下沉 browser_creds 遍历双浏览器）
+- **P3（13 条）**：to_float/to_optional_float 缺 OverflowError（10**400 实测逃逸，与 to_int 不对称）；pricing currency/source None → "None" 错值（实测）；launch Popen OSError 分支临时目录泄漏（A007 漏改）；刷新无 in-flight 去重（连点+定时叠加旧任务覆盖新数据）；ui.json 结构性键无契约校验（删键确定性 KeyError/IndexError）；说明区失实/残留 6 处（main_window VERSION、system_tray APP_NAME、themes 异常处理无、exporter/browser_creds/go_quota 关联配置）；notify 模板 .format 无防护（KeyError 逃逸）；settings _themes/THEMES 重复构造
+- **参考级观察项 15 条**（用户复核后**提升 6 条**入 B 系列：A1 键序排序/B7 托盘不可用/B6 引导定时器/B8 节流文案/D2 CLI 下界/D1 排序提函数；维持 9 条）：TOKEN_ABBR_UNITS 键序依赖、托盘不可用窗口不可恢复、导出无防重入、ws.recv 不按 id 匹配、pricing cache_write 单键映射、estimate 全表扫描、CLI --limit 无下界、节流文案滞后、跨节流并发、network 每次 get_static_config、write_json mkstemp 位置、sqlite_utils 线程契约、双份 themes 解析、paintEvent 无显式 end、hidden_columns 排序两处重复
+- **亮点**：无 P0/P1；A007 零回退；无函数内 import/docstring/未用 import/配置死键（base.json 33 键、ui.json 44 键全有消费方）；README/ base.json / x.progress 三处 ver 0.14 一致

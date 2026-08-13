@@ -29,7 +29,7 @@ def to_float(value: Any, default: float = 0.0) -> float:
         if math.isnan(result):
             return default
         return result
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -45,7 +45,7 @@ def to_optional_float(value: Any) -> float | None:
         if math.isnan(result):
             return None
         return result
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 

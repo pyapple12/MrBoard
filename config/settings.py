@@ -22,8 +22,9 @@ DEFAULT_THEME = (
     else (_themes[0] if _themes else _base_default_theme)
 )
 # 主题枚举单一来源（C6：外置 ui.json themes 数组；themes.py 从同一数组派生
-# THEME_NAMES/LIGHT/DARK——两处同源，不互相引用，A3.2 注释修正）
-THEMES = tuple(str(item) for item in _SC.ui["themes"])
+# THEME_NAMES/LIGHT/DARK——两处同源，不互相引用，A3.2 注释修正；
+# B1.1：复用 _themes 构造，避免同表达式二次求值）
+THEMES = _themes
 
 
 @dataclass

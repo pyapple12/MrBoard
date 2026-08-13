@@ -100,7 +100,7 @@ class SystemTray(QSystemTrayIcon):
 # ===== ui/system_tray.py 模块说明 =====
 # 模块级常量：ICON_SIZE（图标像素尺寸）、NOTIFY_DURATION_MS（气泡通知时长）、
 #   QUOTA_GRAY（托盘灰色，错误/未知态）、PIE_DOT_COLOR（中心圆点白色）、
-#   APP_NAME（应用名，来自 utils.logger 单一来源）、APP_SUBTITLE（tooltip 标题中段）、
+#   build_app_title()（标题单点函数，B3.1：tooltip 与主窗口标题一致）、
 #   MENU_LABELS（菜单文案，ui.json 外置，5A.3 C5）
 # 类：SystemTray(QSystemTrayIcon)
 #   信号：

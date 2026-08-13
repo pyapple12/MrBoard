@@ -29,6 +29,7 @@
   "notify_duration_ms": 5000,
   "notify_title": "OpenCode Go 配额预警",
   "notify_message_template": "最紧窗口已使用 {used}%，剩余 {remaining}%",
+  "notify_message_fallback": "配额已使用 {used}%，剩余 {remaining}%",
   "pie_size": 56,
   "pie_font_size": 7.5,
   "layout_margins": [

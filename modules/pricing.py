@@ -183,8 +183,8 @@ def _rate_from_raw(item: dict[str, Any], default_source: str) -> RateInfo:
         output_price=to_float(item.get("output_price")),
         cache_read_price=to_optional_float(item.get("cache_read_price")),
         cache_write_price=to_optional_float(item.get("cache_write_price")),
-        currency=str(item.get("currency", "USD")),
-        source=str(item.get("source", default_source)),
+        currency=str(item.get("currency") or "USD"),
+        source=str(item.get("source") or default_source),
     )
 
 
