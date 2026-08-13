@@ -78,6 +78,11 @@ def write_json(path: Path, data: Any) -> None:
 #   _json_cache：缓存单例 dict[Path, Any]，避免高频读配置重复 IO
 #     （对齐 AccelWorld 修复 D4"每次调用全量读文件"的思路）
 # 函数：
+#   get_project_root()：
+#     输入：无
+#     输出：项目根目录 Path（模块级 _PROJECT_ROOT）
+#     逻辑步骤：校验根目录下 main.py 存在（防目录层级偏移）→ 返回
+#     异常：main.py 缺失抛 RuntimeError（项目结构被破坏时快速暴露）
 #   read_json(path, default=None, use_cache=True)：
 #     输入：path 文件路径（Path 或 str 均可），default 兜底值，
 #       use_cache=False 时绕过缓存强制读最新文件（用户可手改的文件适用）

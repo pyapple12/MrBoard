@@ -117,6 +117,10 @@ if __name__ == "__main__":
 #   _SC：静态配置解包单例（base.json/ui.json，模块顶层一次性读取）
 #   _notified_danger：配额预警去重标志（持续超限只在首次触发时通知，回落复位）
 #   APP_NAME：应用名（来自 utils.logger 单一来源，D1/C14）
+#   QUOTA_DANGER_PERCENT：配额预警阈值（ui/themes.py 导出，ui.json
+#     quota_danger_percent 驱动，J3.1 补列）
+# 模块级导入：QApplication / QSystemTrayIcon（PyQt6.QtWidgets，J4.1 补列——
+#   run_gui 创建应用实例、_quit_app 与 closeEvent 判断托盘可用性）
 # 版本说明：VERSION 由 utils.logger 单点导出（R4），main.py 仅 --version 分支
 #   局部 import（D0.13），不再作为模块属性导出（F3.1/G3.2 同步）
 # 函数：

@@ -550,7 +550,9 @@ def parse_time_arg(spec: str) -> datetime:
     spec = spec.strip()
     match = re.fullmatch(r"(\d+)([dhwm])", spec)
     if match:
-        amount = int(match.group(1))
+        amount = min(
+            int(match.group(1)), 100000
+        )  # J0.1：相对时长上界钳制（防 timedelta OverflowError，H0.5 同模式）
         unit = match.group(2)
         now = datetime.now()
         if unit == "d":
@@ -605,7 +607,10 @@ def main() -> None:
             since_dt = parse_time_arg(args.since)
             since_ms = _to_epoch_ms(since_dt)
             since_label = args.since
-        except ValueError as exc:
+        except (
+            ValueError,
+            OverflowError,
+        ) as exc:  # J0.1：双捕（钳制漏网的极端路径兜底）
             print(f"错误：{exc}", file=sys.stderr)
             sys.exit(1)
 

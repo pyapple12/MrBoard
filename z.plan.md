@@ -339,6 +339,11 @@ mrboard/
 - **① 永久豁免**：估算忽略 reasoning token（设计定案，w.study.md 记录）/ 托盘不可用时 notify 无效调用（Qt 静默忽略，宽容行为族）
 - **③ 价值权衡**：_TEMPLATE_MAP notify 两键 .get 冗余（契约已保证，删除收益小）/ limit 双兜底冗余 max(1,)（H0.5 后幂等，删除验证成本 > 收益）/ Popen 无 creationflags 注释（纯可读性）/ hidden_columns 双 strip / DEFAULT 不经区间钳制（静态配置 git 可控）/ ui.json 数值键无类型契约（H0.4 范围限定 base）/ network 默认 UA / sqlite_utils 无自动 close / 内层 except fd 恒真 / base MAX<MIN 双改回退 / logger 说明区未列 system_tray
 
+### ⑤ 第 15 轮（A015）观察项记录（收尾轮，2026-08-13 用户复核全部维持豁免）
+
+- **② 条件豁免**：CSV 非原子写（触发：导出原子性需求提升评估；豁免条目表述修正为"JSON 原子写"）/ go_quota CLI quota_window_labels 容器无校验（触发：ui.json 键类型契约批次排期，I0.1 同族）/ colors 键族契约化（触发：全量根键契约化决策同 ④②）/ RETRY_NETWORK_ERRORS HTTPError 语义（触发：调用方分类时序变更——当前已确证安全）
+- **③ 价值权衡**：exported_at 无时区标记（单机本地查看为主，收益极低）/ _with_copied_db 异常契约依赖（当前成立 + 外层兜底）/ themes 逐字符迭代（理论手改）/ hidden_columns None 元素（理论手改，渲染层忽略）/ RotatingFileHandler 值域无校验（类型契约不校验值域）/ round_cost digits 无钳制（内部 API 统一传默认）/ I0.1 错误消息 get 重复调用（仅错误路径零 IO）/ 模块级标志多实例串扰（生产单实例定案）
+
 ---
 
 ## 附录 A011：全量代码审计报告（第11轮，2026-08-13）
@@ -384,6 +389,21 @@ mrboard/
   - 清理：pricing 说明区 _price_line 主语写反 + _rate_from_raw cache 缺省描述不精确（F3.3 引入）；main.py 说明区 VERSION 段失实（F3.1 漏改，同根因第三次）；main.py 说明区漏 _SC/_notified_danger；main_window 说明区 refresh 行未同步 F0.2 + 关联配置 VERSION 失实
 - **参考级观察项 9 条**（用户复核后**提升 1 条**：UsageSummary 契约；维持 8 条已并入豁免定案清单）：_TOKEN_SUM_SELECT 无静态校验/契约与说明区无联动/契约块位置/QUOTA_COLOR 缩写/MENU_LABELS 导入顺序/连点 N 个 QuotaTask/双分支复位风格/契约列举省略/dialog 组/settings themes 空数组回退/logger 注释措辞
 - **亮点**：F0.1/F0.3 三方一致零失配；三路交叉 + 行为验证再次抓出"修复自身引入缺陷"（F0.2 挂起为确定性回归）
+
+---
+
+## 附录 A015：全量代码审计报告（第15轮收尾，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + git show 逐行对比（9b7ee3b）+ 跨组确证（HTTPError 分类时序）
+> 结果：**P 级 4 条（全低）/ 参考级观察项 12 条（用户复核全部维持豁免）**
+> 状态：✅ 已修复（2026-08-13：J 系列 J0 正确性 2 条 + J3 清理 2 条全部完成，J1/J2 无条目；探针 3/2 + 修复验收 10/10 + 全量回归 43/43；J4 收尾防漏损——顶层 import 常量与说明区覆盖率自动核对（A015 教训落地：抓出并补 QSystemTrayIcon 条目）、说明区无残留 + 语义扫描（J 系列修改文件）、豁免清单状态一致性（⑤ 段记录核对）；任务清单见 x.progress.md J 系列）
+
+- **上轮复核（I 系列 8 项）**：8/8 全部在位、零回退、零漏改（三路均确认）；modules 组 6 文件 9b7ee3b 零连带改动；ui 组第 15 轮零 P 级
+- **P0-P3（4 条，全低）**：
+  - 正确性：parse_time_arg 相对时长数字无上界（`999999999d` 实测 OverflowError 逃逸，except ValueError 不捕 + 说明区失实连带——数值上界缺失家族第 3 例）；pricing 本地覆盖 key 大小写不归一（canonical_key 小写化消费，覆盖静默失效实测）
+  - 清理：main.py 说明区漏 QUOTA_DANGER_PERCENT（A013 G3.3 同文件漏改模式第三次）；file_utils 说明区缺 get_project_root 函数条目（AGENTS.md 硬性要求）
+- **参考级观察项 12 条**（用户复核**全部维持豁免**）：CSV 非原子写（豁免条目表述建议修正为"JSON 原子写"）/go_quota CLI quota_window_labels 容器（I0.1 同族）/exported_at 无时区/_with_copied_db 异常契约/themes 逐字符迭代/hidden_columns None/RotatingFileHandler 值域/round_cost digits/I0.1 消息重复调用/模块级标志多实例/_TEMPLATE_MAP .get/colors 键族契约化；跨组 R2（HTTPError 分类时序）**已确证安全**（调用方先分类再重试契约成立）
+- **亮点**：I 系列零回退；ui 组零 P 级；modules 组历轮 15 轮持续保持无高/中严重度；五层校验链顺序正确、三层钳制幂等收敛、契约与消费点零失配
 
 ---
 

@@ -254,7 +254,9 @@ def _apply_local_overrides(price_map: dict[str, RateInfo]) -> None:
     raw = read_json(PRICE_LOCAL_FILE, default=None, use_cache=False)
     if not isinstance(raw, dict):
         return
-    price_map.update(_load_rate_items(raw, "local"))
+    price_map.update(
+        _load_rate_items({k.lower(): v for k, v in raw.items()}, "local")
+    )  # J0.2：local 覆盖 key 归一（canonical 小写索引一致，防大小写写错覆盖静默失效）
 
 
 def _fetch_remote_prices() -> dict[str, RateInfo] | None:

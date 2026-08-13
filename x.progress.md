@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.202（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字）
+> 当前版本：ver 0.203（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -510,3 +510,32 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] I4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_i_accept 反向断言）+ 文档同步（x.progress 状态 + 版本推进 ver 0.202）——防漏损延续：①新增契约/校验块必进说明区（A014 教训：扫描盲区）②说明区无残留字样 + 语义扫描（I 系列修改文件）③豁免清单状态一致性核对
 - 状态：✅ 已完成（2026-08-13：全量回归 43/43（s5 单跑 exit=0，循环内时序误报已知）+ 验收 11/11 + 冒烟；防漏损①契约/校验块×5 说明区交叉全过（A014 教训落地）；②说明区无残留 + 语义 4 项；③豁免清单一致性（fdopen 记账迁移、A014 附录、I 系列标题）；z.plan A014 状态已修复；版本推进 ver 0.202（五处一致））｜优先级：高
+
+## J. 第15轮收尾审计修复任务清单（依据 z.plan.md 附录 A015）
+
+### J0 P0 正确性
+
+- [x] J0.1 parse_time_arg 相对时长上界（opencode_usage.py:551-563，数值上界缺失家族第 3 例）——amount 钳制（min(amount, 100000) 与 H0.5 同模式）+ except 补 OverflowError 双保险；验证：999999999d 构造断言不逃逸
+- [x] J0.2 pricing 本地覆盖 key 归一（pricing.py:252-257，B4 定案盲区）——_apply_local_overrides 对 local 来源 key.lower()（与内置表/canonical 索引一致）；验证：大小写不匹配覆盖断言生效（实测 FAIL→PASS）
+- 状态：✅ 已完成（2026-08-13：J0.1 源头钳制 min(amount, 100000)（999999999d 实测不再逃逸）+ main 解析 except 双捕 (ValueError, OverflowError)；J0.2 _apply_local_overrides local 入口 {k.lower(): v} 归一（大写 key 覆盖生效、小写幂等、非 dict 宽容——三断言全过）。探针 3/3（含 OverflowError/覆盖失效实测复现）+ 验收 7/7 + 全量回归 43/43）｜优先级：高
+
+### J1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### J2 P2 配置化
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### J3 P3 清理
+
+- [x] J3.1 main.py 说明区补 QUOTA_DANGER_PERCENT（A013 G3.3 同文件漏改模式第三次终结）——模块级常量段补列（ui/themes.py 导出，ui.json quota_danger_percent 驱动）；验证：grep 关键字
+- [x] J3.2 file_utils 说明区补 get_project_root 函数条目（AGENTS.md"涵盖所有函数"硬性要求）——补独立条目（输入/输出/逻辑/异常）；验证：grep 关键字
+- 状态：✅ 已完成（2026-08-13：J3.1 main 常量段补 QUOTA_DANGER_PERCENT（A013 同文件漏改模式第三次终结）；J3.2 file_utils 补 get_project_root 独立条目（输入/输出/逻辑/异常四要素）。探针 2/2 + 验收 10/10 + 全量回归 43/43）｜优先级：低
+
+### J4 验证与收尾
+
+- [x] J4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_j_accept 反向断言）+ 文档同步（x.progress 状态 + 版本推进 ver 0.203）——防漏损延续：①顶层 import 常量与说明区覆盖率核对（A015 教训：main.py 漏导入常量——可扩展 verify 脚本自动比对）②说明区无残留 + 语义扫描（J 系列修改文件）③豁免清单状态一致性（⑤ 段记录核对）
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 10/10 + 冒烟；防漏损①顶层 import×4 与说明区覆盖率核对（A015 教训落地：抓出并补 QSystemTrayIcon 条目）；②说明区无残留 + 语义 4 项；③豁免清单一致性（A015 附录/⑤ 段/J 系列标题）；z.plan A015 状态已修复；版本推进 ver 0.203（五处一致）——J 系列为第 15 轮收尾轮，全部闭环）｜优先级：高
