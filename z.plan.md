@@ -341,3 +341,20 @@ mrboard/
   - 清理：main.py:19 VERSION 未使用 import（D0.13 残留，E3.4 只修说明区未清代码）；main.py 说明区漏 notify_message_fallback（main.py 不在 E4 扫描范围）；pricing 说明区缺 _price_line/_rate_from_raw；themes 说明区未同步 E0.1 键序语义
 - **参考级观察项 10 条**（用户复核后**提升 2 条**：refresh 连点、UsageRow 契约；维持 8 条已并入豁免定案清单）：第三主题静默错位/palettes 容器类型/ORDER BY 无索引/usage_percent 未钳制/subprocess 无 CREATE_NO_WINDOW/CLI --limit 无上界/浏览器文案硬编码/_profile_dirs 前缀过宽
 - **亮点**：E 系列零回退；防漏损机制本轮当场抓出 3 处残留（证明机制有效，扩展扫描范围即可收敛）；credentials_ttl/in_flight 单点定义单点消费无漂移
+
+---
+
+- **第 13 轮（A013）追加豁免 8 条**（用户复核，1 条已提升入 G 系列：UsageSummary 契约）：_TOKEN_SUM_SELECT 与字段无静态校验（需验证，删列仅人工错误路径）/ 契约键集与说明区无自动联动（契约兜两环流程收敛）/ 契约块位置打断 dataclass 定义区（新增类时按 F0.3 模式即可）/ themes QUOTA_COLOR 常量名缩写（指代明确）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 连点启动 N 个 QuotaTask（节流兜底）/ _UsageTask 双分支复位 vs finally 风格（当前正确，统一可选）/ 说明区契约列举省略 dialog 组（已校验在位）/ settings themes 空数组回退（配置错误理论级）/ logger 注释措辞（字面仍成立）
+
+## 附录 A013：全量代码审计报告（第13轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + AST 扫描 + 行为验证（F0.2 连点挂起实测复现）
+> 结果：**P0-P3 级 6 条（中 1 / 低 5，含观察项提升 1 条）/ 参考级观察项 9 条（提升 1 条，维持豁免 8 条）**
+> 状态：✅ 已修复（2026-08-13：G 系列 G0 正确性 2 条 + G3 清理 4 条全部完成，G1/G2 无条目；探针 3/7 + 修复验收 15/15 + 全量回归 43/43；G4 收尾防漏损升级——说明区无残留字样反向断言（F3.1 漏改三次同根因终结）、说明区语义准确性扫描（G3.1 教训）、G0.2 契约消费方交叉（main_window/exporter 属性全命中，排除布局方法/文件名误匹配）；任务清单见 x.progress.md G 系列）
+
+- **上轮复核（A012 F 系列 7 项）**：F0.1 契约组三方一致在位；F0.3 字段契约 20 处消费点零失配；F3.1 顶层分支完整；但发现 F0.2 修复不完整（pending 丢弃路径不消费——连点数据挂起 + 残留重复查询，行为验证复现）与 F3.1/F3.3 说明区残留 3 处（同根因模式第三次记录）
+- **P0-P3（6 条）**：
+  - 正确性：F0.2 pending 丢弃路径不消费（seq 不匹配分支 return 前未补发，连点请求被吞、数据挂起、后续同 seq 重复查询——行为验证复现）；UsageSummary 未入字段契约（观察项提升，与 F0.3 同风险面）
+  - 清理：pricing 说明区 _price_line 主语写反 + _rate_from_raw cache 缺省描述不精确（F3.3 引入）；main.py 说明区 VERSION 段失实（F3.1 漏改，同根因第三次）；main.py 说明区漏 _SC/_notified_danger；main_window 说明区 refresh 行未同步 F0.2 + 关联配置 VERSION 失实
+- **参考级观察项 9 条**（用户复核后**提升 1 条**：UsageSummary 契约；维持 8 条已并入豁免定案清单）：_TOKEN_SUM_SELECT 无静态校验/契约与说明区无联动/契约块位置/QUOTA_COLOR 缩写/MENU_LABELS 导入顺序/连点 N 个 QuotaTask/双分支复位风格/契约列举省略/dialog 组/settings themes 空数组回退/logger 注释措辞
+- **亮点**：F0.1/F0.3 三方一致零失配；三路交叉 + 行为验证再次抓出"修复自身引入缺陷"（F0.2 挂起为确定性回归）

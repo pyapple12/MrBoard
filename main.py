@@ -112,9 +112,11 @@ if __name__ == "__main__":
 
 # ===== main.py 模块说明 =====
 # 模块级常量：
-#   VERSION：来自 base.json version 字段（S8.5 外置），main.py 与 ui 层共同引用，
-#     消除循环依赖（审计 M1/M2 修复：原 VERSION 放 main.py 导致 ui 反向引用）
+#   _SC：静态配置解包单例（base.json/ui.json，模块顶层一次性读取）
+#   _notified_danger：配额预警去重标志（持续超限只在首次触发时通知，回落复位）
 #   APP_NAME：应用名（来自 utils.logger 单一来源，D1/C14）
+# 版本说明：VERSION 由 utils.logger 单点导出（R4），main.py 仅 --version 分支
+#   局部 import（D0.13），不再作为模块属性导出（F3.1/G3.2 同步）
 # 函数：
 #   main()：E3.4 同步 D0.13——仅分发 run_gui()；--version/-V 已在模块顶层
 #     （PyQt import 前）处理（D0.13，SystemExit 提前返回，CLI 不加载 GUI 依赖）

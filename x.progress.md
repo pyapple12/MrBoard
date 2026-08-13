@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.19（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.20（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -410,3 +410,34 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] F4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_f_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——防漏损延续：①同根因调用点全扫（契约组新增后 go_quota 消费方与契约键集交叉核对）②说明区全量一致性扫描扩展（覆盖 main.py/pricing/themes + 上轮 5 文件，含 F3 修改处）③配置键文档同步检查（无新增键，核对 E 系列键无漂移）
 - 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 15/15 + 冒烟；防漏损①消费组×契约块交叉（go_quota_error_messages/quota_window_labels 全在契约块）；②说明区扩展扫描补 3 处漂移（main_window 契约组/_usage 标志、opencode_usage 字段契约键集——F0 三修复的说明区同步漏网）；③E 系列键无漂移（credentials_ttl 单点定义/消费、README 徽章==base.json）；z.plan A012 状态已修复；E4 残留状态行清理；版本推进 ver 0.19（五处一致））｜优先级：高
+
+## G. 第13轮审计修复任务清单（依据 z.plan.md 附录 A013）
+
+### G0 P0 正确性
+
+- [x] G0.1 F0.2 pending 丢弃路径修复（main_window.py:817-819/833-835）——seq 不匹配分支 return 前消费 pending（用最新 _refresh_seq 启动补发，与渲染路径同逻辑；抽公共方法防双路径漂移）；验证：probe_a013_f02 连点场景断言 pending 被清空 + 补发一次（先 FAIL 后 PASS）
+- [x] G0.2 UsageSummary 字段契约（opencode_usage.py:120-133，观察项提升）——与 F0.3 同机制补 _USAGE_SUMMARY_FIELDS 显式键集比对（sessions/messages/days/tokens/recorded_cost 等 10 字段）；验证：键集与实际字段一致 + 消费方（main_window/exporter/CLI）属性全命中
+- 状态：✅ 已完成（2026-08-13：G0.1 _consume_pending 公共方法（过期丢弃/渲染两路径共用，无 pending 不补发防多余查询）；G0.2 _USAGE_SUMMARY_FIELDS 10 字段契约（类定义后比对，消费方全命中）。探针 3/3（行为验证：过期路径 pending 清空 + 补发最新序号）+ 验收 9/9 + 全量回归 43/43）｜优先级：高
+
+### G1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### G2 P2 配置化
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### G3 P3 清理
+
+- [x] G3.1 pricing 说明区失实修正（pricing.py:327/329）——_price_line 改"price 为 None 计 0"、_rate_from_raw 改"input/output 按 0、cache 缺省 None 按无折扣"；验证：grep 关键字精确匹配
+- [x] G3.2 main.py 说明区 VERSION 段改写（main.py:115-116）——删"模块级常量 VERSION"条目，改为"VERSION 由 utils.logger 单点导出（R4），main 仅 --version 分支局部 import（D0.13）"；验证：grep 无"模块级常量 VERSION"字样
+- [x] G3.3 main.py 说明区补列（main.py:113-117）——模块级常量段补 _SC（静态配置解包）/ _notified_danger（预警去重标志）；验证：grep 两符号
+- [x] G3.4 main_window 说明区两处同步（main_window.py:1151/1178）——refresh 行补"in_flight 时仅置 pending 并只启动配额任务"；关联配置 VERSION 改"utils.logger"；验证：grep 关键字
+- 状态：✅ 已完成（2026-08-13：G3.1 主语修正（price 为 None 计 0）+ cache 缺省精确；G3.2 VERSION 条目改写为单点导出说明（同根因 F3.1 漏改第三次终结）；G3.3 补 _SC/_notified_danger；G3.4 refresh 行 pending 描述 + 关联配置 VERSION 改 utils.logger。探针 7/7 + 验收 15/15 + 全量回归 43/43）｜优先级：低
+
+### G4 验证与收尾
+
+- [x] G4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_g_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——防漏损延续：①探针补"说明区无残留字样"反向断言（A013 教训：F3.1 漏改三次同根因，grep 存在性检查抓不到说明区失实）②说明区语义准确性扫描（非仅符号存在——P2 教训）③契约扩展后消费方交叉核对（G0.2 新增键集 vs main_window/exporter/CLI）
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 15/15 + 冒烟；防漏损①说明区无残留字样 4 处全过（F3.1 漏改三次终结）；②语义准确性扫描 4 处（_price_line/_rate_from_raw 说明与实现一致）；③契约消费方交叉（main_window/exporter/CLI 属性全命中，排除 row.addWidget/summary.csv 误匹配）；z.plan A013 状态已修复；版本推进 ver 0.20（五处一致））｜优先级：高

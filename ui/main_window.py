@@ -816,6 +816,9 @@ class MainWindow(QMainWindow):
         # B0.5：序号不匹配（旧任务乱序晚完成）直接丢弃，防覆盖新数据）
         global _usage_pending
         if seq != self._refresh_seq:
+            # G0.1：过期结果丢弃前消费 pending——连点场景任务完成时 seq 必已
+            # 递增，此处是补发的必经路径（否则 pending 残留 + 数据挂起）
+            self._consume_pending()
             return
         self._usage_data = data
         self._render_cards(data.summary)
@@ -830,6 +833,13 @@ class MainWindow(QMainWindow):
         )
         # F0.2：连点期间的待补发请求——以最新序号再启动一次（_UsageTask.run
         # 已提前复位在途标志，此处判定无竞态）
+        self._consume_pending()
+
+    def _consume_pending(self) -> None:
+        # G0.1：消费待补发请求——以最新序号再启动一次（run 已提前复位在途标志，
+        # 主线程判定无竞态；补发任务完成时 seq 匹配、pending 已清，不会循环；
+        # 渲染路径与过期丢弃路径共用，防双路径漂移）
+        global _usage_pending
         if _usage_pending:
             _usage_pending = False
             self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
@@ -1149,6 +1159,7 @@ class MainWindow(QMainWindow):
 #       状态 + 剩余量饼图[P16]）+ 明细区（总览按钮[P15]/维度下拉/刷新/导出/设置[P13]/
 #       主题按钮 + QTableWidget）；状态栏在 __init__ 信号连接区提前创建（M11）
 #     refresh：手动/定时入口——取消自动加载标志，QThreadPool 并行启动两个任务
+#       （F0.2/G3.4：usage 任务在途时仅置 pending 补发标志并只启动配额任务）
 #     toggle_theme/_apply_theme：亮暗主题切换（QApplication.setStyleSheet）
 #     _on_usage_ready/_on_quota_ready/_on_load_error：结果渲染；失败仅状态栏提示，
 #       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗；
@@ -1175,6 +1186,6 @@ class MainWindow(QMainWindow):
 #   CDP 引导独立临时 profile，不打扰用户正在使用的浏览器（S6.1 实测结论）
 # 异常处理：任务内异常转 error/done/failed 信号；配额错误包装为 GoQuotaInfo
 #   携带提示；引导失败仅状态栏提示不弹窗
-# 关联配置：VERSION（main.py）；config.settings（geometry/theme/refresh_interval_ms/
+# 关联配置：VERSION（utils.logger 单点导出，G3.4 同步）；config.settings（geometry/theme/refresh_interval_ms/
 #   hidden_columns）；go_quota（fetch_go_quota/save_dashboard_credentials 均可注入替换，
 #   测试用）

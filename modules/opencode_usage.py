@@ -133,6 +133,27 @@ class UsageSummary:
     until: int | None = None
 
 
+# G0.2：UsageSummary 字段契约（与 F0.3 同机制——main_window/exporter/CLI
+# 跨模块直读属性，改名 AttributeError 会逃逸 Qt 槽；契约块必须在类定义后）
+_USAGE_SUMMARY_FIELDS = (
+    "sessions",
+    "messages",
+    "days",
+    "tokens",
+    "recorded_cost",
+    "estimated_cost_totals",
+    "estimated_cost_total",
+    "cost_source",
+    "since",
+    "until",
+)
+if tuple(UsageSummary.__dataclass_fields__) != _USAGE_SUMMARY_FIELDS:
+    raise RuntimeError(
+        f"UsageSummary 字段与消费契约不一致：期望 {_USAGE_SUMMARY_FIELDS}，"
+        f"实际 {tuple(UsageSummary.__dataclass_fields__)}"
+    )
+
+
 def find_db_path() -> Path | None:
     # 三级探测 opencode.db：OPENCODE_DB 环境变量 → opencode db path 子进程 → XDG 默认路径
     env_path = os.environ.get("OPENCODE_DB")
