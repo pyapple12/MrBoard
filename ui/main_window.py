@@ -235,6 +235,11 @@ for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
 # D0.7：notify_title 为标量键，单独契约校验（main.py 消费，C0.8 键集遗漏补全）
 if "notify_title" not in _SC.ui:
     raise RuntimeError("ui.json 缺少必需键：notify_title")
+# H0.8：notify 两模板键入契约——删键从运行时兜底改导入期报错（与 C0.8
+# "键集扩至全部消费键"宣称对齐；三级链保留：.format 坏模板仍需运行时兜底）
+for _notify_key in ("notify_message_template", "notify_message_fallback"):
+    if _notify_key not in _SC.ui:
+        raise RuntimeError(f"ui.json 缺少必需键：{_notify_key}")
 # C0.7：table_headers 严格相等（防短防长——加列后多出列渲染为空且列开关无法控制）
 if len(TABLE_HEADERS) != len(COLUMN_IDS):
     raise RuntimeError(
@@ -332,17 +337,19 @@ class _UsageTask(QRunnable):
                 }
             finally:
                 db.close()
-            # F0.2：在途标志在 emit 前复位——槽内据此判断 pending 补发
-            _usage_task_in_flight = False
             self.signals.usage_ready.emit(
                 self.seq, UsageData(summary=summary, rows=rows)
             )
         except Exception as exc:
-            _usage_task_in_flight = False
             self.signals.error.emit(
                 self.seq,
                 STATUS_MESSAGES["usage_failed_template"].format(error=exc),
             )
+        finally:
+            # H0.6：复位统一 finally 单点（与 go_quota._fetch_in_flight 同式；
+            # 防未来新增异常分支漏复位致去重永久吞刷新——emit 时 in_flight
+            # 仍 True，但 _consume_pending 只读 pending，时序兼容已验证）
+            _usage_task_in_flight = False
 
 
 class _QuotaTask(QRunnable):

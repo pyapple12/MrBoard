@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.20（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.201（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -441,3 +441,41 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] G4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_g_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——防漏损延续：①探针补"说明区无残留字样"反向断言（A013 教训：F3.1 漏改三次同根因，grep 存在性检查抓不到说明区失实）②说明区语义准确性扫描（非仅符号存在——P2 教训）③契约扩展后消费方交叉核对（G0.2 新增键集 vs main_window/exporter/CLI）
 - 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 15/15 + 冒烟；防漏损①说明区无残留字样 4 处全过（F3.1 漏改三次终结）；②语义准确性扫描 4 处（_price_line/_rate_from_raw 说明与实现一致）；③契约消费方交叉（main_window/exporter/CLI 属性全命中，排除 row.addWidget/summary.csv 误匹配）；z.plan A013 状态已修复；版本推进 ver 0.20（五处一致））｜优先级：高
+
+## H. 豁免清理批次（依据 2026-08-13 豁免盘点报告——8 条零风险项，4 条验证项待用户决策）
+
+> 背景：56 条豁免定案清单盘点后，13 条低成本可修项中 8 条判定零/极低风险（修复不产生新问题，或新问题可被既有回归体系捕获）——一次性修完共享全量回归成本；4 条需验证项已完成行为验证，结果供用户决策后另行排期
+
+### H0 P0 正确性
+
+- [x] H0.1 refresh_interval_ms 加上限（settings.py:17-27 + base.json）——base.json 加 max_refresh_interval_ms（3600000），from_dict 区间校验（下限 ≤ x ≤ 上限）；验证：超大值配置断言回退默认
+- [x] H0.2 _parse_window 解析处钳制（go_quota.py:276-280）——percent = max(0.0, min(100.0, percent))；验证：构造 -5%/120% 断言钳制值
+- [x] H0.3 file_utils fdopen 理论泄漏（file_utils.py:45-49）——fdopen 失败时 os.close(fd)（OSError 吞掉，E5 同式）；验证：mock fdopen 抛错断言 fd 被关
+- [x] H0.4 数值键类型契约（static_config.py）——_NUMERIC_BASE_KEYS 白名单校验（23 键，type() is int 排除 bool）；验证：字符串数值键断言抛契约错误
+- [x] H0.5 CLI --limit 钳制（opencode_usage.py:590）——args.limit = max(1, min(args.limit, 10000))；验证：-5/超大值断言钳制
+- [x] H0.6 _UsageTask 复位统一 finally（main_window.py _UsageTask.run，验证 4 已通过）——双分支手动复位改 finally 单点（与 go_quota 同式；_consume_pending 只读 pending 不读 in_flight，时序兼容已验证）；验证：连点 + 异常场景探针断言复位
+- [x] H0.7 subprocess 加 CREATE_NO_WINDOW（opencode_usage.py:138 + browser_creds.py:318/589，验证 2 已通过）——creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) 三处；验证：getattr 兜底 + 三处调用点断言
+- [x] H0.8 notify 两模板键入契约（main_window.py:228-230 后，选项 B 定案）——for 循环校验 notify_message_template/notify_message_fallback 存在，删键导入期抛 RuntimeError；三级链逻辑不动（except 全类型保留）；验证：真实删键导入抛错 + 坏模板导入期被占位符校验拦截（验收新发现：三级链运行时近乎不可达，P24 已记录）
+- 状态：✅ 已完成（2026-08-13：H0.1-H0.8 全部实施；探针 10/10 + 验收 17/17 + 全量回归 43/43；关键发现：坏模板导入期被占位符校验拦截（C0.8 机制），三级链运行时近乎不可达——P24 新增证据，强化选项 X 论据）｜优先级：中
+
+### H1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### H2 P2 配置化
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### H3 P3 清理
+
+- [x] H3.1 palettes 容器类型校验（themes.py:80-81）——isinstance dict 校验抛 RuntimeError（E3.9 同式）；验证：改容器为 str 导入断言抛契约错误
+- [x] H3.2 retry backoff 注释对齐（retry.py:24-28，方向 a 纯注释）——注释修正为"<1 递减退避也被归一为 ≥1.0"；验证：grep 注释关键字
+- [x] H3.3 logger 注释措辞（logger.py:15/79）——改"main（--version 分支）/main_window（经 build_app_title）消费"；验证：grep 关键字
+- 状态：✅ 已完成（2026-08-13：H3.1 palettes 容器 dict 校验（真实改容器导入抛 RuntimeError，原裸 ValueError）；H3.2 retry 注释语义对齐（<1 也被归一，以实现为准）；H3.3 logger 注释措辞（两处）。探针 3/3 + 验收 20/20 + 全量回归 43/43）｜优先级：低
+
+### H4 验证与收尾
+
+- [x] H4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_h_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态）——防漏损延续：①base.json 新键（H0.1/H0.4）文档三处同步 ②说明区无残留字样 + 语义准确性扫描（H 系列修改文件）③配置键消费方交叉
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 20/20 + 冒烟；防漏损①补 4 处文档漂移（README 配置表 max_refresh_interval_ms、settings 说明区 MAX、static_config 说明区数值键契约、白名单补 window_width/height——H0.4 原 23 键白名单遗漏两键）；②说明区 12 项全过；③白名单 25 键与消费清单一致、无孤儿键；版本推进 ver 0.201（2026-08-13 起审计只提升第三位数字，五处一致））｜优先级：中

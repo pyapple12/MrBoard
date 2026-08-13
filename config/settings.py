@@ -12,6 +12,8 @@ CONFIG_FILE = get_project_root() / _SC.base["user_config_path"]
 DEFAULT_REFRESH_INTERVAL_MS = int(_SC.base["refresh_interval_ms"])
 # 6A.2 D3：刷新间隔最小下限（base.json 驱动，防手改 1ms 疯狂刷新）
 MIN_REFRESH_INTERVAL_MS = int(_SC.base["min_refresh_interval_ms"])
+# H0.1：刷新间隔最大上限（base.json 驱动，防手改超大值刷新停摆——与下限对称）
+MAX_REFRESH_INTERVAL_MS = int(_SC.base["max_refresh_interval_ms"])
 # A2.2：default_theme 与 themes 数组一致性防护——base 默认值不在 themes 中时
 # 回退 themes[0]（改 ui.json 主题名后默认主题仍生效，不静默失效）
 _themes = tuple(str(item) for item in _SC.ui["themes"])
@@ -57,8 +59,12 @@ class AppConfig:
             config.theme = theme
         interval = raw.get("refresh_interval_ms")
         # type() is int 排除 bool（bool 是 int 子类，防 true → 1ms，S2）；
-        # 6A.2 D3：低于下限的非法值丢弃（防手改 1ms 每秒千次刷新）
-        if type(interval) is int and interval >= MIN_REFRESH_INTERVAL_MS:
+        # 6A.2 D3：低于下限的非法值丢弃（防手改 1ms 每秒千次刷新）；
+        # H0.1：高于上限的非法值丢弃（防手改超大值刷新停摆）
+        if (
+            type(interval) is int
+            and MIN_REFRESH_INTERVAL_MS <= interval <= MAX_REFRESH_INTERVAL_MS
+        ):
             config.refresh_interval_ms = interval
         hidden = raw.get("hidden_columns")
         if isinstance(hidden, list):
@@ -88,7 +94,8 @@ def save_config(config: AppConfig) -> None:
 #     对齐 AccelWorld S9.5 定案；路径由 base.json user_config_path 指定，
 #     get_project_root() 拼接）；凭据 opencode-go.json 在项目内
 #     data/credentials/（P2 定案：所有数据目录集中项目内，不使用用户目录）
-#   DEFAULT_REFRESH_INTERVAL_MS / MIN_REFRESH_INTERVAL_MS / DEFAULT_THEME：默认值与
+#   DEFAULT_REFRESH_INTERVAL_MS / MIN_REFRESH_INTERVAL_MS / MAX_REFRESH_INTERVAL_MS /
+#     DEFAULT_THEME：默认值与
 #     刷新间隔下限从静态配置现取（零硬编码；下限防手改 1ms 疯狂刷新，6A.2 D3）
 # 类型：
 #   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms/hidden_columns）
@@ -104,5 +111,5 @@ def save_config(config: AppConfig) -> None:
 # 异常处理：读异常由 file_utils 宽容消化；写异常（save_config→write_json）失败
 #   时清理临时文件后 re-raise，由调用方决定降级策略（E3.6 修正，对齐 write_json E5 设计）
 # 关联配置：config/static/base.json（user_config_path/default_theme/refresh_interval_ms/
-#   min_refresh_interval_ms）
+#   min_refresh_interval_ms/max_refresh_interval_ms，H0.1 补列）
 #   + ui.json（themes 数组）

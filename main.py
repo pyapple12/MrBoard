@@ -65,6 +65,8 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
                     )
                 except (KeyError, ValueError, IndexError):
                     # B0.7：模板被手改引入未知占位符/坏格式时回退固定文案（不逃逸）
+                    # （H0.8：键存在性已由契约保证——此处 KeyError 是模板内未知
+                    # 占位符 {unknown}，非缺键；链职责收窄为"只兜坏模板"）
                     try:
                         message = str(_SC.ui["notify_message_fallback"]).format(
                             used=info.overall_used_percent,

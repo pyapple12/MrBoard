@@ -184,6 +184,8 @@ def _query_db_path_from_cli() -> Path | None:
             capture_output=True,
             text=True,
             timeout=SUBPROCESS_TIMEOUT,
+            # H0.7：无控制台环境不闪黑窗（非 Windows 无此属性，getattr 兜底为 0）
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("调用 opencode db path 失败：%s", exc)
@@ -593,6 +595,8 @@ def main() -> None:
         "--estimate", action="store_true", help="对库 cost 缺失的消息做定价估算"
     )
     args = parser.parse_args()
+    # H0.5：CLI --limit 钳制（负值会致 SQLite 报错、超大值全表驻留——开发自测路径）
+    args.limit = max(1, min(args.limit, 10000))
 
     since_ms = None
     since_label = "全部"

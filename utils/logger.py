@@ -12,7 +12,9 @@ from utils.file_utils import get_project_root
 # L16：应用名/日志级别同样由 base.json 驱动）
 _SC = get_static_config()
 APP_NAME = str(_SC.base["app_name"])
-VERSION = str(_SC.base["version"])  # 6A.3 R4：版本号单点导出（main/main_window 共引）
+VERSION = str(
+    _SC.base["version"]
+)  # 6A.3 R4：版本号单点导出（main --version 分支/ build_app_title 共引，H3.3 措辞修正）
 LOG_LEVEL = str(_SC.base["log_level"])
 LOG_MAX_BYTES = int(_SC.base["log_max_bytes"])  # 6A.3 O5：单文件上限（轮转阈值）
 LOG_BACKUP_COUNT = int(_SC.base["log_backup_count"])  # 6A.3 O5：轮转保留份数
@@ -76,7 +78,8 @@ def _setup_handlers() -> None:
 #     logs_dir 字段 + get_project_root() 拼接，P2 决策：所有数据目录集中项目内，
 #     不使用用户目录；utils 层允许依赖 config.static 读取配置，AGENTS.md 已放宽）
 #   APP_NAME / LOG_LEVEL：应用名与日志级别（base.json 驱动，C14 补列）
-#   VERSION：版本号单点导出（base.json version 字段，main/main_window 共引，6A.3 R4）
+#   VERSION：版本号单点导出（base.json version 字段，main --version 分支局部 import、
+#     main_window 经 build_app_title 间接引用，H3.3 措辞修正，6A.3 R4）
 #   LOG_MAX_BYTES / LOG_BACKUP_COUNT：日志轮转参数（base.json 驱动，6A.3 O5）
 #   APP_SUBTITLE：标题中段（ui.json app_subtitle，A1.1）
 #   LOG_FORMAT / DATE_FORMAT：统一日志格式（时间 | 级别 | 模块名 | 消息）

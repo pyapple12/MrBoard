@@ -43,12 +43,23 @@ def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(data, ensure_ascii=False, indent=2)
     tmp_path: Path | None = None
+    fd: int | None = None
     try:
         # D0.12（大会战 A2）：mkstemp 移入 try（fd 打开失败时 tmp_path 未定义，
         # 异常路径不会因 unlink 未绑定变量再抛）
         fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
+        # H0.3：fdopen 失败（内存不足等极端）时关闭 fd 防泄漏——fd 打开成功后
+        # 才可能 fdopen 失败，close 包 OSError 吞掉（已关闭/无效 fd 场景）
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            raise
         os.replace(tmp_path, str(path))
     except Exception:
         # E5：unlink 自身可能抛 OSError（已被删/权限），包裹吞掉避免覆盖原异常

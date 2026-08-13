@@ -320,6 +320,8 @@ def _safe_copy_db(db_path: Path) -> Path | None:
                     capture_output=True,
                     text=True,
                     timeout=ESENTUTL_TIMEOUT,
+                    # H0.7：无控制台环境不闪黑窗（非 Windows 无此属性，getattr 兜底）
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 if result.returncode == 0 and copy_path.is_file():
                     success = True
@@ -591,6 +593,8 @@ def psutil_process_iter() -> list[Any]:
             capture_output=True,
             text=True,
             timeout=SUBPROCESS_TIMEOUT,
+            # H0.7：无控制台环境不闪黑窗（非 Windows 无此属性，getattr 兜底）
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         ).stdout
         return [
             _TaskProcess(line.split('","')[0].strip('"'))

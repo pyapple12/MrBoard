@@ -22,7 +22,9 @@ def retry_call(
 ) -> Any:
     # 执行 func 并捕获指定异常时按指数退避重试，重试耗尽后抛出最后一次异常
     # （6A.2 D5：负值参数 clamp——retries<0 会空循环触发 assert，delay/backoff 负值
-    #   time.sleep 抛 ValueError）
+    #   time.sleep 抛 ValueError；H3.2 注释修正：backoff 取 max(1.0, ...) 使
+    #   0 < backoff < 1 的递减退避意图也被归一为 ≥1.0——项目内调用均传正退避，
+    #   行为差异不可达，语义以实现为准）
     retries = max(0, int(retries))
     delay = max(0.0, float(delay))
     backoff = max(1.0, float(backoff))

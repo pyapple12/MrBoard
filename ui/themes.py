@@ -77,6 +77,14 @@ QMenu::item:selected { background-color: {menu_selected}; }
 
 # 浅/深色调色板（4A.2 D5：整体外置 ui.json palettes，S8.3 颜色外置补齐）
 _SC = get_static_config()
+# H3.1：palettes 容器类型校验（手改容器为 str/list 时 dict() 抛裸 ValueError——
+# 与 E3.9 值类型校验同式，契约风格 RuntimeError 统一诊断）
+for _palette_name in ("light", "dark"):
+    if not isinstance(_SC.ui["palettes"].get(_palette_name), dict):
+        raise RuntimeError(
+            f"ui.json palettes.{_palette_name} 必须是对象，"
+            f"当前 {type(_SC.ui['palettes'].get(_palette_name)).__name__}"
+        )
 _LIGHT_PALETTE = dict(_SC.ui["palettes"]["light"])
 _DARK_PALETTE = dict(_SC.ui["palettes"]["dark"])
 

@@ -296,18 +296,43 @@ mrboard/
 
 ---
 
-## 观察项豁免定案清单（第 10 轮大会战，2026-08-13 定稿）
+## 观察项豁免定案清单（历轮汇总，2026-08-13 分级定稿）
 
-> 历轮（A007-A010）参考级观察项经大会战逐条评估：修复 5 条入 D 系列（D0.11-D0.15）、转资产 4 条（verify_s1 断言 ×2 + pricing 说明区 ×2）、**以下 29 条维持豁免定案**——后续轮次不再重复报告（除非触发条件变化）
+> 分级规则（2026-08-13 修订）：历轮（A007-A013）参考级观察项经大会战与多轮复核，按确定性分三级——
+> ①**永久豁免**：外部约束/设计定案/数据常量/性能可接受/并发理论/外观——后续轮次**不再报告、不再讨论**（除非外部依赖本身变更，如 Chrome 命名规则、opencode.db schema）
+> ②**条件豁免**：需验证/理论不可达/数据语义——触发条件变化时重新评估（每项标注触发条件）
+> ③**价值权衡**：可修但收益 < 成本——H 批次已消化 10 条，剩余列于此，未来批次按需排期
+> 历史归档：A011/A012/A013 的"追加豁免 N 条"段落已并入本清单（附录内不再保留）；H 批次已修复 10 条从豁免移出
 
-- **安全必需**：browser_creds --remote-allow-origins=*（Chrome 137+ 无此参数 CDP 必 403）
-- **历轮定案**：CDP 探测族 3 固定值不入配置 / DASHBOARD 请求参数硬编码 / BUNDLED_PRICES 数据快照 / COST_COMPARE_DIGITS 浮点容差 / _EPOCH_MS/_DAY_MS 数学基准 / file_utils 缓存无业务写入方（C1）/ retry 默认值语义分离 / 双份 themes 解析（各防护独立）
-- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）
-- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）
-- **外观/风格**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ $ 硬编码（OpenCode 计费固定 USD）/ PIE_FONT_SIZE / 托盘几何
-- **宽容行为**：restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）
-- **不可达/低价值**：login_timeout minutes=0（默认配置不可达）/ _CdpGuideTask 凭据写入不可注入（全链路难单测）/ toggle_theme 不即时持久化（退出即存设计）/ http_timeout 无类型契约（开发期暴露策略）/ retry 参数类型不校验（内部 API 调用方可控）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ hidden_columns 非法 id 回写（D0.15 修复后）/ go_quota html 局部遮蔽（D0.14 修复后）/ parse_time_arg ISO 时区偏移（CLI 自测，转文档：相对时长为主流）/ estimate 全表扫描（D0.11 修复后）/ write_json mkstemp 位置（D0.12 修复后）/ --version 在 PyQt import 后（D0.13 修复后）
-- **第 11 轮（A011）追加豁免 11 条**（用户复核，2 条已提升入 E 系列：min_ts=0、CREDS_CACHE_TTL）：settings refresh_interval_ms 无上限（仅手改配置可达）/ file_utils fdopen 理论 fd 泄漏（需验证）/ retry backoff clamp 宽于注释（内部 API 同族）/ main.py:6 import 场景 argv 误触发（无可达路径）/ pricing cost 空 dict 落入 pricing 分支（schema 数据语义 B3 族）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）/ notify 两模板未入契约组（三级兜底链）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ 窗口销毁 in-flight 信号（Qt 析构自动断连）/ _show_columns_menu 每次 new QMenu（父挂载自动回收）
+### ① 永久豁免（不再讨论）
+
+- **外部约束**：browser_creds --remote-allow-origins=*（Chrome 137+ 无此参数 CDP 必 403）/ DASHBOARD 请求参数硬编码 / CDP 探测族 3 固定值不入配置
+- **数据/数学常量**：BUNDLED_PRICES 数据快照 / COST_COMPARE_DIGITS 浮点容差 / _EPOCH_MS/_DAY_MS 数学基准 / $ 硬编码（OpenCode 计费固定 USD）
+- **设计定案**：retry 默认值语义分离 / retry 参数类型不校验（内部 API 调用方可控）/ 双份 themes 解析（各防护独立）/ toggle_theme 不即时持久化（退出即存设计）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）/ file_utils 缓存无业务写入方（C1）/ themes QUOTA_COLOR 常量名缩写（指代明确非失实）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ logger 注释措辞（字面仍成立）/ 说明区契约列举省略 dialog 组（已校验在位，叙述省略）
+- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）/ ORDER BY 无索引（**外部库只读不可建索引**，仅 CLI 路径毫秒级）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ _show_columns_menu 每次 new QMenu（父挂载自动回收）
+- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）/ 连点启动 N 个 QuotaTask（go_quota 节流兜底）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）
+- **外观**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ PIE_FONT_SIZE / 托盘几何
+- **2026-08-13 新增定案（profile 正则）**：_profile_dirs 前缀匹配宽容为**刻意设计**——startswith("Profile") 兼容 Chrome 未来命名（官方命名 "Profile 1" 带空格，69 版起）；精确化收益（消除不可见毫秒级解析）< 规则依赖风险（未来命名变更致漏扫、凭据探测失效）；本机无 Profile 目录为验证盲区；误匹配目录已被单浏览器 try 兜底（无崩溃路径）
+- **已修复记账**（历史记录防重复报告）：hidden_columns 非法 id 回写（D0.15）/ go_quota html 局部遮蔽（D0.14）/ parse_time_arg ISO 时区偏移（CLI 自测转文档）/ estimate 全表扫描（D0.11）/ write_json mkstemp 位置（D0.12）/ --version 在 PyQt import 后（D0.13）/ min_ts=0（E0.4）/ CREDS_CACHE_TTL（E2.2）/ refresh 连点（F0.2）/ UsageRow 契约（F0.3）/ UsageSummary 契约（G0.2）
+
+### ② 条件豁免（触发条件变化时重新评估）
+
+- file_utils fdopen 理论 fd 泄漏（触发：证明 fdopen 失败路径可达）——注：**H0.3 已排期修复**，完成后移出
+- 窗口销毁 in-flight 信号（触发：Qt 析构自动断连行为变化）
+- settings themes 空数组回退（触发：ui.json themes 被手改为空）
+- main.py:6 import 场景 argv 误触发（触发：第三方脚本 import main 且 argv 含 -V/--version）
+- login_timeout minutes=0（触发：默认配置被手改为 0）
+- pricing cost 空 dict 落入 pricing 分支（触发：models.dev schema 变更，B3 数据语义族）
+- get_theme 第三主题静默错位（触发：配置合法扩展第三主题）
+- _TOKEN_SUM_SELECT 与字段无静态校验（触发：新增/删除 SQL 聚合列）
+- 契约键集与说明区无自动联动（触发：新增 dataclass 字段流程变化）
+- 契约块位置打断 dataclass 定义区（触发：新增需要契约的 dataclass）
+
+### ③ 价值权衡（未来批次按需排期，决策记录）
+
+- notify 三级兜底链去留（H0.8 契约落地后评估是否删除过度防御链——2026-08-13 待评估，见 y.problem.md P24）
+- _CdpGuideTask 凭据写入不可注入（中成本依赖注入改造，全链路单测收益不确定）
+- QUOTA_COLOR 常量名重命名（纯命名洁癖，多处引用 + 说明区联动，收益极低）
 
 ---
 
@@ -327,8 +352,6 @@ mrboard/
 
 ---
 
-- **第 12 轮（A012）追加豁免 8 条**（用户复核，2 条已提升入 F 系列：refresh 连点、UsageRow 契约）：get_theme 第三主题静默错位（需验证，硬性 2 主题假设）/ palettes 容器类型非 dict 抛 ValueError（导入期即抛仅错误类型不统一）/ ORDER BY 无索引（仅 CLI 路径毫秒级）/ _parse_window usage_percent 未钳制（消费端双兜底 D0.6）/ subprocess 无 CREATE_NO_WINDOW（外观类）/ CLI --limit 无上界（自测路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ _profile_dirs 前缀匹配过宽（需验证，单浏览器 try 吞掉）
-
 ## 附录 A012：全量代码审计报告（第12轮，2026-08-13）
 
 > 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + AST 扫描 + 行为验证（契约缺口实测）
@@ -343,8 +366,6 @@ mrboard/
 - **亮点**：E 系列零回退；防漏损机制本轮当场抓出 3 处残留（证明机制有效，扩展扫描范围即可收敛）；credentials_ttl/in_flight 单点定义单点消费无漂移
 
 ---
-
-- **第 13 轮（A013）追加豁免 8 条**（用户复核，1 条已提升入 G 系列：UsageSummary 契约）：_TOKEN_SUM_SELECT 与字段无静态校验（需验证，删列仅人工错误路径）/ 契约键集与说明区无自动联动（契约兜两环流程收敛）/ 契约块位置打断 dataclass 定义区（新增类时按 F0.3 模式即可）/ themes QUOTA_COLOR 常量名缩写（指代明确）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 连点启动 N 个 QuotaTask（节流兜底）/ _UsageTask 双分支复位 vs finally 风格（当前正确，统一可选）/ 说明区契约列举省略 dialog 组（已校验在位）/ settings themes 空数组回退（配置错误理论级）/ logger 注释措辞（字面仍成立）
 
 ## 附录 A013：全量代码审计报告（第13轮，2026-08-13）
 

@@ -272,6 +272,9 @@ def _parse_window(field_name: str, text: str, now: datetime) -> GoQuotaWindow | 
     reset_seconds_raw = _capture_number("resetInSec", body)
     if percent is None or reset_seconds_raw is None:
         return None
+    # H0.2：解析处钳制 usagePercent（外部 HTML 可能负值/超百——消费端已有
+    # 双兜底，解析层补齐数据完整性，CLI 自测不再显示原始错值）
+    percent = max(0.0, min(100.0, percent))
     reset_seconds = max(0, int(round(reset_seconds_raw)))
     return GoQuotaWindow(
         usage_percent=percent,
