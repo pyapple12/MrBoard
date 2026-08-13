@@ -203,15 +203,15 @@ def fetch_dashboard_usage(
         raise GoQuotaError("provider", f"HTTP {exc.code}") from exc
     except Exception as exc:
         raise GoQuotaError("network", f"请求 dashboard 失败：{exc}") from exc
-    html = body.decode("utf-8", errors="replace")
-    if OAUTH_REDIRECT_MARKER in html:
+    html_text = body.decode("utf-8", errors="replace")  # D0.14：改名防遮蔽模块级 html
+    if OAUTH_REDIRECT_MARKER in html_text:
         # 未登录会话被重定向到 OpenAuth 登录页：凭据失效，按 auth 分类
         # （A0.4：title 精确特征，防正常 dashboard 页面含 OpenAuth 字样误判；
         #   如真实登录页 title 有变体需调整常量）
         raise GoQuotaError(
             "auth", "OpenCode Go 登录会话已失效，请点击一键自动获取重新登录"
         )
-    usage, missing = parse_dashboard_html(html, datetime.now(timezone.utc))
+    usage, missing = parse_dashboard_html(html_text, datetime.now(timezone.utc))
     if missing:
         logger.warning("dashboard 缺失窗口：%s", "、".join(missing))
     return usage
@@ -355,10 +355,12 @@ def _build_info(
         if window is not None
     ]
     overall = max((w.usage_percent for w in windows), default=0.0)
+    # D0.6：overall 钳制 0-100（与 remaining 对称，异常数据不外显负数/超百）
+    clamped_overall = max(0, min(100, int(round(overall))))
     info = GoQuotaInfo(
         **{field: usage.get(key) for field, key in QUOTA_WINDOW_KEYS.items()},
-        overall_used_percent=int(round(overall)),
-        remaining_percent=max(0, 100 - int(round(overall))),
+        overall_used_percent=clamped_overall,
+        remaining_percent=max(0, 100 - clamped_overall),
         credential_source=used_source,
         fetched_at=now,
     )
@@ -367,30 +369,51 @@ def _build_info(
     return info
 
 
+# D0.4：in-flight 去重标志（连点/定时叠加时并发请求只放行一个，防打爆 dashboard）
+_fetch_in_flight = False
+
+
 def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
-    # 主流程：节流 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误（P3：无 key 链路）
+    # 主流程：节流 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误（P3：无 key 链路；
+    # D0.4：在途请求去重——并发调用直接返回上次成功缓存，不叠加请求）
+    global _fetch_in_flight
     now = datetime.now(timezone.utc)
     cached = _throttled_cache(force)
     if cached is not None:
         return cached
-
-    credentials = find_dashboard_credentials()
-    if not credentials:
-        # 6A.3 H3：错误提示文案外置 ui.json（与 status_messages 体系一致）
+    if _fetch_in_flight:
+        # 已有请求在途：返回节流缓存（可能为 None 时给进行中提示）
+        in_flight_cached = _throttled_cache(force)
+        if in_flight_cached is not None:
+            return in_flight_cached
         return _fallback(
             now,
-            str(_SC.ui["go_quota_error_messages"]["no_credentials"]),
-            stage=ERROR_STAGE_NO_CREDS,
+            "配额请求进行中，请稍后刷新",
+            stage=ERROR_STAGE_NETWORK,
         )
+    _fetch_in_flight = True
+    try:
+        credentials = find_dashboard_credentials()
+        if not credentials:
+            # 6A.3 H3：错误提示文案外置 ui.json（与 status_messages 体系一致）
+            return _fallback(
+                now,
+                str(_SC.ui["go_quota_error_messages"]["no_credentials"]),
+                stage=ERROR_STAGE_NO_CREDS,
+            )
 
-    usage, used_source, last_stage, last_error = _fetch_usage_with_fallback(credentials)
-    if usage is None:
-        return _fallback(
-            now,
-            f"dashboard 拉取失败：{last_error or '未知错误'}",
-            stage=last_stage,
+        usage, used_source, last_stage, last_error = _fetch_usage_with_fallback(
+            credentials
         )
-    return _build_info(now, usage, used_source)
+        if usage is None:
+            return _fallback(
+                now,
+                f"dashboard 拉取失败：{last_error or '未知错误'}",
+                stage=last_stage,
+            )
+        return _build_info(now, usage, used_source)
+    finally:
+        _fetch_in_flight = False
 
 
 def _mark_cached(info: GoQuotaInfo, message: str) -> GoQuotaInfo:

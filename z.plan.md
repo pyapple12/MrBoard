@@ -278,3 +278,32 @@ mrboard/
 - **P3（9 条）**：convert to_float("inf") 穿透（实测，与 nan 不对称）；quota_ready/error 信号无序号去重（B0.5 只覆盖 usage）；themes THEME_NAMES 顺序契约缺失（数组改序 → 名称与调色板错位）；TABLE_HEADERS 契约只防短不防长；缩进错乱 + 说明区残留/失实 4 处（go_quota 60s、main_window VERSION 尾巴、main_window PIE 归属、system_tray build_app_title 归类）
 - **参考级观察项 10 条**（用户确认均不提升）：go_quota URL 模板 .format（**实测不抛，误报已排除**）、retry 参数类型、hidden_columns 脏 id、http_timeout 类型契约、logger LOG_LEVEL 回退、sqlite_utils busy_timeout、file_utils 缓存、static_config 无锁单例、network 每次 get_static_config、browser_creds 定案；ui.json 契约扩展（status_messages 等 7 组文案键 + 13 处 .format）代理建议下轮并入 B0.6
 - **亮点**：A008 零回退；无函数内 import/嵌套 def/docstring/未用 import；ui.json 45 键、base.json 33 键全有消费方；README/base.json/x.progress 三处 ver 0.15 一致；现网实测首次抓出"配置活但路径死"类问题
+
+---
+
+## 附录 A010：全量代码审计报告（第10轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；AST 扫描 + 三路代理全文审读 + 行为验证
+> 结果：**P1 级 1 条 / P2 级 3 条 / P3 级 11 条 / 参考级观察项 12 条**
+> 状态：✅ 已修复（2026-08-13：D 系列 D0 P0 正确性 15 条 + D3 清理 2 条全部完成，D1/D2 无条目；探针 15/15 + 修复验收 18/18 + 全量回归 43/43；任务清单见 x.progress.md D 系列）
+
+- **上轮复核（A009 C 系列 14 项）**：18/18 全部在位、零回退；但发现 3 处"C 系列修复不完整"实质缺口（C0.1 字段名漏网、C0.8 自证恒真、C0.6 不防顺序）——修复本身引入新缺陷，暴露"验证跟着实现走"的自证陷阱
+- **P1（1 条）**：pricing.py:285 远程定价字段名待裁决（当前取 "pricing"，代理三方证据链指向现网为 "cost"——若成立则远程层仍死路径；本环境无法现网验证，probe 自证不可信）——建议兼容 get("cost") or get("pricing")
+- **P2（3 条）**：main_window:170 status_messages 契约自证式恒真（ uple(STATUS_MESSAGES) 从被校验对象派生，删键不报错、启动 KeyError 崩构造）；main.py:48-79 节流缓存破坏预警去重（实测：缓存到达复位 _notified_danger + 托盘置灰，超限重复弹气泡）；刷新无 in-flight 去重（C0.5 只解决乱序，网络并发叠加遗留）
+- **P3（11 条）**：模板占位符校验漏 pie/detail_line 两组；usage_percent 无界（-5%/120% 错值）+ overall 无下界钳制；notify_title 无契约无防护；C0.6 不防顺序颠倒；save_state 无降级（磁盘满阻塞退出）；解析空结果无 warning（P1 潜伏放大器）；HTTP_TIMEOUT 死代码 + 说明区失实；说明区缺失/重复 4 处；窗口销毁 in-flight 信号（需验证）；palette 值非字符串 TypeError
+- **参考级观察项 12 条**（用户复核后**提升 1 条**：凭据探测 TTL——每次刷新全量浏览器探测，未来提频前加缓存；维持 11 条）：历轮定案项 + html 局部遮蔽/时区偏移/本地覆盖缺字段/绘制参数等
+- **亮点**：A009 零回退；无函数内 import/嵌套 def/docstring/未用 import；配置全键有消费方；三处 ver 0.16 一致；三路交叉验证抓出"自证恒真校验"类隐蔽缺陷
+
+---
+
+## 观察项豁免定案清单（第 10 轮大会战，2026-08-13 定稿）
+
+> 历轮（A007-A010）参考级观察项经大会战逐条评估：修复 5 条入 D 系列（D0.11-D0.15）、转资产 4 条（verify_s1 断言 ×2 + pricing 说明区 ×2）、**以下 29 条维持豁免定案**——后续轮次不再重复报告（除非触发条件变化）
+
+- **安全必需**：browser_creds --remote-allow-origins=*（Chrome 137+ 无此参数 CDP 必 403）
+- **历轮定案**：CDP 探测族 3 固定值不入配置 / DASHBOARD 请求参数硬编码 / BUNDLED_PRICES 数据快照 / COST_COMPARE_DIGITS 浮点容差 / _EPOCH_MS/_DAY_MS 数学基准 / file_utils 缓存无业务写入方（C1）/ retry 默认值语义分离 / 双份 themes 解析（各防护独立）
+- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）
+- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）
+- **外观/风格**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ $ 硬编码（OpenCode 计费固定 USD）/ PIE_FONT_SIZE / 托盘几何
+- **宽容行为**：restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）
+- **不可达/低价值**：login_timeout minutes=0（默认配置不可达）/ _CdpGuideTask 凭据写入不可注入（全链路难单测）/ toggle_theme 不即时持久化（退出即存设计）/ http_timeout 无类型契约（开发期暴露策略）/ retry 参数类型不校验（内部 API 调用方可控）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ hidden_columns 非法 id 回写（D0.15 修复后）/ go_quota html 局部遮蔽（D0.14 修复后）/ parse_time_arg ISO 时区偏移（CLI 自测，转文档：相对时长为主流）/ estimate 全表扫描（D0.11 修复后）/ write_json mkstemp 位置（D0.12 修复后）/ --version 在 PyQt import 后（D0.13 修复后）

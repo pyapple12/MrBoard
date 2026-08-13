@@ -22,13 +22,14 @@ PRICE_CACHE_DIR = get_project_root() / _SC.base["prices_dir"]
 PRICE_CACHE_FILE = PRICE_CACHE_DIR / "prices.json"
 PRICE_LOCAL_FILE = PRICE_CACHE_DIR / "prices.local.json"
 PRICE_CACHE_TTL = int(_SC.base["price_cache_ttl"])  # 远程价格缓存有效期：1 天
-HTTP_TIMEOUT = float(_SC.base["http_timeout"])  # L13：网络请求超时统一（base.json）
 RETRY_COUNT = int(_SC.base["retry_count"])  # 3A.1 C8：重试参数走 base.json
 RETRY_DELAY = float(_SC.base["retry_delay"])
 # 6A.3 H1：估算成本舍入位数（浮点误差容差，非展示精度——展示精度由 UI 格式化控制）
 COST_COMPARE_DIGITS = 10
 # models.dev pricing 字段 → RateInfo 字段键映射（5A.2 R3：远程响应映射后复用
 # _rate_from_raw，消除手写 RateInfo 构造；currency 同名字段单独透传）
+# B3（大会战定案）：仅映射 cache_write 单键——models.dev 部分模型无
+#   input_cache_write/output_cache_write 拆分，属 schema 数据语义依赖，非代码可修
 PRICE_KEY_MAP = {
     "input": "input_price",
     "output": "output_price",
@@ -182,6 +183,8 @@ def aggregate_estimated_costs(
 def _rate_from_raw(item: dict[str, Any], default_source: str) -> RateInfo:
     # 从 dict 弹性构建 RateInfo（内置/缓存/本地覆盖三处来源共用；to_* 已消化异常，
     # 字段缺省有默认值，不会失败——C5 去除冗余防御）
+    # B4（大会战定案）：本地覆盖文件缺 input_price 字段时按 0 估算（to_float(None)→0.0，
+    #   "免费"而非缺失）——高级用户手写场景，行为已知且记录于此
     return RateInfo(
         input_price=to_float(item.get("input_price")),
         output_price=to_float(item.get("output_price")),
@@ -282,7 +285,8 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
         for model, model_info in models.items():
             if not isinstance(model_info, dict):
                 continue
-            pricing = model_info.get("pricing")
+            # D0.1：现网 models.dev 定价字段为 cost（官方 schema），兼容历史 pricing
+            pricing = model_info.get("cost") or model_info.get("pricing")
             if not isinstance(pricing, dict):
                 continue
             result[canonical_key(provider, model)] = _rate_from_raw(
@@ -295,7 +299,11 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
                 },
                 "remote",
             )
-    return result or None
+    if not result:
+        # D0.9：解析为空与网络失败区分——结构变更/字段名错误不再静默（C0.1 教训放大器）
+        logger.warning("models.dev 解析结果为空（页面结构可能已变更）")
+        return None
+    return result
 
 
 # ===== modules/pricing.py 模块说明 =====
@@ -304,7 +312,7 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 #   PRICE_CACHE_DIR / PRICE_CACHE_FILE / PRICE_LOCAL_FILE：缓存与本地覆盖文件
 #     （项目内 data/prices/，P2：集中项目内，不使用用户目录）
 #   PRICE_CACHE_TTL：远程缓存有效期 1 天
-#   HTTP_TIMEOUT / RETRY_COUNT / RETRY_DELAY：网络超时与重试（base.json 驱动）
+#   RETRY_COUNT / RETRY_DELAY：网络重试参数（base.json 驱动）
 #   COST_COMPARE_DIGITS：估算成本舍入位数（浮点容差，6A.3 H1）
 #   BUNDLED_PRICES：内置常见模型价格（无网络回退，仅机制兜底）
 # 类型：
@@ -321,8 +329,10 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 #   _load_bundled / _load_cached_prices / _read_stale_cache / _serialize / _load_rate_items /
 #     _apply_local_overrides：
 #     定价表各层来源的装载与合并（坏条目逐条跳过，宽容解析）
-#   _fetch_remote_prices：models.dev 拉取与解析（复用 utils.network.http_get +
-#     utils/retry.py 指数退避重试，失败返回 None 不崩溃）
+#   _fetch_remote_prices：models.dev 拉取与解析——四级链路：本函数 → 复用
+#     utils.network.http_get（默认 timeout=None 回退 base.json http_timeout，A2.4
+#     单一来源，调用方不再自行读键）→ utils/retry.py 指数退避重试
+#     （retry_count/retry_delay）→ 失败返回 None 不崩溃
 #   弹性数字转换复用 utils/convert.py 的 to_float / to_optional_float
 #     （String/Int 兼容，z.plan 第四章宽容解析）
 # 设计理由：库 cost 优先（opencode_usage 聚合），估算仅作缺失回退；价格数据带

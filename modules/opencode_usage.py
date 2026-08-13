@@ -460,7 +460,9 @@ class OpenCodeDB:
             " json_extract(data, '$.tokens.cache.write') AS cache_write"
             " FROM message WHERE json_extract(data, '$.role') = ?"
             " AND (COALESCE(json_extract(data, '$.cost'), 0) = 0)"
-            f" AND COALESCE(json_extract(data, '$.tokens.total'), 0) > 0{time_clause}",
+            f" AND COALESCE(json_extract(data, '$.tokens.total'), 0) > 0{time_clause}"
+            # D0.11（大会战 A1）：估算加 LIMIT 防大库拖死（CLI --estimate 路径）
+            f" LIMIT {TABLE_LIMIT_GROUP}",
             [ASSISTANT_ROLE] + time_params,
         ).fetchall()
         estimates: list[pricing.CostEstimate] = []

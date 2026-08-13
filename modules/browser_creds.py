@@ -86,8 +86,18 @@ class BrowserCredential:
     source: str
 
 
+# D0.8：凭据探测结果短 TTL 缓存（刷新高频场景避免每轮复制多 profile 库 + DPAPI 解密）
+_creds_cache: list[BrowserCredential] | None = None
+_creds_cache_at: float = 0.0
+CREDS_CACHE_TTL = 30.0  # 秒
+
+
 def find_browser_credentials() -> list[BrowserCredential]:
     # 主入口：遍历 Chrome/Edge × profile，组合 workspaceID 与 auth cookie 候选
+    # （D0.8：TTL 内直接返回缓存，避免高频刷新重复全量探测）
+    global _creds_cache, _creds_cache_at
+    if _creds_cache is not None and time.time() - _creds_cache_at < CREDS_CACHE_TTL:
+        return _creds_cache
     if not WIN32CRYPT_AVAILABLE or AES is None:
         logger.warning("缺少 pywin32/pycryptodome，跳过浏览器凭据探测")
         return []
@@ -116,6 +126,8 @@ def find_browser_credentials() -> list[BrowserCredential]:
         except Exception as exc:
             # 单浏览器异常不冒泡打断整个凭据链（降级不中断策略）
             logger.warning("浏览器 %s 凭据探测失败：%s", browser_name, exc)
+    _creds_cache = result
+    _creds_cache_at = time.time()
     return result
 
 

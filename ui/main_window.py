@@ -167,7 +167,30 @@ _UI_STRUCT_KEYS = (
         ),
         DETAIL_LINE_TEMPLATES,
     ),
-    ("status_messages", tuple(STATUS_MESSAGES), STATUS_MESSAGES),
+    (
+        "status_messages",
+        (
+            "loading",
+            "refreshing",
+            "no_db_found",
+            "updated_template",
+            "usage_not_loaded",
+            "creds_saved",
+            "creds_save_failed",
+            "no_db_export",
+            "exporting",
+            "guide_starting",
+            "not_fetched",
+            "reset_template",
+            "cached_prefix",
+            "warn_prefix",
+            "usage_failed_template",
+            "quota_failed_template",
+            "export_done_template",
+            "export_failed_template",
+        ),
+        STATUS_MESSAGES,
+    ),
     (
         "dialog_titles",
         ("total_detail", "manual_creds", "export_dir"),
@@ -202,13 +225,17 @@ for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
     _missing = [k for k in _required if k not in _actual]
     if _missing:
         raise RuntimeError(f"ui.json {_cfg_name} 缺少必需键：{_missing}")
+# D0.7：notify_title 为标量键，单独契约校验（main.py 消费，C0.8 键集遗漏补全）
+if "notify_title" not in _SC.ui:
+    raise RuntimeError("ui.json 缺少必需键：notify_title")
 # C0.7：table_headers 严格相等（防短防长——加列后多出列渲染为空且列开关无法控制）
 if len(TABLE_HEADERS) != len(COLUMN_IDS):
     raise RuntimeError(
         f"ui.json table_headers 长度与 COLUMN_IDS 不一致"
         f"（需要 {len(COLUMN_IDS)}，实际 {len(TABLE_HEADERS)}）"
     )
-# C0.8：模板类键占位符校验（花括号配对 + 无未知命名占位符，format_map 统一探测）
+# C0.8：模板类键占位符校验（花括号配对 + 无未知命名占位符，format_map 统一探测；
+# D0.5：并入 pie_remaining_template/detail_line_templates，补 value/percent 占位符）
 _TEMPLATE_PLACEHOLDERS = {
     "time": "",
     "error": "",
@@ -218,22 +245,17 @@ _TEMPLATE_PLACEHOLDERS = {
     "percent": 0,
     "minutes": 0,
     "workspace_id": "",
+    "value": "",
 }
-_TEMPLATE_KEYS = tuple(
-    k
-    for k in tuple(STATUS_MESSAGES) + tuple(GUIDE_MESSAGES)
-    if "{" in STATUS_MESSAGES.get(k, GUIDE_MESSAGES.get(k, ""))
-)
-_TEMPLATE_KEYS += (
-    "notify_message_template",
-    "notify_message_fallback",
-)
-for _tname in _TEMPLATE_KEYS:
-    _tmpl = (
-        STATUS_MESSAGES.get(_tname)
-        or GUIDE_MESSAGES.get(_tname)
-        or str(_SC.ui.get(_tname, ""))
-    )
+_TEMPLATE_MAP = {
+    **{f"status.{k}": v for k, v in STATUS_MESSAGES.items() if "{" in v},
+    **{f"guide.{k}": v for k, v in GUIDE_MESSAGES.items() if "{" in v},
+    "pie_remaining_template": PIE_REMAINING_TEMPLATE,
+    **{f"detail.{k}": v for k, v in DETAIL_LINE_TEMPLATES.items()},
+    "notify_message_template": str(_SC.ui.get("notify_message_template", "")),
+    "notify_message_fallback": str(_SC.ui.get("notify_message_fallback", "")),
+}
+for _tname, _tmpl in _TEMPLATE_MAP.items():
     try:
         _tmpl.format_map(_TEMPLATE_PLACEHOLDERS)
     except (KeyError, ValueError, IndexError) as _exc:
@@ -919,7 +941,8 @@ class MainWindow(QMainWindow):
                 bar.setStyleSheet("")
                 reset_label.setText(STATUS_MESSAGES["not_fetched"])
                 continue
-            percent = int(round(window.usage_percent))
+            # D0.6：外部数据钳制 0-100（dashboard 异常负值/超百不再外显 -5%/120%）
+            percent = max(0, min(100, int(round(window.usage_percent))))
             bar.setValue(percent)
             bar.setFormat(f"{percent}%")
             bar.setStyleSheet(
@@ -1009,13 +1032,17 @@ class MainWindow(QMainWindow):
         save_config(config)
 
     def _sorted_hidden_columns(self) -> tuple[str, ...]:
-        # 隐藏列规范化排序（保存/关闭两处共用单点，B1.2）
-        return tuple(sorted(self._hidden_columns))
+        # 隐藏列规范化排序（保存/关闭两处共用单点，B1.2；D0.15：过滤不在
+        # COLUMN_IDS 的脏 id——版本升级删列/手改配置的残留不永续回写）
+        return tuple(sorted(c for c in self._hidden_columns if c in COLUMN_IDS))
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:
         # 关闭按钮：保存状态；托盘可用时隐藏到托盘（常驻模式，不真正退出），
-        # 不可用时真退出（隐藏将无法恢复，B0.9）
-        self.save_state()
+        # 不可用时真退出（隐藏将无法恢复，B0.9；D0.10：保存失败仅提示不阻塞退出）
+        try:
+            self.save_state()
+        except Exception as exc:
+            logger.warning("保存窗口状态失败：%s", exc)
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.hide()
             if a0 is not None:
@@ -1041,6 +1068,10 @@ class MainWindow(QMainWindow):
 #     界面文案外置 ui.json（5A.3 C3/C4：卡片/区域/按钮/状态栏/对话框文案单一来源）
 #   COST_ZERO_EPSILON / TOTAL_TOKENS_UNIT / TOTAL_TOKENS_UNIT_THRESHOLD /
 #     STATUS_TIME_FORMAT / TOKEN_ABBR_UNITS：容差/单位/时间格式外置（6A.3 H5/H6 + A2.1）
+# 契约校验块：_UI_STRUCT_KEYS 逐组校验 ui.json 键集（card_titles/quota_window_labels/
+#   dimension_labels/detail_line_templates/status_messages 显式 18 键/guide_messages/
+#   tooltips/button_labels/menu_labels 等，B0.6/C0.8/D0.2）+ notify_title 标量键（D0.7）+
+#   table_headers 长度严格相等（C0.7）——删键/改键导入期抛错，防运行时 KeyError/IndexError
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
 #   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）
@@ -1055,7 +1086,7 @@ class MainWindow(QMainWindow):
 #   _RemainingPieChart：剩余量饼图控件（QPainter 双色圆弧 + 中心"剩余 Y%"，P16）
 # 函数：
 #   _format_tokens()：K/M/B/G 缩写格式化
-#   _format_cost()：费用格式化（0 显示 -，≥1 两位小数）
+#   _format_cost()：费用格式化（近零容差内显示 -，≥1 两位小数，<1 四位小数）
 #   _cache_rate_percent()：缓存率计算（(缓存读+缓存写)/总 token，卡片与表格共用，P17）
 #   _format_cache_rate()：缓存率格式化（一位小数百分比）
 #   _format_cache_rate_of()：缓存率计算+格式化复合（卡片/明细弹窗/表格 3 处共用，6A.4 O3）
@@ -1074,7 +1105,8 @@ class MainWindow(QMainWindow):
 #     refresh：手动/定时入口——取消自动加载标志，QThreadPool 并行启动两个任务
 #     toggle_theme/_apply_theme：亮暗主题切换（QApplication.setStyleSheet）
 #     _on_usage_ready/_on_quota_ready/_on_load_error：结果渲染；失败仅状态栏提示，
-#       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗
+#       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗；
+#       凭据缺失（错误且无缓存无来源）时显示引导卡片
 #     _show_total_detail：点击总览按钮弹出总量明细（QMessageBox，P15）
 #     _show_columns_menu/_on_column_toggle：列显示开关（QMenu 勾选，
 #       setColumnHidden + hidden_columns 持久化，P13）
@@ -1083,7 +1115,6 @@ class MainWindow(QMainWindow):
 #       分级，使用 themes.quota_chunk_color）与剩余量饼图（P16，正常显示/异常隐藏）/
 #       表格渲染（内存数据，维度切换不查库；P13 新列顺序）
 #     _set_status_style：配额状态标签样式名强制 QSS 重算（unpolish/polish）
-#     _on_quota_ready：凭据缺失（错误且无缓存无来源）时显示引导卡片
 #     _start_cdp_guide：后台启动 CDP 一键获取（按钮禁用防重复，状态栏提示）
 #     _manual_guide：QInputDialog 输入 workspaceId + authCookie → save_dashboard_credentials
 #       加密写入（P4：不再直接编辑明文文件）→ 自动刷新

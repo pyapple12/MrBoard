@@ -2,6 +2,13 @@
 
 import sys
 
+# D0.13（大会战 A3）：--version 检查需在 PyQt import 之前（CLI 路径不加载 GUI 依赖）
+if "--version" in sys.argv or "-V" in sys.argv:
+    from utils.logger import VERSION
+
+    print(VERSION)
+    raise SystemExit(0)
+
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from config.static.static_config import get_static_config
@@ -9,7 +16,9 @@ from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
 from ui.themes import QUOTA_DANGER_PERCENT
-from utils.logger import APP_NAME, VERSION
+from utils.logger import APP_NAME, VERSION, get_logger
+
+logger = get_logger(__name__)
 
 # 静态配置解包（S8：参数外置 base.json；版本号单点导出 utils.logger，6A.3 R4）
 _SC = get_static_config()
@@ -19,10 +28,7 @@ _notified_danger = False
 
 
 def main() -> None:
-    # 程序入口：--version/-V 打印版本号，默认启动 GUI（主窗口 + 系统托盘）
-    if "--version" in sys.argv or "-V" in sys.argv:
-        print(VERSION)
-        return
+    # 程序入口：--version/-V 已在 import 前处理（D0.13），默认启动 GUI（主窗口 + 系统托盘）
     run_gui()
 
 
@@ -70,18 +76,33 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
                             f"配额已使用 {info.overall_used_percent}%"
                             f"，剩余 {info.remaining_percent}%"
                         )
-                # notify_quota 在 try/except 链之外（模板正常与回退路径都执行）
-                tray.notify_quota(str(_SC.ui["notify_title"]), message)
+                # notify_quota 在 try/except 链之外（模板正常与回退路径都执行）；
+                # D0.7：notify_title 访问并入防护（契约校验已兜底，双保险）
+                try:
+                    title = str(_SC.ui["notify_title"])
+                except KeyError:
+                    title = APP_NAME
+                tray.notify_quota(title, message)
         else:
+            # 回落到阈值以下：复位去重标志（再次超限才重新弹）
             _notified_danger = False
     else:
-        _notified_danger = False
-        tray.update_quota_status(None)
+        # D0.3：错误/缓存兜底（is_cached）不是失败——托盘按真实数据更新、
+        # 不复位去重标志（否则 60s 窗口内手动刷新即复位，超限重复弹气泡）
+        if info.is_cached:
+            tray.update_quota_status(info.overall_used_percent)
+        else:
+            _notified_danger = False
+            tray.update_quota_status(None)
 
 
 def _quit_app(app: QApplication, window: MainWindow, tray: SystemTray) -> None:
-    # 托盘退出：保存窗口状态后退出应用（对齐 AccelWorld 修复 B2 经验）
-    window.save_state()
+    # 托盘退出：保存窗口状态后退出应用（对齐 AccelWorld 修复 B2 经验；
+    # D0.10：保存失败仅 warning，不阻塞退出流程）
+    try:
+        window.save_state()
+    except Exception as exc:
+        logger.warning("保存窗口状态失败：%s", exc)
     tray.hide()
     app.quit()
 

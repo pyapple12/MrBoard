@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.16（VERSION 单一来源在 config/static/base.json 的 version 字段）
+> 当前版本：ver 0.17（VERSION 单一来源在 config/static/base.json 的 version 字段）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -294,3 +294,48 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 - [x] C4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
 - 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；z.plan 附录 A009 标注已修复）｜优先级：高
+
+## D. 第10轮审计修复任务清单（依据 z.plan.md 附录 A010）
+
+> 目标：P1 1 + P2 3 + P3 11 + 观察项提升 1（凭据探测 TTL）+ 大会战修复 5 条（A1-A5）共 21 条按五组整改；基线回归 43 个验证脚本
+> 执行原则：每项完成后运行对应验证；全部完成后全量回归；修复验证用独立数据快照（防自证陷阱）；**每批完成后加修复验收（反向验证，写入 .temp/verify_d{批}\_accept.py，防修复引入新缺陷）**
+
+### D0 P0 正确性
+
+- [x] D0.1 pricing 字段名兼容（pricing.py:285，P1）——model_info.get("cost") or model_info.get("pricing")；验证：用真实 api.json 片段（cost 键 + 字符串/数字双形态）断言解析非空（禁用自证 mock）
+- [x] D0.2 status_messages 契约去自证（main_window.py:170）—— uple(STATUS_MESSAGES) 改显式 18 键元组（与 menu_labels 同式）；验证：删键配置断言导入期抛错
+- [x] D0.3 节流缓存不破坏预警去重（main.py:48-79）——缓存分支（is_cached）不复位 _notified_danger + 托盘按 overall_used_percent 更新而非置灰；验证：模拟缓存到达断言标志保持 + 不重复弹
+- [x] D0.4 刷新 in-flight 去重（go_quota.fetch_go_quota）——模块级进行中标志/锁，在途请求直接返回等待或缓存；验证：并发两次调用断言实际请求一次
+- [x] D0.5 模板占位符校验补全（main_window.py:212-240）——_TEMPLATE_PLACEHOLDERS 补 percent/value，_TEMPLATE_KEYS 并入 pie_remaining_template/detail_line_templates；验证：改坏占位符断言导入期抛错
+- [x] D0.6 usage_percent 钳制（main_window.py:922 + go_quota.py:360）——render 前 clamp 0-100、overall_used_percent 对称钳制；验证：负值/超百断言显示钳制值
+- [x] D0.7 notify_title 入契约 + 运行时防护（main.py:74 + main_window 契约）——契约组加 notify_title、main.py 74 行移入 try 链；验证：删键断言预警不逃逸
+- [x] D0.8 凭据探测 TTL（观察项提升）——find_dashboard_credentials 结果加短 TTL 缓存（如 30s），刷新不重复全量探测；验证：两次调用断言探测一次
+- [x] D0.9 解析空结果告警（pricing.py:298）——if not result: logger.warning(...) 与结构变更提示策略对齐；验证：空结果断言有 warning
+- [x] D0.10 save_state 降级（main.py _quit_app + main_window closeEvent）——保存失败仅 warning 继续退出流程；验证：mock write_json 抛 OSError 断言退出路径执行
+- [x] D0.11 estimate 查询加 LIMIT（opencode_usage _estimate_missing_costs，大会战 A1）——补 LIMIT 参数防大库拖死；验证：断言 SQL 含 LIMIT
+- [x] D0.12 write_json mkstemp 移入 try（file_utils，大会战 A2）——防 fd 泄漏边缘；验证：异常路径断言临时文件清理
+- [x] D0.13 --version 检查提前到 PyQt import 前（main.py，大会战 A3）——CLI 路径不加载 GUI 依赖；验证：--version 输出正常且不 import PyQt
+- [x] D0.14 go_quota html 局部变量改名（大会战 A4）——`html` → `html_text` 消除模块名遮蔽；验证：grep 无遮蔽
+- [x] D0.15 hidden_columns 脏 id 过滤（main_window _sorted_hidden_columns，大会战 A5）——保存点过滤不在 COLUMN_IDS 的 id；验证：脏 id 输入断言输出被过滤
+- 状态：✅ 已完成（2026-08-13：D0.1-D0.15 全部实施，探针 15/15 + 修复验收 18/18 + 全量回归 43/43；含 main.py 嵌套修复——D0.3 缓存判断归位错误路径，6A4/S8 回归同步）｜优先级：高
+
+### D1 P1 去重
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### D2 P2 配置化
+
+- 无新增条目
+- 状态：— ｜优先级：—
+
+### D3 P3 清理
+
+- [x] D3.1 HTTP_TIMEOUT 死代码 + 说明区失实（pricing.py:25/307/331）——删常量或显式传参统一；说明区补四级链路与关联配置键；验证：grep 无 HTTP_TIMEOUT 残留
+- [x] D3.2 说明区缺失/重复修正 4 处——main_window（_format_cost 描述、契约校验块补列、_on_quota_ready 合并）、themes（异常处理补 C0.6）、system_tray（导入函数补 themes 两符号）；验证：grep 各说明区关键字
+- 状态：✅ 已完成（2026-08-13：D3.1 删 pricing 死常量 + 说明区改四级链路（http_get timeout 回退单一来源）；D3.2 五处说明区修正；探针 13/13 + 全量回归 43/43；verify_v1010_3 同步删 pricing.HTTP_TIMEOUT 断言补 D3.1 语义）｜优先级：低
+
+### D4 验证与收尾
+
+- [x] D4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
+- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + import 19 模块 + GUI offscreen；z.plan A010 附录状态更新为已修复；版本推进 ver 0.17——base.json/README 徽章/README 版本说明/x.progress 头部 4 处一致）｜优先级：高
