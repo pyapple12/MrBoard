@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.220（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
+> 当前版本：ver 0.230（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -398,39 +398,39 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 ### PL003.1 主题注册制泛化（先行，视觉零变化）
 
-- [ ] PL003.1.a themes.py 删硬编码双主题段（_LIGHT/_DARK_PALETTE:94-95、LIGHT/DARK_THEME:124-125、LIGHT/DARK_THEME_NAME:148-149 四常量）→ 泛化遍历 palettes 全键导入期构建 `_THEME_QSS: dict[str, str]` + `DEFAULT_THEME_NAME = THEME_NAMES[0]`
-- [ ] PL003.1.b A3.5/C0.6 校验泛化保留：逐主题占位符残留检测 + palettes 键集==THEME_NAMES 严格相等（天然兼容 N 键）
-- [ ] PL003.1.c get_theme(name) 改字典查找 + 未知名回退 DEFAULT_THEME_NAME（消除"第三主题静默错位"豁免项）
-- [ ] PL003.1.d 配额窗口内动态色迁 palette：quota_chunk 三档/quota_gray/pie_bg/pie_text 进各 palette 节 + 导入期必含显式契约校验（不走 QSS 占位符，残留检测兜不住）；quota_chunk_color(percent) → (percent, theme_name)，连带 main_window:441/1006 两调用点
-- [ ] PL003.1.e ui.json 顶层 colors 节瘦身为纯托盘色节（QUOTA_OK/GRAY/pie_dot 与窗口主题无关）——system_tray:15-16 消费方式基本不动
-- [ ] PL003.1.f main_window._is_dark 布尔 → _theme_name 字符串（:625/:810/:818 三处 + :63 import 连带）；_apply_theme/save_state 同步改造；settings.py 零改动（白名单+回退已支持 N 主题，外置红利兑现）
-- [ ] PL003.1.g 验证：offscreen init 视觉零变化（light/dark 渲染不变）+ 全量回归 43 脚本
+- [x] PL003.1.a themes.py 删硬编码双主题四常量 → `_THEME_QSS` 注册制构建 + `DEFAULT_THEME_NAME`（2026-08-22 完成）
+- [x] PL003.1.b A3.5/C0.6 校验泛化保留（逐主题占位符残留 + palettes 键集==THEME_NAMES 严格相等）（2026-08-22 完成）
+- [x] PL003.1.c get_theme 字典查找 + 未知名回退默认（2026-08-22 完成）
+- [x] PL003.1.d 配额动态色迁 palette（chunk 三档/quota_gray/pie_bg/pie_text + 必含契约校验）；quota_chunk_color(percent, theme_name)（2026-08-22 完成）
+- [x] PL003.1.e colors 节瘦身为纯托盘色节（quota_ok/quota_gray/quota_pie_dot）；system_tray 消费不变（2026-08-22 完成）
+- [x] PL003.1.f main_window._is_dark → _theme_name；饼图实例色随主题；settings 零改动（2026-08-22 完成）
+- [x] PL003.1.g 验证：offscreen init + 全量回归清零（2026-08-22 完成）
 
 ### PL003.2 切换交互：按钮改下拉
 
-- [ ] PL003.2.a 删 _theme_button/toggle_theme（:749-750/:768/:808）；明细区新增主题 QComboBox（维度下拉 combo_* 样式复用）
-- [ ] PL003.2.b ui.json 新增 theme_labels 显示名映射（浅色/深色/终端/面板）+ 导入期键集与 themes 数组一致校验（C0.6 同机制防错位）
-- [ ] PL003.2.c currentTextChanged → 应用 → 立即 save_config（常驻托盘长期不关，切完即存防丢）；启动恢复 blockSignals 防回环
-- [ ] PL003.2.d 连带修复：进度条 chunk 动态色切主题后统一重着色（现状 toggle 即有残留旧主题色问题）
-- [ ] PL003.2.e 验证：offscreen 切换断言 QSS 变化 + 持久化落盘 + 回归
+- [x] PL003.2.a 删 _theme_button/toggle_theme → 主题 QComboBox（2026-08-22 完成）
+- [x] PL003.2.b theme_labels 显示名映射 + 键集与 themes 数组一致校验（2026-08-22 完成）
+- [x] PL003.2.c currentTextChanged → 应用 → 立即 save_config；启动恢复 blockSignals 防回环（2026-08-22 完成）
+- [x] PL003.2.d 连带修复：进度条 chunk 动态色切主题后统一重着色（_apply_theme 遍历卡片重刷）（2026-08-22 完成）
+- [x] PL003.2.e 验证：offscreen 切换断言 QSS 变化 + 持久化落盘 + 回归（2026-08-22 完成：探针 14/14）
 
 ### PL003.3 双新主题包数据落地（console + panel）
 
-- [ ] PL003.3.a _QSS_TEMPLATE 新增 {font_family} 占位符；light/dark 补 Segoe UI、console/panel 补 Consolas 族（占位符残留检测自动强制旧 palette 补齐，机制兜底）
-- [ ] PL003.3.b console palette：近黑底 #0a0e14 族 / 卡片深底 + 强调色描边 / 绿磷光文字 / 等宽字体；qlineargradient 表达式直接作 palette 值（无需模板变体）
-- [ ] PL003.3.c panel palette：米灰绿底 / 近黑文字细线描边 / 胶囊大圆角极简线框
-- [ ] PL003.3.d 能力边界落地：分段进度条首版退化普通圆角条（M3b 自绘可选追加单独评估不阻塞）；panel 圆形进度环复用 QPainter 饼图换色对齐
-- [ ] PL003.3.e 截图对照参考图目检（标准：风格气质到位非逐像素复刻；读图核对需切换多模态模型）
+- [x] PL003.3.a _QSS_TEMPLATE 新增 {font_family} 占位符；light/dark Segoe UI、console/panel Consolas（2026-08-22 完成）
+- [x] PL003.3.b console palette：近黑底 #0a0e14/卡片深底强调描边/绿磷光文字（2026-08-22 完成）
+- [x] PL003.3.c panel palette：米灰绿底/近黑文字/胶囊大圆角（2026-08-22 完成）
+- [x] PL003.3.d 能力边界落地：分段进度条退化普通圆角条（M3b 不阻塞）；饼图复用 QPainter 实例色（2026-08-22 完成）
+- [ ] PL003.3.e 截图对照参考图目检（标准：风格气质到位非逐像素复刻；**需切换多模态模型**）
 
 ### PL003.4 列元数据外置（P23 关联收尾）
 
-- [ ] PL003.4.a ui.json table_headers 升级 `"table_columns": [{id, title, width?, visible?}]`，数组顺序即展示顺序
-- [ ] PL003.4.b TABLE_HEADERS 从 title 派生单源化（删除平行数组防错位）；COLUMN_IDS 保持代码内显式声明（P23 契约定案不推翻——键名仍在代码）
-- [ ] PL003.4.c 导入期校验 columns id 集合与 COLUMN_IDS 严格相等；hidden_columns 用户持久化语义不变（运行时覆盖默认 visible）；width 缺省走 Qt 默认
-- [ ] PL003.4.d 验证：全量回归
+- [x] PL003.4.a ui.json table_headers → table_columns [{id, title}]（数组顺序即展示顺序）（2026-08-22 完成）
+- [x] PL003.4.b TABLE_HEADERS 从 title 派生单源化；COLUMN_IDS 保持代码内声明（P23 不推翻）（2026-08-22 完成）
+- [x] PL003.4.c 导入期校验 columns id 序列与 COLUMN_IDS 严格相等（实测拦截 cache 列 id 写错）；hidden_columns 语义不变（2026-08-22 完成）
+- [x] PL003.4.d 验证：全量回归（2026-08-22 完成）
 
 ### PL003.5 收尾
 
-- [ ] PL003.5.a .temp/verify_pl003_theme.py 反向断言：_THEME_QSS 键集==THEME_NAMES / get_theme 未知名回退默认 / quota 三档随主题取色 / theme_labels 与 table_columns 契约校验可触发
-- [ ] PL003.5.b README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步
-- [ ] PL003.5.c 版本推进决策
+- [x] PL003.5.a verify_pl003_accept 反向断言（2026-08-22 完成：5/5 PASS：键集一致/未知名回退/三档随主题/theme_labels 与动态色键契约可触发）
+- [x] PL003.5.b README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步（2026-08-22 完成）
+- [x] PL003.5.c 版本定案 **ver 0.230**（2026-08-22，独立提交）

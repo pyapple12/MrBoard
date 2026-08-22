@@ -65,7 +65,12 @@ from modules.opencode_usage import (
 from modules.credential_store import load_switch_log
 from modules.opencode_data import ModelDataSnapshot, refresh_data_page
 from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
-from ui.themes import DARK_THEME_NAME, LIGHT_THEME_NAME, get_theme, quota_chunk_color
+from ui.themes import (
+    DEFAULT_THEME_NAME,
+    THEME_NAMES,
+    get_theme,
+    quota_chunk_color,
+)
 from utils.logger import build_app_title, get_logger
 
 logger = get_logger(__name__)
@@ -81,11 +86,14 @@ CDP_WAIT_TIMEOUT = int(_SC.base["cdp_wait_timeout"])
 # S7：CDP 引导参数模块级解包（一次性解包约定）
 CDP_POLL_INTERVAL = int(_SC.base["cdp_poll_interval"])
 CDP_LOGIN_WAIT_SECONDS = int(_SC.base["cdp_login_wait_seconds"])
-# L9：剩余量饼图参数（ui.json 驱动）
+# L9：剩余量饼图参数（ui.json 驱动；PL003.1.d 起 bg/text 色随主题 palette，
+# 模块级仅保留默认主题色作初始值）
 PIE_SIZE = int(_SC.ui["pie_size"])
 PIE_FONT_SIZE = float(_SC.ui["pie_font_size"])
-PIE_COLOR_BG = str(_SC.ui["colors"]["quota_pie_bg"])
-PIE_COLOR_TEXT = str(_SC.ui["colors"]["quota_pie_text"])
+_DEFAULT_PALETTE = dict(_SC.ui["palettes"].get(DEFAULT_THEME_NAME, {}))
+# 默认主题饼图色（palette 必含 pie_bg/pie_text——themes 动态色契约校验兜底）
+PIE_COLOR_BG_DEFAULT = str(_DEFAULT_PALETTE["pie_bg"])
+PIE_COLOR_TEXT_DEFAULT = str(_DEFAULT_PALETTE["pie_text"])
 # PL001.5：账户时段选择器文案（ui.json 驱动）
 ACCOUNT_ALL_LABEL = str(_SC.ui["account_filter_all_label"])
 ACCOUNT_COMBO_TEMPLATE = str(_SC.ui["account_combo_template"])
@@ -94,6 +102,15 @@ QUOTA_ACCOUNT_TITLE_TEMPLATE = str(_SC.ui["quota_account_title_template"])
 # PL002.11：页签名（ui.json 驱动）
 USAGE_TAB_TITLE = str(_SC.ui["usage_tab_title"])
 DATA_PAGE_ERROR_TEMPLATE = str(_SC.ui["data_page_error_template"])
+# PL003.2：主题显示名映射（ui.json theme_labels；键集校验见导入期契约）
+THEME_LABELS: dict[str, str] = {
+    str(key): str(value) for key, value in _SC.ui["theme_labels"].items()
+}
+if set(THEME_LABELS.keys()) != set(THEME_NAMES):
+    raise RuntimeError(
+        f"ui.json theme_labels 键集与 themes 数组不一致："
+        f"{list(THEME_LABELS.keys())} vs {list(THEME_NAMES)}"
+    )
 # C11：饼图绘制角度常量（Qt 角度单位 1/16 度；90°=12 点方向起点）
 PIE_START_ANGLE = 90 * 16
 FULL_CIRCLE_16 = 360 * 16
@@ -144,7 +161,12 @@ TOKEN_ABBR_UNITS = tuple(
         reverse=True,
     )
 )
-TABLE_HEADERS = tuple(_SC.ui["table_headers"])
+# PL003.4：列元数据外置——table_columns [{id, title, width?, visible?}]，
+# 数组顺序即展示顺序；TABLE_HEADERS 从 title 派生单源化（删除平行数组防错位）
+_TABLE_COLUMNS: list[dict[str, Any]] = [
+    {str(key): value for key, value in item.items()} for item in _SC.ui["table_columns"]
+]
+TABLE_HEADERS = tuple(str(item["title"]) for item in _TABLE_COLUMNS)
 # 列模型：id 与 TABLE_HEADERS 索引对齐（P13 列顺序 + P18 缓存率；列开关用 id）
 COLUMN_IDS = (
     "label",
@@ -157,6 +179,14 @@ COLUMN_IDS = (
     "cache_rate",
     "cost",
 )
+# PL003.4.c：columns id 集合与 COLUMN_IDS 严格相等（P23 契约定案：键名仍在代码，
+# 外置仅展示元数据；防加列/删列/改 id 静默错位）
+_TABLE_COLUMN_IDS = tuple(str(item["id"]) for item in _TABLE_COLUMNS)
+if tuple(_TABLE_COLUMN_IDS) != COLUMN_IDS:
+    raise RuntimeError(
+        f"ui.json table_columns id 序列与 COLUMN_IDS 不一致："
+        f"{_TABLE_COLUMN_IDS} vs {COLUMN_IDS}"
+    )
 
 # B0.6：ui.json 结构性键契约校验（配置删键/改键 → 导入期抛错，防运行时 KeyError/IndexError；
 # C0.8：键集扩至全部消费键（含 system_tray/main.py 消费的文案组））
@@ -254,10 +284,11 @@ if "notify_title" not in _SC.ui:
 for _notify_key in ("notify_message_template",):
     if _notify_key not in _SC.ui:
         raise RuntimeError(f"ui.json 缺少必需键：{_notify_key}")
-# C0.7：table_headers 严格相等（防短防长——加列后多出列渲染为空且列开关无法控制）
+# C0.7：TABLE_HEADERS 与 COLUMN_IDS 严格相等（防短防长——加列后多出列渲染为空且列开关无法控制；
+# PL003.4 起 TABLE_HEADERS 从 table_columns title 派生，此校验与 id 序列校验双保险）
 if len(TABLE_HEADERS) != len(COLUMN_IDS):
     raise RuntimeError(
-        f"ui.json table_headers 长度与 COLUMN_IDS 不一致"
+        f"table_columns title 数量与 COLUMN_IDS 不一致"
         f"（需要 {len(COLUMN_IDS)}，实际 {len(TABLE_HEADERS)}）"
     )
 # C0.8：模板类键占位符校验（花括号配对 + 无未知命名占位符，format_map 统一探测；
@@ -461,11 +492,22 @@ class _RemainingPieChart(QWidget):
     # 剩余量饼图：已用/剩余双色圆弧 + 中心"剩余 Y%"标注（P16，替换"最紧窗口"文字位）
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        # 初始化：已用比例为 0，尺寸/色值/字号由 ui.json 驱动（L9）
+        # 初始化：已用比例为 0，尺寸/色值/字号由 ui.json 驱动（L9）；
+        # PL003.1.d：背景/文字色为实例属性（随主题 set_colors 更新）
         super().__init__(parent)
         self._used_percent = 0.0
+        self._bg_color = QColor(PIE_COLOR_BG_DEFAULT)
+        self._text_color = QColor(PIE_COLOR_TEXT_DEFAULT)
+        self._arc_color = QColor(quota_chunk_color(0, DEFAULT_THEME_NAME))
         self.setFixedSize(PIE_SIZE, PIE_SIZE)
         self.setToolTip(TOOLTIPS["pie_remaining"])
+
+    def set_colors(self, bg: QColor, text: QColor, arc: QColor) -> None:
+        # 更新饼图背景/文字/圆弧色并重绘（PL003.1.d：切主题时随调色板同步）
+        self._bg_color = bg
+        self._text_color = text
+        self._arc_color = arc
+        self.update()
 
     def set_used_percent(self, percent: float) -> None:
         # 更新已用比例并重绘（0-100 截断，越界防御）
@@ -482,15 +524,15 @@ class _RemainingPieChart(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(3, 3, -3, -3)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(PIE_COLOR_BG))
+        painter.setBrush(self._bg_color)
         painter.drawEllipse(rect)
         used = self._used_percent / 100.0
         # C10：int(round()) 提局部变量（圆弧颜色/剩余文字共用同一口径）
         used_percent_int = int(round(self._used_percent))
         if used > 0:
-            painter.setBrush(QColor(quota_chunk_color(used_percent_int)))
+            painter.setBrush(self._arc_color)
             painter.drawPie(rect, PIE_START_ANGLE, -int(used * FULL_CIRCLE_16))
-        painter.setPen(QColor(PIE_COLOR_TEXT))
+        painter.setPen(self._text_color)
         font = painter.font()
         font.setPointSizeF(PIE_FONT_SIZE)
         painter.setFont(font)
@@ -679,7 +721,8 @@ class MainWindow(QMainWindow):
         self.resize(int(_SC.base["window_width"]), int(_SC.base["window_height"]))
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
-        self._is_dark = self._config.theme == DARK_THEME_NAME
+        # PL003.1.f：主题名字符串（settings 白名单已保证合法；N 主题支持）
+        self._theme_name = self._config.theme or DEFAULT_THEME_NAME
         # 账户时段过滤区间（PL001.5：None = 全部账户不过滤；由账户下拉同步）
         self._account_intervals: list[tuple[int | None, int | None]] | None = None
         # 列开关状态（P13：持久化于用户配置 hidden_columns）
@@ -850,8 +893,17 @@ class MainWindow(QMainWindow):
         self._refresh_button.clicked.connect(self.refresh)
         self._export_button = QPushButton(BUTTON_LABELS["export"])
         self._export_button.clicked.connect(self._export_data)
-        self._theme_button = QPushButton(BUTTON_LABELS["theme"])
-        self._theme_button.clicked.connect(self.toggle_theme)
+        # PL003.2：主题下拉（theme_labels 显示名，userData = 主题名；切换即应用即存）
+        self._theme_combo = QComboBox()
+        for name in THEME_NAMES:
+            self._theme_combo.addItem(THEME_LABELS.get(name, name), name)
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        self._apply_theme()
+        # 启动恢复持久化主题（blockSignals 防 currentIndexChanged 回环触发二次应用）
+        restore_index = self._theme_combo.findData(self._theme_name)
+        self._theme_combo.blockSignals(True)
+        self._theme_combo.setCurrentIndex(restore_index if restore_index >= 0 else 0)
+        self._theme_combo.blockSignals(False)
         # P15：总览独立显示在明细旁（点击弹出总量明细）
         self._total_button = QPushButton(f"{TOTAL_TOKEN_PREFIX}-")
         self._total_button.setFlat(True)
@@ -870,7 +922,7 @@ class MainWindow(QMainWindow):
         section_row.addWidget(self._refresh_button)
         section_row.addWidget(self._export_button)
         section_row.addWidget(self._columns_button)
-        section_row.addWidget(self._theme_button)
+        section_row.addWidget(self._theme_combo)
         self._layout.addLayout(section_row)
 
         self._table = QTableWidget(0, len(TABLE_HEADERS))
@@ -985,18 +1037,53 @@ class MainWindow(QMainWindow):
             _QuotaTask(self._signals, self.quota_fetcher, self._refresh_seq)
         )
 
-    def toggle_theme(self) -> None:
-        # 切换亮/暗主题并应用
-        self._is_dark = not self._is_dark
+    def _on_theme_changed(self, index: int) -> None:
+        # 主题下拉切换（PL003.2）：更新主题名 → 应用 → 立即持久化
+        # （常驻托盘应用可能长期不关，切完即存防丢）
+        name = str(self._theme_combo.itemData(index) or DEFAULT_THEME_NAME)
+        if name == self._theme_name:
+            return
+        self._theme_name = name
         self._apply_theme()
+        try:
+            config = load_config()
+            config.theme = name
+            save_config(config)
+        except Exception as exc:
+            logger.warning("保存主题配置失败：%s", exc)
 
     def _apply_theme(self) -> None:
-        # 应用当前主题 QSS 到应用级样式（isinstance 收窄 QCoreApplication → QApplication）
+        # 应用当前主题 QSS 到应用级样式（PL003.2：切换即应用 + 动态色重着色 +
+        # 饼图实例色同步；isinstance 收窄 QCoreApplication → QApplication）
         app = QApplication.instance()
         if isinstance(app, QApplication):
-            app.setStyleSheet(
-                get_theme(DARK_THEME_NAME if self._is_dark else LIGHT_THEME_NAME)
+            app.setStyleSheet(get_theme(self._theme_name))
+        # PL003.2.d 连带：进度条 chunk 动态色统一重着色（防残留旧主题色）
+        for card in self._quota_cards:
+            for key in QUOTA_WINDOW_KEYS:
+                bar = card["bars"][key]
+                if bar.value() > 0:
+                    bar.setStyleSheet(
+                        f"QProgressBar::chunk {{ background-color: "
+                        f"{quota_chunk_color(bar.value(), self._theme_name)}; }}"
+                    )
+            # 饼图背景/文字/圆弧色随主题（实例色，PL003.1.d）
+            palette = self._theme_palette()
+            card["pie"].set_colors(
+                QColor(palette["pie_bg"]),
+                QColor(palette["pie_text"]),
+                QColor(quota_chunk_color(0, self._theme_name)),
             )
+
+    def _theme_palette(self) -> dict[str, str]:
+        # 当前主题调色板（quota 动态色/饼图色取色源；未知主题回退默认）
+        palettes = _SC.ui["palettes"]
+        return dict(
+            palettes.get(
+                self._theme_name,
+                palettes.get(DEFAULT_THEME_NAME, {}),
+            )
+        )
 
     def _on_usage_ready(self, seq: int, data: UsageData) -> None:
         # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view；
@@ -1318,7 +1405,7 @@ class MainWindow(QMainWindow):
         # 保存窗口状态：几何/主题/刷新间隔/隐藏列到配置文件（托盘退出与关闭时调用）
         config = load_config()
         config.window_geometry = bytes(self.saveGeometry().toHex().data()).decode()
-        config.theme = DARK_THEME_NAME if self._is_dark else LIGHT_THEME_NAME
+        config.theme = self._theme_name
         config.refresh_interval_ms = self._refresh_timer.interval()
         config.hidden_columns = self._sorted_hidden_columns()
         save_config(config)

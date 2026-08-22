@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.220-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.230-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -107,7 +107,7 @@ python -m venv .venv
 - **列显示开关**：点击"设置"按钮勾选表格列（取消勾选 = 隐藏该列，状态自动保存）
 - **配额剩余量**：配额区右侧饼图直观显示最紧窗口剩余量（缓存/错误时显示警告文字）
 - **导出数据**：点击"导出"选择目录，生成 CSV + JSON（选定账户时段时导出附账户标注列）
-- **切换主题**：点击"主题"按钮切换浅色/深色
+- **切换主题**：明细区"主题"下拉选择 浅色/深色/终端/面板 四主题（切换即保存；终端=深色磷光屏气质、面板=浅色工业线框）
 - **账户时段过滤**：明细区"全部账户"下拉选择具体账户时段——用量统计按该账户的启用区间切片（切换日志自动记录，多账户凭据文件数组支持）
 - **多账户配额**：配置多个账户凭据时配额区并列展示各账户卡片（每卡独立进度条/饼图/状态）
 - **数据与动态页**：第二个页签展示官方动态（GitHub Releases 版本/公告）与数据页统计（热门模型每日用量/Token 成本/缓存比/会话成本/国家分布），首次切换到该页时自动拉取
