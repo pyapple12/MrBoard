@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.213-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.220-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -110,6 +110,7 @@ python -m venv .venv
 - **切换主题**：点击"主题"按钮切换浅色/深色
 - **账户时段过滤**：明细区"全部账户"下拉选择具体账户时段——用量统计按该账户的启用区间切片（切换日志自动记录，多账户凭据文件数组支持）
 - **多账户配额**：配置多个账户凭据时配额区并列展示各账户卡片（每卡独立进度条/饼图/状态）
+- **数据与动态页**：第二个页签展示官方动态（GitHub Releases 版本/公告）与数据页统计（热门模型每日用量/Token 成本/缓存比/会话成本/国家分布），首次切换到该页时自动拉取
 - **配置凭据**：凭据缺失时配额区显示引导卡片——"一键自动获取"或"手动填写"
 - **托盘操作**：单击/双击图标显示窗口；托盘菜单"刷新/退出"；关闭窗口最小化到托盘
 

@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -62,6 +63,8 @@ from modules.opencode_usage import (
     find_db_path,
 )
 from modules.credential_store import load_switch_log
+from modules.opencode_data import ModelDataSnapshot, refresh_data_page
+from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
 from ui.themes import DARK_THEME_NAME, LIGHT_THEME_NAME, get_theme, quota_chunk_color
 from utils.logger import build_app_title, get_logger
 
@@ -88,6 +91,9 @@ ACCOUNT_ALL_LABEL = str(_SC.ui["account_filter_all_label"])
 ACCOUNT_COMBO_TEMPLATE = str(_SC.ui["account_combo_template"])
 ACCOUNT_DATE_FORMAT = str(_SC.ui["account_label_date_format"])
 QUOTA_ACCOUNT_TITLE_TEMPLATE = str(_SC.ui["quota_account_title_template"])
+# PL002.11：页签名（ui.json 驱动）
+USAGE_TAB_TITLE = str(_SC.ui["usage_tab_title"])
+DATA_PAGE_ERROR_TEMPLATE = str(_SC.ui["data_page_error_template"])
 # C11：饼图绘制角度常量（Qt 角度单位 1/16 度；90°=12 点方向起点）
 PIE_START_ANGLE = 90 * 16
 FULL_CIRCLE_16 = 360 * 16
@@ -391,6 +397,31 @@ class _QuotaTask(QRunnable):
             )
 
 
+class _DataSignals(QObject):
+    # 数据页后台任务信号：快照就绪（携带序号防竞态，对齐 _LoadSignals 模式）
+
+    data_ready = pyqtSignal(int, object)
+    error = pyqtSignal(int, str)
+
+
+class _DataPageTask(QRunnable):
+    # 数据页后台任务（PL002.10）：refresh_data_page（内部节流缓存），完成后发信号
+
+    def __init__(self, signals: _DataSignals, seq: int = 0) -> None:
+        # 初始化任务：记录信号对象与序号
+        super().__init__()
+        self.signals = signals
+        self.seq = seq
+
+    def run(self) -> None:
+        # 后台执行：拉取数据页快照（节流/缓存兜底在数据层），失败发 error
+        try:
+            snapshot = refresh_data_page()
+            self.signals.data_ready.emit(self.seq, snapshot)
+        except Exception as exc:
+            self.signals.error.emit(self.seq, str(exc))
+
+
 class _ExportTask(QRunnable):
     # 导出后台任务：独立连接查询 + exporter 落盘，完成后发信号
 
@@ -636,6 +667,11 @@ class MainWindow(QMainWindow):
         self._guide_signals = _CdpGuideSignals()
         self._guide_signals.success.connect(self._on_guide_success)
         self._guide_signals.failed.connect(self._on_guide_failed)
+        # PL002.10：数据页后台任务信号（懒加载触发；序号防竞态）
+        self._data_signals = _DataSignals()
+        self._data_signals.data_ready.connect(self._on_data_ready)
+        self._data_signals.error.connect(self._on_data_error)
+        self._data_page_seq = 0
         # A0.6/A0.7：CDP 引导进行中标志（抑制引导卡重现 + 禁用手动填写防并发写）
         self._guide_active = False
 
@@ -664,12 +700,24 @@ class MainWindow(QMainWindow):
         self._refresh_timer.start(self._config.refresh_interval_ms)
 
     def _build_ui(self) -> None:
-        # 装配界面：卡片区 + 配额区 + 引导卡 + 明细区（状态栏已在 __init__ 提前创建，M11）
+        # 装配界面：QTabWidget 两页（PL002.11：用量监控 = 现有卡片区+配额区+引导卡+
+        # 明细区整体迁入只换父容器；数据与动态 = DataPage 懒加载）
         central = QWidget()
         self.setCentralWidget(central)
-        self._layout = QVBoxLayout(central)
+        tabs = QTabWidget()
+        self._tabs = tabs
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.addWidget(tabs)
+        usage_tab = QWidget()
+        self._layout = QVBoxLayout(usage_tab)
         self._layout.setContentsMargins(*LAYOUT_MARGINS)
         self._layout.setSpacing(LAYOUT_SPACING)
+        tabs.addTab(usage_tab, USAGE_TAB_TITLE)
+        # PL002.10：数据与动态页（首次切换触发懒加载，has_loaded 幂等）
+        self._data_page = DataPage()
+        tabs.addTab(self._data_page, DATA_PAGE_TAB_TITLE)
+        tabs.currentChanged.connect(self._on_tab_changed)
         self._build_cards()
         self._build_quota_section()
         self._build_guide_card()
@@ -1034,6 +1082,31 @@ class MainWindow(QMainWindow):
         if seq != self._refresh_seq:
             return
         self._status_bar.showMessage(message)
+
+    def _on_tab_changed(self, index: int) -> None:
+        # 数据与动态页首次切换触发懒加载（PL002.10：has_loaded 幂等防重复拉取）
+        if index == 1 and not self._data_page.has_loaded:
+            self._data_page_seq += 1
+            self._pool.start(_DataPageTask(self._data_signals, self._data_page_seq))
+
+    def _on_data_ready(self, seq: int, snapshot: ModelDataSnapshot) -> None:
+        # 数据页快照就绪：灌入三渲染入口 + has_loaded 置位（懒加载幂等）；
+        # 部分失败仅状态栏提示（非核心子系统降级）
+        if seq != self._data_page_seq:
+            return
+        page = self._data_page
+        page.set_releases(snapshot.releases)
+        page.set_daily_usage(snapshot.daily_usage)
+        page.set_model_data(snapshot.model_blocks)
+        page.has_loaded = True
+        if snapshot.errors:
+            self._status_bar.showMessage("；".join(snapshot.errors[:2]))
+
+    def _on_data_error(self, seq: int, message: str) -> None:
+        # 数据页拉取异常：仅状态栏提示（不弹窗，错误策略：降级不中断）
+        if seq != self._data_page_seq:
+            return
+        self._status_bar.showMessage(DATA_PAGE_ERROR_TEMPLATE.format(message=message))
 
     def _start_cdp_guide(self) -> None:
         # 一键自动获取：后台执行 CDP 引导流程（独立临时 Chrome，不影响用户浏览器）

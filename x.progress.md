@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.213（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
+> 当前版本：ver 0.220（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -316,79 +316,79 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 ### PL002.1 配置外置与模块骨架（z.plan.md PL002.1）
 
-- [ ] PL002.1.a base.json 新增五键：data_url / gh_releases_api_url / gh_releases_rss_url / data_fetch_interval_sec(60) / data_cache_ttl_sec(300)
-- [ ] PL002.1.b modules/opencode_data.py 骨架：_SC 一次性解包 + DataPageError(category, message) 异常分类（network/decoding，对齐 GoQuotaError 模式）+ 文件尾 # ===== 说明区框架
-- [ ] PL002.1.c 验证：import modules.opencode_data 冒烟 + 常量断言（URL/间隔与 base.json 一致）
+- [x] PL002.1.a base.json 新增五键（2026-08-22 完成）
+- [x] PL002.1.b modules/opencode_data.py 骨架：_SC 解包 + DataPageError 分类（2026-08-22 完成）
+- [x] PL002.1.c 验证：import 冒烟 + 常量断言（2026-08-22 完成：探针 16/16 PASS）
 
 ### PL002.2 节流缓存基础设施
 
-- [ ] PL002.2.a _last_snapshot/_last_success_at 模块态 + _throttled_snapshot(force) 对齐 go_quota._throttled_cache:326 同式（窗口内返回标注缓存 is_cached）
-- [ ] PL002.2.b probe：注入时间断言窗口内返缓存/窗外重拉取（行为 mock 合规）
+- [x] PL002.2.a _last_snapshot/_throttled_snapshot 对齐 go_quota 同式（2026-08-22 完成）
+- [x] PL002.2.b probe 时间注入断言（2026-08-22 完成）
 
 ### PL002.3 $R 引用展开器（z.plan.md PL002.2 前半）
 
-- [ ] PL002.3.a _extract_r_objects(body) -> dict[int, str]：正则提取全部 `$R[N]={...}` 单对象（实测 2135 个规模，嵌套大括号防御跳过畸形块）
-- [ ] PL002.3.b _parse_loose_object(text) -> dict：JS 对象字面量宽容解析（键无引号 model:"x"/数值/字符串/null）——轻量手写分词（顶层逗号拆分 + 首个冒号切键值 + 类型推断），禁 eval
-- [ ] PL002.3.c probe 结构样例独立性：真实页面片段快照断言解析字段齐全（禁止手写与实现同源 mock 自证）
+- [x] PL002.3.a _extract_r_objects（实测 1783 对象块 + 176 数组块）（2026-08-22 完成）
+- [x] PL002.3.b _parse_loose_object 手写分词（引号+括号深度感知，禁 eval）（2026-08-22 完成）
+- [x] PL002.3.c probe 真实快照样例（2026-08-22 完成）
 
 ### PL002.4 四数据块锚点提取（z.plan.md PL002.2 后半）
 
-- [ ] PL002.4.a fetch_model_data()：`tokenCost:$R[N]=` 等四锚点正则定位根 ID → 数组引用链展开
-- [ ] PL002.4.b _expand_array_ref(array_text) -> list[dict]：`[$R[1868]={...},$R[1869]={...}]` 拆元素查表拼装
-- [ ] PL002.4.c 缺块容忍：锚点缺失返回部分结果 + errors 追加 decoding 警告，不抛异常中断
-- [ ] PL002.4.d probe：真实页面断言四块非空 + 字段齐全（model/total/input/output/cached/ratio/country/share 等）+ 行数量级合理
+- [x] PL002.4.a fetch_model_data 锚点+配平捕获（_capture_array_text 防内嵌截断）（2026-08-22 完成）
+- [x] PL002.4.b _expand_array_ref（2026-08-22 完成）
+- [x] PL002.4.c 缺块容忍（2026-08-22 完成）
+- [x] PL002.4.d probe 真实页面四块断言（2026-08-22 完成：14/14 PASS）
 
 ### PL002.5 热门模型时序解析（z.plan.md PL002.3）
 
-- [ ] PL002.5.a parse_daily_usage(body)：top-models-bar 的 aria-label 提取（`JUN 29 3.2T 总计` → 日期+总量 T 浮点）
-- [ ] PL002.5.b stack 分段配对：grid-template-rows 百分比序列 × data-model 名单按序 zip → models dict
-- [ ] PL002.5.c 月份缩写映射排序（JAN=1…DEC=12）保证时序升序
-- [ ] PL002.5.d probe：真实页面断言条数 ≥7 + 日期升序 + 各 bar 百分比和≈100%（容差 1%）
+- [x] PL002.5.a aria-label 日期+总量（2026-08-22 完成）
+- [x] PL002.5.b stack 百分比×data-model 按序 zip（stack 容器内提取）（2026-08-22 完成）
+- [x] PL002.5.c 月份缩写排序（2026-08-22 完成）
+- [x] PL002.5.d probe 条数≥7/升序/占比和≈100%（2026-08-22 完成：6/6 PASS）
 
 ### PL002.6 GitHub Releases 拉取（z.plan.md PL002.4）
 
-- [ ] PL002.6.a _fetch_releases_json()：api.github.com releases?per_page=5（User-Agent 头必须）→ 最新 3 条 {tag_name, published_at, body}
-- [ ] PL002.6.b _fetch_releases_rss() 回退：releases.atom entry 解析 title/updated/content（xml.etree 命名空间）
-- [ ] PL002.6.c fetch_github_releases(force)：JSON 优先异常回退 RSS；接入 _throttled_snapshot 节流
-- [ ] PL002.6.d probe：mock http_get 抛错断言 RSS 回退（行为 mock）+ 真实拉取断言 tag_name 匹配 v\d+ 格式
+- [x] PL002.6.a _fetch_releases_json（UA 头 + 前 3 条）（2026-08-22 完成）
+- [x] PL002.6.b _fetch_releases_rss 回退（xml.etree 命名空间）（2026-08-22 完成）
+- [x] PL002.6.c fetch_github_releases JSON 优先 RSS 回退（2026-08-22 完成）
+- [x] PL002.6.d probe mock 双路径 + 快照 tag_name（2026-08-22 完成：8/8 PASS）
 
 ### PL002.7 快照聚合入口（数据层收口）
 
-- [ ] PL002.7.a ModelDataSnapshot dataclass：model_blocks/daily_usage/releases/is_cached/fetched_at/errors
-- [ ] PL002.7.b refresh_data_page(force)：三源独立 try 互不拖垮；整体失败保留上次快照标 is_cached（缓存兜底策略）
-- [ ] PL002.7.c probe：mock 两源失败一源成功断言部分快照可用
+- [x] PL002.7.a ModelDataSnapshot dataclass（2026-08-22 完成）
+- [x] PL002.7.b refresh_data_page 三源独立 + 缺块 decoding 警告（2026-08-22 完成）
+- [x] PL002.7.c probe mock 部分成功（2026-08-22 完成：6/6 PASS）
 
 ### PL002.8 DataPage widget 骨架（z.plan.md PL002.5 前半）
 
-- [ ] PL002.8.a ui/data_page.py：QWidget + QVBoxLayout + QScrollArea；objectName="dataPage" 系列命名供 QSS（P25 拟物化取舍点集中此处）
-- [ ] PL002.8.b Releases 卡片区：版本号粗体 + 发布日期 + 正文只读展示
-- [ ] PL002.8.c 五表格区：时序表（日期/总 tokens(T)/Top 模型占比）+ 四数据表（列头常量显式声明 + 导入期校验，对齐 P23 契约层惯例）
+- [x] PL002.8.a ui/data_page.py：滚动区 + objectName 系列（P25 取舍点）（2026-08-22 完成）
+- [x] PL002.8.b Releases 卡片区（版本/日期/正文只读）（2026-08-22 完成）
+- [x] PL002.8.c 五表格列头常量 + 导入期契约校验（P23 对齐）（2026-08-22 完成）
 
 ### PL002.9 渲染入口与占位（z.plan.md PL002.5 后半）
 
-- [ ] PL002.9.a set_releases/set_daily_usage/set_model_data 三纯渲染方法（快照结构直接灌入零解析）
-- [ ] PL002.9.b 空数据占位文案（"尚未获取/暂无数据"）
-- [ ] PL002.9.c probe：offscreen 构造断言零网络调用 + mock 快照灌入行列数正确
+- [x] PL002.9.a set_releases/set_daily_usage/set_model_data 三纯渲染入口（2026-08-22 完成）
+- [x] PL002.9.b 空数据占位文案（2026-08-22 完成）
+- [x] PL002.9.c probe offscreen 零网络 + 快照灌入（2026-08-22 完成：14/14 PASS）
 
 ### PL002.10 懒加载后台任务（z.plan.md PL002.5 尾）
 
-- [ ] PL002.10.a needs_load 标志：首次 showEvent 置位触发
-- [ ] PL002.10.b _DataPageTask(QRunnable) + _DataSignals(data_ready/error) 对齐 main_window 异步模式（seq 防竞态）
-- [ ] PL002.10.c probe：offscreen show 多次断言仅首次拉取（幂等）
+- [x] PL002.10.a has_loaded 懒加载标志（2026-08-22 完成）
+- [x] PL002.10.b _DataPageTask(QRunnable) + _DataSignals（seq 防竞态）（2026-08-22 完成）
+- [x] PL002.10.c probe 幂等断言（2026-08-22 完成）
 
 ### PL002.11 QTabWidget 改造（z.plan.md PL002.6）
 
-- [ ] PL002.11.a _build_ui：central 改 QTabWidget，「用量监控」页容器承载现有卡片区/配额区/明细区（只换父容器逻辑不动）
-- [ ] PL002.11.b 「数据与动态」挂 DataPage；currentChanged 首次切换触发拉取
-- [ ] PL002.11.c 主刷新定时器隔离：_refresh_timer 仅驱动原 refresh()，不触达 DataPage
-- [ ] PL002.11.d probe：offscreen 双页切换断言 + DataPage 拉取计数 == 1
+- [x] PL002.11.a _build_ui 两页签（现有布局整体迁入 Tab1 只换父容器）（2026-08-22 完成）
+- [x] PL002.11.b currentChanged 首次切换触发拉取（2026-08-22 完成）
+- [x] PL002.11.c 主刷新定时器隔离（refresh 不触达 DataPage）（2026-08-22 完成）
+- [x] PL002.11.d probe 双页 + 拉取计数 == 1（2026-08-22 完成：14/14 PASS）
 
 ### PL002.12 验证收尾（z.plan.md PL002.7）
 
-- [ ] PL002.12.a verify_pl002_accept 反向断言：$R 坏 JSON 容忍（截断 body 不崩）/缺块部分返回/懒加载幂等/RSS 回退生效/节流窗口命中
-- [ ] PL002.12.b 全量回归 43 脚本 + GUI offscreen 双页冒烟
-- [ ] PL002.12.c README 功能段同步 + y.problem P20 标注已实施 + z.plan PL002 状态更新
-- [ ] PL002.12.d 版本推进决策（待用户确认 ver 0.204）
+- [x] PL002.12.a verify_pl002_accept 反向断言五项（2026-08-22 完成：7/7 PASS）
+- [x] PL002.12.b 全量回归 0 异常 + GUI offscreen 双页冒烟（2026-08-22 完成）
+- [x] PL002.12.c README 功能段同步（2026-08-22 完成）
+- [x] PL002.12.d 版本定案 **ver 0.220**（2026-08-22，与 PL001 合并提交）
 
 ## PL003 UI 整体重构：四主题注册制 + 拟物化扩展（依据 z.plan.md PL003 方案，2026-08-22 规划）
 
