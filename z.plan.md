@@ -8,6 +8,55 @@
 
 ---
 
+## 观察项豁免定案清单（历轮汇总，2026-08-13 分级定稿）
+
+> 分级规则（2026-08-13 修订）：历轮（A007-A013）参考级观察项经大会战与多轮复核，按确定性分三级——
+> ①**永久豁免**：外部约束/设计定案/数据常量/性能可接受/并发理论/外观——后续轮次**不再报告、不再讨论**（除非外部依赖本身变更，如 Chrome 命名规则、opencode.db schema）
+> ②**条件豁免**：需验证/理论不可达/数据语义——触发条件变化时重新评估（每项标注触发条件）
+> ③**价值权衡**：可修但收益 < 成本——H 批次已消化 10 条，剩余列于此，未来批次按需排期
+> 历史归档：A011/A012/A013 的"追加豁免 N 条"段落已并入本清单（附录内不再保留）；H 批次已修复 10 条从豁免移出
+
+### ① 永久豁免（不再讨论）
+
+- **外部约束**：browser_creds --remote-allow-origins=\*（Chrome 137+ 无此参数 CDP 必 403）/ DASHBOARD 请求参数硬编码 / CDP 探测族 3 固定值不入配置
+- **数据/数学常量**：BUNDLED_PRICES 数据快照 / COST_COMPARE_DIGITS 浮点容差 / \_EPOCH_MS/\_DAY_MS 数学基准 / $ 硬编码（OpenCode 计费固定 USD）
+- **设计定案**：retry 默认值语义分离 / retry 参数类型不校验（内部 API 调用方可控）/ 双份 themes 解析（各防护独立）/ toggle_theme 不即时持久化（退出即存设计）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）/ file_utils 缓存无业务写入方（C1）/ themes QUOTA_COLOR 常量名缩写（指代明确非失实）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ logger 注释措辞（字面仍成立）/ 说明区契约列举省略 dialog 组（已校验在位，叙述省略）/ 估算忽略 reasoning token（设计定案，w.study.md 记录，仅估算回退路径）/ 托盘不可用时 notify 无效调用（Qt 静默忽略无副作用）
+- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）/ ORDER BY 无索引（**外部库只读不可建索引**，仅 CLI 路径毫秒级）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ \_show_columns_menu 每次 new QMenu（父挂载自动回收）
+- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）/ 连点启动 N 个 QuotaTask（go_quota 节流兜底）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）
+- **外观**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ PIE_FONT_SIZE / 托盘几何
+- **2026-08-13 新增定案（profile 正则）**：\_profile_dirs 前缀匹配宽容为**刻意设计**——startswith("Profile") 兼容 Chrome 未来命名（官方命名 "Profile 1" 带空格，69 版起）；精确化收益（消除不可见毫秒级解析）< 规则依赖风险（未来命名变更致漏扫、凭据探测失效）；本机无 Profile 目录为验证盲区；误匹配目录已被单浏览器 try 兜底（无崩溃路径）
+- **已修复记账**（历史记录防重复报告）：hidden_columns 非法 id 回写（D0.15）/ go_quota html 局部遮蔽（D0.14）/ parse_time_arg ISO 时区偏移（CLI 自测转文档）/ estimate 全表扫描（D0.11）/ write_json mkstemp 位置（D0.12）/ --version 在 PyQt import 后（D0.13）/ min_ts=0（E0.4）/ CREDS_CACHE_TTL（E2.2）/ refresh 连点（F0.2）/ UsageRow 契约（F0.3）/ UsageSummary 契约（G0.2）/ H0.3 fdopen 泄漏（I3.4 记账，原② 段条目移除）
+
+### ② 条件豁免（触发条件变化时重新评估）
+
+- 窗口销毁 in-flight 信号（触发：Qt 析构自动断连行为变化）
+- settings themes 空数组回退（触发：ui.json themes 被手改为空）
+- main.py:6 import 场景 argv 误触发（触发：第三方脚本 import main 且 argv 含 -V/--version）
+- login_timeout minutes=0（触发：默认配置被手改为 0）
+- pricing cost 空 dict 落入 pricing 分支（触发：models.dev schema 变更，B3 数据语义族）
+- get_theme 第三主题静默错位（触发：配置合法扩展第三主题）
+- \_TOKEN_SUM_SELECT 与字段无静态校验（触发：新增/删除 SQL 聚合列）
+- 契约键集与说明区无自动联动（触发：新增 dataclass 字段流程变化）
+- 契约块位置打断 dataclass 定义区（触发：新增需要契约的 dataclass）
+- 失败路径 pending 不消费（触发：连点+失败场景需求变化）
+- 阈值 warn>danger 无大小关系校验（触发：手改配置场景可达评估）
+- reset_seconds 无上界（触发：外部 HTML 含 18 位 resetInSec，理论）
+- 根键缺失裸 KeyError 家族（触发：全量根键契约化决策，33+ 根键覆盖成本评估）
+- CSV 非原子写（触发：导出原子性需求提升评估；豁免条目表述修正为"JSON 原子写"）
+- go_quota CLI quota_window_labels 容器无校验（触发：ui.json 键类型契约批次排期）
+- colors 键族契约化（触发：全量根键契约化决策同上）
+- RETRY_NETWORK_ERRORS HTTPError 语义（触发：调用方分类时序变更——当前已确证安全）
+
+### ③ 价值权衡（未来批次按需排期，决策记录）
+
+- notify 三级兜底链去留（H0.8 契约落地后评估是否删除过度防御链——2026-08-13 待评估，见 y.problem.md P24）
+- \_CdpGuideTask 凭据写入不可注入（中成本依赖注入改造，全链路单测收益不确定）
+- QUOTA_COLOR 常量名重命名（纯命名洁癖，多处引用 + 说明区联动，收益极低）
+- \_TEMPLATE_MAP notify 两键 .get 冗余（契约已保证，删除收益小）/ limit 双兜底冗余 max(1,)（幂等，删除验证成本 > 收益）/ Popen 无 creationflags 注释（纯可读性）/ hidden_columns 双 strip / DEFAULT 不经区间钳制 / ui.json 数值键无类型契约（H0.4 范围限定 base）/ network 默认 UA / sqlite_utils 无自动 close / 内层 except fd 恒真 / base MAX < MIN 双改回退 / logger 说明区未列 system_tray
+- exported_at 无时区标记（单机本地查看为主，收益极低）/ \_with_copied_db 异常契约依赖（当前成立 + 外层兜底）/ themes 改字符串逐字符迭代（理论手改）/ hidden_columns None 元素（理论手改，渲染层忽略）/ RotatingFileHandler 值域无校验（类型契约不校验值域）/ round_cost digits 无钳制（内部 API 统一传默认）/ I0.1 错误消息 get 重复调用（仅错误路径零 IO）/ 模块级标志多实例串扰（生产单实例定案）
+
+---
+
 ## 一、项目目标
 
 在 Windows 上以 Python 实现一个轻量桌面信息窗口（类似 opencode-bar 的 Windows 版），两项核心能力：
@@ -242,12 +291,12 @@ mrboard/
 
 > 范围：全部 19 个 .py + 3 个 JSON（2319 行业务代码 + 配置）；AST 扫描 + 三路代理全文审读（utils+config / modules / ui）+ 行为验证
 > 结果：**P2 级 2 条 / P3 级 16 条 / 参考级观察项 15 条**——无 P0/P1（无确定性崩溃/错值）
-> **整改状态：✅ 全部完成（2026-08-13）**——A 系列任务清单见 x.progress.md（A0-A3 已实施，A4 收尾）；新增契约校验（themes 残留占位符/数组长度）、_SC 单点解包、build_app_title 标题单点
+> **整改状态：✅ 全部完成（2026-08-13）**——A 系列任务清单见 x.progress.md（A0-A3 已实施，A4 收尾）；新增契约校验（themes 残留占位符/数组长度）、\_SC 单点解包、build_app_title 标题单点
 
 - **上轮复核（第六轮 38 条）**：38/38 在位（2 项断言格式误报已澄清，非回退）；发现 1 回归（CDP_PROBE_TIMEOUT 重名重复定义）+ 1 漏改（os_crypt 非 dict 容错只覆盖 None/空，truthy 非 dict 仍 AttributeError 逃逸，行为验证崩溃）
 - **P2 修复 2 条**：CDP_PROBE_TIMEOUT 重名去重（删 47 行保留 70 行）；os_crypt isinstance 检查后 return None（167/322 两处）
-- **P3 修复 16 条**：host_key 带点 domain cookie 兼容（需验证）；OpenAuth 特征收紧防误判（需验证）；进度条 None 分支重置格式（需验证）；CDP 引导期状态管理×2（定时刷新重现引导卡/手动填写并发写凭据，均需验证）；themes 契约校验（残留占位符检测 + 数组长度）；说明区漏 _format_cache_rate_of；标题格式单点（build_app_title）；说明区失实 4 处（windows/main/settings/logger）；network 默认值双源；to_float("nan") 穿透（需验证）；opencode_usage 5 处 _SC 单点；K/M/B/G 单位外置（争议决策）；跨组提示 3 条（settings.py:16 注释失实/default_theme 双源/CLI 时间格式）
-- **参考级观察项 15 条**（用户确认均不提升）：browser_creds（--remote-allow-origins=* 必需/每 profile 整库复制/CDP 探测族 3 固定值）；go_quota（DASHBOARD 请求参数/模块级缓存无锁）；pricing（BUNDLED_PRICES 快照/COST_COMPARE_DIGITS）；opencode_usage（时间基准常量）；exporter（查询全量驻留）；main_window/system_tray（绘制细节）；static_config/file_utils/retry/convert（无锁单例/缓存引用/默认值分离/下划线字面量——均无可达触发路径）
+- **P3 修复 16 条**：host_key 带点 domain cookie 兼容（需验证）；OpenAuth 特征收紧防误判（需验证）；进度条 None 分支重置格式（需验证）；CDP 引导期状态管理×2（定时刷新重现引导卡/手动填写并发写凭据，均需验证）；themes 契约校验（残留占位符检测 + 数组长度）；说明区漏 \_format_cache_rate_of；标题格式单点（build_app_title）；说明区失实 4 处（windows/main/settings/logger）；network 默认值双源；to_float("nan") 穿透（需验证）；opencode_usage 5 处 \_SC 单点；K/M/B/G 单位外置（争议决策）；跨组提示 3 条（settings.py:16 注释失实/default_theme 双源/CLI 时间格式）
+- **参考级观察项 15 条**（用户确认均不提升）：browser_creds（--remote-allow-origins=\* 必需/每 profile 整库复制/CDP 探测族 3 固定值）；go_quota（DASHBOARD 请求参数/模块级缓存无锁）；pricing（BUNDLED_PRICES 快照/COST_COMPARE_DIGITS）；opencode_usage（时间基准常量）；exporter（查询全量驻留）；main_window/system_tray（绘制细节）；static_config/file_utils/retry/convert（无锁单例/缓存引用/默认值分离/下划线字面量——均无可达触发路径）
 - **亮点**：无 P0/P1；无函数内 import/docstring/未用 import/配置死键（base.json 26 键、ui.json 42 键全有消费方）；弹性转换实测无崩溃路径；README 徽章与版本一致
 
 ---
@@ -260,7 +309,7 @@ mrboard/
 
 - **上轮复核（A007 第 7 轮 19 项）**：27/27 全部在位、零回退；发现 1 处 A007 漏改分支（launch Popen OSError 未清理）+ 3 处 A3.1 漏改的说明区（main_window/system_tray/themes）
 - **P2（1 条）**：main_window:343 只对 Chrome 调 has_v20_cookies——Edge-only v20 用户误判为 v10 收到无效指引，与 find_browser_credentials 双浏览器遍历口径不一致（建议判定下沉 browser_creds 遍历双浏览器）
-- **P3（13 条）**：to_float/to_optional_float 缺 OverflowError（10**400 实测逃逸，与 to_int 不对称）；pricing currency/source None → "None" 错值（实测）；launch Popen OSError 分支临时目录泄漏（A007 漏改）；刷新无 in-flight 去重（连点+定时叠加旧任务覆盖新数据）；ui.json 结构性键无契约校验（删键确定性 KeyError/IndexError）；说明区失实/残留 6 处（main_window VERSION、system_tray APP_NAME、themes 异常处理无、exporter/browser_creds/go_quota 关联配置）；notify 模板 .format 无防护（KeyError 逃逸）；settings _themes/THEMES 重复构造
+- **P3（13 条）**：to_float/to_optional_float 缺 OverflowError（10\*\*400 实测逃逸，与 to_int 不对称）；pricing currency/source None → "None" 错值（实测）；launch Popen OSError 分支临时目录泄漏（A007 漏改）；刷新无 in-flight 去重（连点+定时叠加旧任务覆盖新数据）；ui.json 结构性键无契约校验（删键确定性 KeyError/IndexError）；说明区失实/残留 6 处（main_window VERSION、system_tray APP_NAME、themes 异常处理无、exporter/browser_creds/go_quota 关联配置）；notify 模板 .format 无防护（KeyError 逃逸）；settings \_themes/THEMES 重复构造
 - **参考级观察项 15 条**（用户复核后**提升 6 条**入 B 系列：A1 键序排序/B7 托盘不可用/B6 引导定时器/B8 节流文案/D2 CLI 下界/D1 排序提函数；维持 9 条）：TOKEN_ABBR_UNITS 键序依赖、托盘不可用窗口不可恢复、导出无防重入、ws.recv 不按 id 匹配、pricing cache_write 单键映射、estimate 全表扫描、CLI --limit 无下界、节流文案滞后、跨节流并发、network 每次 get_static_config、write_json mkstemp 位置、sqlite_utils 线程契约、双份 themes 解析、paintEvent 无显式 end、hidden_columns 排序两处重复
 - **亮点**：无 P0/P1；A007 零回退；无函数内 import/docstring/未用 import/配置死键（base.json 33 键、ui.json 44 键全有消费方）；README/ base.json / x.progress 三处 ver 0.14 一致
 
@@ -289,60 +338,10 @@ mrboard/
 
 - **上轮复核（A009 C 系列 14 项）**：18/18 全部在位、零回退；但发现 3 处"C 系列修复不完整"实质缺口（C0.1 字段名漏网、C0.8 自证恒真、C0.6 不防顺序）——修复本身引入新缺陷，暴露"验证跟着实现走"的自证陷阱
 - **P1（1 条）**：pricing.py:285 远程定价字段名待裁决（当前取 "pricing"，代理三方证据链指向现网为 "cost"——若成立则远程层仍死路径；本环境无法现网验证，probe 自证不可信）——建议兼容 get("cost") or get("pricing")
-- **P2（3 条）**：main_window:170 status_messages 契约自证式恒真（ uple(STATUS_MESSAGES) 从被校验对象派生，删键不报错、启动 KeyError 崩构造）；main.py:48-79 节流缓存破坏预警去重（实测：缓存到达复位 _notified_danger + 托盘置灰，超限重复弹气泡）；刷新无 in-flight 去重（C0.5 只解决乱序，网络并发叠加遗留）
+- **P2（3 条）**：main_window:170 status_messages 契约自证式恒真（ uple(STATUS_MESSAGES) 从被校验对象派生，删键不报错、启动 KeyError 崩构造）；main.py:48-79 节流缓存破坏预警去重（实测：缓存到达复位 \_notified_danger + 托盘置灰，超限重复弹气泡）；刷新无 in-flight 去重（C0.5 只解决乱序，网络并发叠加遗留）
 - **P3（11 条）**：模板占位符校验漏 pie/detail_line 两组；usage_percent 无界（-5%/120% 错值）+ overall 无下界钳制；notify_title 无契约无防护；C0.6 不防顺序颠倒；save_state 无降级（磁盘满阻塞退出）；解析空结果无 warning（P1 潜伏放大器）；HTTP_TIMEOUT 死代码 + 说明区失实；说明区缺失/重复 4 处；窗口销毁 in-flight 信号（需验证）；palette 值非字符串 TypeError
 - **参考级观察项 12 条**（用户复核后**提升 1 条**：凭据探测 TTL——每次刷新全量浏览器探测，未来提频前加缓存；维持 11 条）：历轮定案项 + html 局部遮蔽/时区偏移/本地覆盖缺字段/绘制参数等
 - **亮点**：A009 零回退；无函数内 import/嵌套 def/docstring/未用 import；配置全键有消费方；三处 ver 0.16 一致；三路交叉验证抓出"自证恒真校验"类隐蔽缺陷
-
----
-
-## 观察项豁免定案清单（历轮汇总，2026-08-13 分级定稿）
-
-> 分级规则（2026-08-13 修订）：历轮（A007-A013）参考级观察项经大会战与多轮复核，按确定性分三级——
-> ①**永久豁免**：外部约束/设计定案/数据常量/性能可接受/并发理论/外观——后续轮次**不再报告、不再讨论**（除非外部依赖本身变更，如 Chrome 命名规则、opencode.db schema）
-> ②**条件豁免**：需验证/理论不可达/数据语义——触发条件变化时重新评估（每项标注触发条件）
-> ③**价值权衡**：可修但收益 < 成本——H 批次已消化 10 条，剩余列于此，未来批次按需排期
-> 历史归档：A011/A012/A013 的"追加豁免 N 条"段落已并入本清单（附录内不再保留）；H 批次已修复 10 条从豁免移出
-
-### ① 永久豁免（不再讨论）
-
-- **外部约束**：browser_creds --remote-allow-origins=*（Chrome 137+ 无此参数 CDP 必 403）/ DASHBOARD 请求参数硬编码 / CDP 探测族 3 固定值不入配置
-- **数据/数学常量**：BUNDLED_PRICES 数据快照 / COST_COMPARE_DIGITS 浮点容差 / _EPOCH_MS/_DAY_MS 数学基准 / $ 硬编码（OpenCode 计费固定 USD）
-- **设计定案**：retry 默认值语义分离 / retry 参数类型不校验（内部 API 调用方可控）/ 双份 themes 解析（各防护独立）/ toggle_theme 不即时持久化（退出即存设计）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）/ file_utils 缓存无业务写入方（C1）/ themes QUOTA_COLOR 常量名缩写（指代明确非失实）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ logger 注释措辞（字面仍成立）/ 说明区契约列举省略 dialog 组（已校验在位，叙述省略）
-- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）/ ORDER BY 无索引（**外部库只读不可建索引**，仅 CLI 路径毫秒级）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ _show_columns_menu 每次 new QMenu（父挂载自动回收）
-- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）/ 连点启动 N 个 QuotaTask（go_quota 节流兜底）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）
-- **外观**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ PIE_FONT_SIZE / 托盘几何
-- **2026-08-13 新增定案（profile 正则）**：_profile_dirs 前缀匹配宽容为**刻意设计**——startswith("Profile") 兼容 Chrome 未来命名（官方命名 "Profile 1" 带空格，69 版起）；精确化收益（消除不可见毫秒级解析）< 规则依赖风险（未来命名变更致漏扫、凭据探测失效）；本机无 Profile 目录为验证盲区；误匹配目录已被单浏览器 try 兜底（无崩溃路径）
-- **已修复记账**（历史记录防重复报告）：hidden_columns 非法 id 回写（D0.15）/ go_quota html 局部遮蔽（D0.14）/ parse_time_arg ISO 时区偏移（CLI 自测转文档）/ estimate 全表扫描（D0.11）/ write_json mkstemp 位置（D0.12）/ --version 在 PyQt import 后（D0.13）/ min_ts=0（E0.4）/ CREDS_CACHE_TTL（E2.2）/ refresh 连点（F0.2）/ UsageRow 契约（F0.3）/ UsageSummary 契约（G0.2）/ H0.3 fdopen 泄漏（I3.4 记账，原② 段条目移除）
-
-### ② 条件豁免（触发条件变化时重新评估）
-
-- 窗口销毁 in-flight 信号（触发：Qt 析构自动断连行为变化）
-- settings themes 空数组回退（触发：ui.json themes 被手改为空）
-- main.py:6 import 场景 argv 误触发（触发：第三方脚本 import main 且 argv 含 -V/--version）
-- login_timeout minutes=0（触发：默认配置被手改为 0）
-- pricing cost 空 dict 落入 pricing 分支（触发：models.dev schema 变更，B3 数据语义族）
-- get_theme 第三主题静默错位（触发：配置合法扩展第三主题）
-- _TOKEN_SUM_SELECT 与字段无静态校验（触发：新增/删除 SQL 聚合列）
-- 契约键集与说明区无自动联动（触发：新增 dataclass 字段流程变化）
-- 契约块位置打断 dataclass 定义区（触发：新增需要契约的 dataclass）
-
-### ③ 价值权衡（未来批次按需排期，决策记录）
-
-- notify 三级兜底链去留（H0.8 契约落地后评估是否删除过度防御链——2026-08-13 待评估，见 y.problem.md P24）
-- _CdpGuideTask 凭据写入不可注入（中成本依赖注入改造，全链路单测收益不确定）
-- QUOTA_COLOR 常量名重命名（纯命名洁癖，多处引用 + 说明区联动，收益极低）
-
-### ④ 第 14 轮（A014）观察项记录（2026-08-13 用户复核全部维持豁免）
-
-- **② 条件豁免**：失败路径 pending 不消费（触发：连点+失败场景需求变化，G0.1 对称性缺失）/ 阈值 warn>danger 无校验（触发：手改配置场景可达评估）/ reset_seconds 无上界（触发：外部 HTML 含 18 位 resetInSec，理论）/ 根键缺失裸 KeyError 家族（触发：全量根键契约化决策，33+ 根键覆盖成本评估）
-- **① 永久豁免**：估算忽略 reasoning token（设计定案，w.study.md 记录）/ 托盘不可用时 notify 无效调用（Qt 静默忽略，宽容行为族）
-- **③ 价值权衡**：_TEMPLATE_MAP notify 两键 .get 冗余（契约已保证，删除收益小）/ limit 双兜底冗余 max(1,)（H0.5 后幂等，删除验证成本 > 收益）/ Popen 无 creationflags 注释（纯可读性）/ hidden_columns 双 strip / DEFAULT 不经区间钳制（静态配置 git 可控）/ ui.json 数值键无类型契约（H0.4 范围限定 base）/ network 默认 UA / sqlite_utils 无自动 close / 内层 except fd 恒真 / base MAX<MIN 双改回退 / logger 说明区未列 system_tray
-
-### ⑤ 第 15 轮（A015）观察项记录（收尾轮，2026-08-13 用户复核全部维持豁免）
-
-- **② 条件豁免**：CSV 非原子写（触发：导出原子性需求提升评估；豁免条目表述修正为"JSON 原子写"）/ go_quota CLI quota_window_labels 容器无校验（触发：ui.json 键类型契约批次排期，I0.1 同族）/ colors 键族契约化（触发：全量根键契约化决策同 ④②）/ RETRY_NETWORK_ERRORS HTTPError 语义（触发：调用方分类时序变更——当前已确证安全）
-- **③ 价值权衡**：exported_at 无时区标记（单机本地查看为主，收益极低）/ _with_copied_db 异常契约依赖（当前成立 + 外层兜底）/ themes 逐字符迭代（理论手改）/ hidden_columns None 元素（理论手改，渲染层忽略）/ RotatingFileHandler 值域无校验（类型契约不校验值域）/ round_cost digits 无钳制（内部 API 统一传默认）/ I0.1 错误消息 get 重复调用（仅错误路径零 IO）/ 模块级标志多实例串扰（生产单实例定案）
 
 ---
 
@@ -354,7 +353,7 @@ mrboard/
 
 - **上轮复核（A010 D 系列 17 项）**：D0.1-D0.15 + D3.1/D3.2 主体全部在位、零回退；发现 4 处"修复不完整"（main_window:1002 toggle save 漏 try、main.py 说明区未随 D0.13 同步、network.py 说明区残留 pricing 的 HTTP_TIMEOUT、pricing.py:342 关联配置漏 retry 两键）与 2 处"A010 已列未修"（C0.6 顺序契约、palette 值类型）
 - **P0-P3（15 条）**：
-  - 正确性：C0.6 顺序契约失效（改序导入不抛错，行为验证复现）；estimate LIMIT 无 ORDER BY（样本偏向最早消息）；_on_column_toggle save_config 无 try（D0.10 同类漏改）；min_ts=0 天数爆炸（观察项提升，需验证）
+  - 正确性：C0.6 顺序契约失效（改序导入不抛错，行为验证复现）；estimate LIMIT 无 ORDER BY（样本偏向最早消息）；\_on_column_toggle save_config 无 try（D0.10 同类漏改）；min_ts=0 天数爆炸（观察项提升，需验证）
   - 配置化：in-flight 提示文案硬编码（6A.3 H3 定案违反）；CREDS_CACHE_TTL 未走 base.json（观察项提升）
   - 清理：in-flight 分支冗余调用；嵌套闭包 def add()；WIN32CRYPT/AES 缺失不写缓存（TTL 失效 + 重复 warning）；说明区 5 处失实/缺失；palette 值类型校验
 - **参考级观察项 13 条**（用户复核后**提升 2 条**：min_ts=0 天数爆炸、CREDS_CACHE_TTL 配置化；维持 11 条已并入豁免定案清单）：settings 无上限/理论 fd 泄漏/backoff clamp 语义/cost 空 dict/schema 语义依赖等
@@ -366,13 +365,13 @@ mrboard/
 
 > 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + AST 扫描 + 行为验证（契约缺口实测）
 > 结果：**P0-P3 级 7 条（中 1 / 低 6，含观察项提升 2 条）/ 参考级观察项 10 条（提升 2 条，维持豁免 8 条）**
-> 状态：✅ 已修复（2026-08-13：F 系列 F0 正确性 3 条 + F3 清理 4 条全部完成，F1/F2 无条目；探针 5/5 + 修复验收 15/15 + 全量回归 43/43；F4 收尾防漏损延续——契约组与消费方交叉（go_quota_error_messages/quota_window_labels 全在契约块）、说明区扩展扫描补 3 处漂移（main_window 契约组/_usage 标志、opencode_usage 字段契约键集）、配置键无漂移；任务清单见 x.progress.md F 系列）
+> 状态：✅ 已修复（2026-08-13：F 系列 F0 正确性 3 条 + F3 清理 4 条全部完成，F1/F2 无条目；探针 5/5 + 修复验收 15/15 + 全量回归 43/43；F4 收尾防漏损延续——契约组与消费方交叉（go_quota_error_messages/quota_window_labels 全在契约块）、说明区扩展扫描补 3 处漂移（main_window 契约组/\_usage 标志、opencode_usage 字段契约键集）、配置键无漂移；任务清单见 x.progress.md F 系列）
 
 - **上轮复核（A011 E 系列 15 项）**：15/15 全部在位、零回退；E4 防漏损机制覆盖 5 文件但漏出 3 处"修复自身残留"（main.py 不在扫描范围漏网 ×2、pricing/themes 同文件漏改 ×2）；三处均为低危文档/死代码类
 - **P0-P3（7 条）**：
-  - 正确性：go_quota_error_messages 组未入契约键集（删 in_flight 键导入不抛，行为验证复现，运行时分支 KeyError——B0.6/C0.8 历史遗漏 + E2.1 未同步）；refresh 连点排队多任务（观察项提升）；UsageRow 字段与 _render_table 硬绑定无契约（观察项提升）
-  - 清理：main.py:19 VERSION 未使用 import（D0.13 残留，E3.4 只修说明区未清代码）；main.py 说明区漏 notify_message_fallback（main.py 不在 E4 扫描范围）；pricing 说明区缺 _price_line/_rate_from_raw；themes 说明区未同步 E0.1 键序语义
-- **参考级观察项 10 条**（用户复核后**提升 2 条**：refresh 连点、UsageRow 契约；维持 8 条已并入豁免定案清单）：第三主题静默错位/palettes 容器类型/ORDER BY 无索引/usage_percent 未钳制/subprocess 无 CREATE_NO_WINDOW/CLI --limit 无上界/浏览器文案硬编码/_profile_dirs 前缀过宽
+  - 正确性：go_quota_error_messages 组未入契约键集（删 in_flight 键导入不抛，行为验证复现，运行时分支 KeyError——B0.6/C0.8 历史遗漏 + E2.1 未同步）；refresh 连点排队多任务（观察项提升）；UsageRow 字段与 \_render_table 硬绑定无契约（观察项提升）
+  - 清理：main.py:19 VERSION 未使用 import（D0.13 残留，E3.4 只修说明区未清代码）；main.py 说明区漏 notify_message_fallback（main.py 不在 E4 扫描范围）；pricing 说明区缺 \_price_line/\_rate_from_raw；themes 说明区未同步 E0.1 键序语义
+- **参考级观察项 10 条**（用户复核后**提升 2 条**：refresh 连点、UsageRow 契约；维持 8 条已并入豁免定案清单）：第三主题静默错位/palettes 容器类型/ORDER BY 无索引/usage_percent 未钳制/subprocess 无 CREATE_NO_WINDOW/CLI --limit 无上界/浏览器文案硬编码/\_profile_dirs 前缀过宽
 - **亮点**：E 系列零回退；防漏损机制本轮当场抓出 3 处残留（证明机制有效，扩展扫描范围即可收敛）；credentials_ttl/in_flight 单点定义单点消费无漂移
 
 ---
@@ -386,9 +385,24 @@ mrboard/
 - **上轮复核（A012 F 系列 7 项）**：F0.1 契约组三方一致在位；F0.3 字段契约 20 处消费点零失配；F3.1 顶层分支完整；但发现 F0.2 修复不完整（pending 丢弃路径不消费——连点数据挂起 + 残留重复查询，行为验证复现）与 F3.1/F3.3 说明区残留 3 处（同根因模式第三次记录）
 - **P0-P3（6 条）**：
   - 正确性：F0.2 pending 丢弃路径不消费（seq 不匹配分支 return 前未补发，连点请求被吞、数据挂起、后续同 seq 重复查询——行为验证复现）；UsageSummary 未入字段契约（观察项提升，与 F0.3 同风险面）
-  - 清理：pricing 说明区 _price_line 主语写反 + _rate_from_raw cache 缺省描述不精确（F3.3 引入）；main.py 说明区 VERSION 段失实（F3.1 漏改，同根因第三次）；main.py 说明区漏 _SC/_notified_danger；main_window 说明区 refresh 行未同步 F0.2 + 关联配置 VERSION 失实
-- **参考级观察项 9 条**（用户复核后**提升 1 条**：UsageSummary 契约；维持 8 条已并入豁免定案清单）：_TOKEN_SUM_SELECT 无静态校验/契约与说明区无联动/契约块位置/QUOTA_COLOR 缩写/MENU_LABELS 导入顺序/连点 N 个 QuotaTask/双分支复位风格/契约列举省略/dialog 组/settings themes 空数组回退/logger 注释措辞
+  - 清理：pricing 说明区 \_price_line 主语写反 + \_rate_from_raw cache 缺省描述不精确（F3.3 引入）；main.py 说明区 VERSION 段失实（F3.1 漏改，同根因第三次）；main.py 说明区漏 \_SC/\_notified_danger；main_window 说明区 refresh 行未同步 F0.2 + 关联配置 VERSION 失实
+- **参考级观察项 9 条**（用户复核后**提升 1 条**：UsageSummary 契约；维持 8 条已并入豁免定案清单）：\_TOKEN_SUM_SELECT 无静态校验/契约与说明区无联动/契约块位置/QUOTA_COLOR 缩写/MENU_LABELS 导入顺序/连点 N 个 QuotaTask/双分支复位风格/契约列举省略/dialog 组/settings themes 空数组回退/logger 注释措辞
 - **亮点**：F0.1/F0.3 三方一致零失配；三路交叉 + 行为验证再次抓出"修复自身引入缺陷"（F0.2 挂起为确定性回归）
+
+---
+
+## 附录 A014：全量代码审计报告（第14轮，2026-08-13）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + git show 逐行对比（abf3a23）
+> 结果：**P 级 5 条（全低）/ 参考级观察项 20 条（用户复核全部维持豁免）**
+> 状态：✅ 已修复（2026-08-13：I 系列 I0 正确性 1 条 + I3 清理 5 条全部完成，I1/I2 无条目；探针 1/6 + 修复验收 11/11 + 全量回归 43/43；I4 收尾防漏损——新增契约/校验块必进说明区交叉扫描（A014 教训落地：go_quota_error_messages/notify 两键/容器校验/数值键契约全在说明区）、说明区无残留 + 语义扫描（I 系列修改文件）、豁免清单状态一致性（fdopen 记账迁移）；附带修复 verify_s6 历史欠账（D0.8 注入缺失的 \_reset_creds 定义与缩进、4 处缓存串场）；任务清单见 x.progress.md I 系列）
+
+- **上轮复核（H 批次 11 项）**：主体全部在位、零代码回归（白名单双向差集为空、fdopen 清理 5 路径矩阵全安全、三层钳制幂等收敛）；发现 5 处"修复自身引入"（全部文档/验证级）：G0.1 注释失实与 H0.6 finally 矛盾 + 验证盲区（路3 竞态推演经甄别不存在——跨线程队列连接下主线程处理必然晚于 worker finally）；palettes 根容器未校验（H3.1 不完整，裸 AttributeError）；file_utils 说明区未同步 fdopen（H0.3）；豁免清单 fdopen 条目未移入已修复记账（H 批次收尾遗漏）；main_window 契约块说明区未补 notify 两模板键（H0.8）
+- **P0-P3（5 条，全低）**：
+  - 防御：palettes 根容器类型未校验（themes.py:83，H3.1 不完整，C0.6 .keys() 连带）
+  - 清理：G0.1 注释同步（main_window.py:842/846）+ 补发任务 run 链路行为探针；file_utils 说明区补 fdopen；豁免清单 fdopen 移入已修复记账；main_window 契约块说明区补 notify 两键
+- **参考级观察项 20 条**（用户复核**全部维持豁免**，已并入豁免定案清单）：失败路径 pending 不消费/阈值 warn>danger 无校验/reset_seconds 无上界/根键缺失裸 KeyError 家族/\_TEMPLATE_MAP .get 冗余/limit 双兜底冗余/估算忽略 reasoning（设计定案）/Popen 无注释/托盘不可用 notify/路1 理论 6 条等
+- **亮点**：H 批次零代码回归；三路交叉抓出 5 处文档/验证级残留——暴露"新增契约块必进说明区"扫描盲区（跨批次收尾流程改进点）
 
 ---
 
@@ -402,20 +416,238 @@ mrboard/
 - **P0-P3（4 条，全低）**：
   - 正确性：parse_time_arg 相对时长数字无上界（`999999999d` 实测 OverflowError 逃逸，except ValueError 不捕 + 说明区失实连带——数值上界缺失家族第 3 例）；pricing 本地覆盖 key 大小写不归一（canonical_key 小写化消费，覆盖静默失效实测）
   - 清理：main.py 说明区漏 QUOTA_DANGER_PERCENT（A013 G3.3 同文件漏改模式第三次）；file_utils 说明区缺 get_project_root 函数条目（AGENTS.md 硬性要求）
-- **参考级观察项 12 条**（用户复核**全部维持豁免**）：CSV 非原子写（豁免条目表述建议修正为"JSON 原子写"）/go_quota CLI quota_window_labels 容器（I0.1 同族）/exported_at 无时区/_with_copied_db 异常契约/themes 逐字符迭代/hidden_columns None/RotatingFileHandler 值域/round_cost digits/I0.1 消息重复调用/模块级标志多实例/_TEMPLATE_MAP .get/colors 键族契约化；跨组 R2（HTTPError 分类时序）**已确证安全**（调用方先分类再重试契约成立）
+- **参考级观察项 12 条**（用户复核**全部维持豁免**）：CSV 非原子写（豁免条目表述建议修正为"JSON 原子写"）/go_quota CLI quota_window_labels 容器（I0.1 同族）/exported_at 无时区/\_with_copied_db 异常契约/themes 逐字符迭代/hidden_columns None/RotatingFileHandler 值域/round_cost digits/I0.1 消息重复调用/模块级标志多实例/\_TEMPLATE_MAP .get/colors 键族契约化；跨组 R2（HTTPError 分类时序）**已确证安全**（调用方先分类再重试契约成立）
 - **亮点**：I 系列零回退；ui 组零 P 级；modules 组历轮 15 轮持续保持无高/中严重度；五层校验链顺序正确、三层钳制幂等收敛、契约与消费点零失配
 
 ---
 
-## 附录 A014：全量代码审计报告（第14轮，2026-08-13）
+## PL001. 凭据指纹切换日志——多账户用量区分初步方案（2026-08-13）
 
-> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读 + git show 逐行对比（abf3a23）
-> 结果：**P 级 5 条（全低）/ 参考级观察项 20 条（用户复核全部维持豁免）**
-> 状态：✅ 已修复（2026-08-13：I 系列 I0 正确性 1 条 + I3 清理 5 条全部完成，I1/I2 无条目；探针 1/6 + 修复验收 11/11 + 全量回归 43/43；I4 收尾防漏损——新增契约/校验块必进说明区交叉扫描（A014 教训落地：go_quota_error_messages/notify 两键/容器校验/数值键契约全在说明区）、说明区无残留 + 语义扫描（I 系列修改文件）、豁免清单状态一致性（fdopen 记账迁移）；附带修复 verify_s6 历史欠账（D0.8 注入缺失的 _reset_creds 定义与缩进、4 处缓存串场）；任务清单见 x.progress.md I 系列）
+> 来源：P1/P9 前置验证定案（精确方案物理不可行——session.workspace_id 100% NULL、account/credential 表全空、event 无账户事件，详见 y.problem.md P1/P9 已验证段）
+> 状态：📌 初步方案（待用户确认后排期）
 
-- **上轮复核（H 批次 11 项）**：主体全部在位、零代码回归（白名单双向差集为空、fdopen 清理 5 路径矩阵全安全、三层钳制幂等收敛）；发现 5 处"修复自身引入"（全部文档/验证级）：G0.1 注释失实与 H0.6 finally 矛盾 + 验证盲区（路3 竞态推演经甄别不存在——跨线程队列连接下主线程处理必然晚于 worker finally）；palettes 根容器未校验（H3.1 不完整，裸 AttributeError）；file_utils 说明区未同步 fdopen（H0.3）；豁免清单 fdopen 条目未移入已修复记账（H 批次收尾遗漏）；main_window 契约块说明区未补 notify 两模板键（H0.8）
-- **P0-P3（5 条，全低）**：
-  - 防御：palettes 根容器类型未校验（themes.py:83，H3.1 不完整，C0.6 .keys() 连带）
-  - 清理：G0.1 注释同步（main_window.py:842/846）+ 补发任务 run 链路行为探针；file_utils 说明区补 fdopen；豁免清单 fdopen 移入已修复记账；main_window 契约块说明区补 notify 两键
-- **参考级观察项 20 条**（用户复核**全部维持豁免**，已并入豁免定案清单）：失败路径 pending 不消费/阈值 warn>danger 无校验/reset_seconds 无上界/根键缺失裸 KeyError 家族/_TEMPLATE_MAP .get 冗余/limit 双兜底冗余/估算忽略 reasoning（设计定案）/Popen 无注释/托盘不可用 notify/路1 理论 6 条等
-- **亮点**：H 批次零代码回归；三路交叉抓出 5 处文档/验证级残留——暴露"新增契约块必进说明区"扫描盲区（跨批次收尾流程改进点）
+### 目标
+
+换 OpenCode Go 账户（API key/workspace）后，自动记录切换时间点，使**启用之后的**用量可按账户时段切片统计；配额侧支持多凭据轮询查看各账户余量。
+
+### 方案设计
+
+**一、凭据指纹切换日志（统计侧核心）**
+
+1. **指纹计算**：对当前生效凭据（opencode-go.json 解密后的 workspaceId + authCookie）做 hash（如 sha256 前 12 位）——不存储原始 key，只存指纹（安全口径与 P4 一致）
+2. **检测时机**：程序启动时 + 每次配额刷新成功后（fetch_go_quota 返回处，已有凭据上下文）
+3. **日志结构**（user_config.json 扩展或独立 data/credentials/switch_log.json）：
+   ```json
+   {
+     "switches": [
+       {
+         "fingerprint": "a3b2c1d4e5f6",
+         "workspace_id": "wrk_xxx",
+         "since": 1782363426224
+       }
+     ]
+   }
+   ```
+   首次运行写入初始记录（当前账户从"现在"起算）
+4. **去抖**：同一指纹重复出现不记（切回旧账户复用原记录的 since 或新增区间——按"每指纹一条累计区间列表"设计）
+
+**二、统计切片（消费侧）**
+
+- `OpenCodeDB.totals/by_*` 的 `_time_clause` 链叠加 workspace 时段过滤：`time.created >= switch.since AND time.created < next_switch.since`
+- GUI：设置或工具栏加"账户时段"选择（全部 / 各指纹时段，标签用 workspace_id 前缀 + 首次出现日期）；CLI 加 `--account` 参数
+- 导出 CSV 附带账户时段标注列
+
+**三、配额多凭据轮询（配额侧，可独立实施）**
+
+- opencode-go.json 兼容扩展：单对象（现状）或数组 `[{"workspaceId":..., "authCookie":...}, ...]`
+- fetch_go_quota 循环各凭据拉取（节流共享），返回 `list[GoQuotaInfo]`；GUI 配额区加账户下拉/并列卡片
+- 凭据引导（CDP/手动）写入时若已存在不同 workspaceId 凭据 → 追加而非覆盖
+
+### 硬限制（文档明示）
+
+- 启用前的历史不可划分（数据库无归属数据，物理不可恢复）
+- 程序未运行期间的切换漏检（下次启动才检测到）
+- 切回旧账户时其历史区间可拼接（指纹匹配既有记录），但首次出现的账户只能从检测点起算
+
+### 工作量估算
+
+| 部分 | 内容                        | 估算        |
+| ---- | --------------------------- | ----------- |
+| 一   | 指纹 + 检测 + 日志读写      | 半天        |
+| 二   | 统计过滤链 + GUI/CLI 选择器 | 半天        |
+| 三   | 多凭据轮询 + 配额 UI        | 一天        |
+| 合计 |                             | **约 2 天** |
+
+### 待用户决策
+
+1. 是否实施？全量（一二三）还是先做统计侧（一二）？ - 全量
+2. 日志存储位置：user_config.json 内 vs 独立 switch_log.json（推荐后者——切换日志是数据非配置） - 按照你的推进啊switch_log.json
+3. 配额侧多凭据是否需要？（若用户只关心用量不关心同时看多账户余量，可裁掉三） - 需要，今后可能出现两三个账号同时使用的情况
+
+---
+
+## PL002. 模型数据页 + 官方动态页签实施方案（2026-08-13）
+
+> 来源：P20 可行性研究（2026-08-10 定稿）+ 2026-08-13 数据页实况核实——$R 数据块（2135 个，tokenCost/cacheRatio/sessionCost/country 四块齐全）与 top-models-bar HTML 属性双源确认；GitHub Releases API/RSS 可用性实测通过
+> 状态：📌 初步方案（待用户确认后排期）
+
+### 架构原则（UI 与功能分离）
+
+三层分离，主题（P25 拟物化）取舍点集中：
+
+```
+modules/opencode_data.py   ← 纯数据层：抓取 + 解析 + 节流缓存，零 Qt 依赖
+ui/data_page.py            ← 纯展示层：新页签 widget，只消费数据层返回结果
+main_window.py             ← 装配层：QTabWidget 骨架 + 页签挂载 + 懒加载触发
+```
+
+### 任务分解
+
+#### PL002.1 数据层骨架与配置外置
+
+- 新建 modules/opencode_data.py；base.json 新键（data_url/gh_releases_url/data_fetch_interval/data_cache_ttl）；模块级 `_SC` 解包；节流时间戳 + TTL 缓存复用 go_quota 同式
+- 验证：import + 常量断言
+
+#### PL002.2 $R 引用展开器与四数据块解析
+
+- `_expand_r_refs(body)` 循环解析 `$R[N]={...}` 引用链；提取 tokenCost/cacheRatio/sessionCost/country 四块 → `dict[str, list[dict]]`，缺块容忍返回部分
+- 验证：真实页面抓取断言四块非空且字段齐全（model/total/input/output/cached 等）
+
+#### PL002.3 热门模型时序解析器
+
+- 正则提取 top-models-bar 的 aria-label（日期+总量）+ stack 的 data-model/grid-template-rows 百分比 →「日期/总 tokens/各模型占比」列表
+- 验证：断言时序条数 ≥ 7 且首尾日期连续
+
+#### PL002.4 GitHub Releases 拉取
+
+- JSON API 优先、RSS 回退；解析 tag_name/published_at/body（最新 3 条）
+- 验证：mock 断言双路径
+
+#### PL002.5 UI 层 ui/data_page.py（纯展示零解析）
+
+- DataPage widget 骨架：Releases 卡片区（版本/日期/公告正文）+ 四数据表格（列头固定）；懒加载标志（首次 show 才拉取）
+- set_model_data/set_daily_usage/set_releases 三个纯渲染入口（数据层结果直接灌入），空数据显示占位文案
+- 验证：GUI offscreen 构造无网络调用 + mock 数据灌入行列正确
+
+#### PL002.6 装配层 main_window 最小侵入
+
+- central 改 QTabWidget 两页签：「用量监控」（现有卡片区/配额区/明细区整体迁入只换父容器）+「数据与动态」（挂 DataPage）；Tab2 首次切换触发拉取
+- 主刷新定时器不驱动 DataPage（独立节流，防每 5 分钟打一次数据页）
+- 验证：GUI offscreen 双页切换断言 + 现有 43 脚本回归
+
+#### PL002.7 收尾
+
+- verify_pl002_accept 反向断言（$R 解析容错/缺块部分返回/懒加载不重复请求）+ README/z.plan/y.problem P20 状态同步 + 版本推进决策
+
+### 展示范围（第一版收敛）
+
+| 区块            | 数据源                   | 展示形式                               |
+| --------------- | ------------------------ | -------------------------------------- |
+| 热门模型时序    | top-models-bar HTML 属性 | 表格：日期/总 tokens（T）/Top 模型占比 |
+| Token 成本      | $R tokenCost             | 表格：模型/总费用/输入/输出/缓存       |
+| 缓存比          | $R cacheRatio            | 表格：模型/比%/缓存/未缓存             |
+| 会话成本        | $R sessionCost           | 表格：模型/成本/tokens                 |
+| 国家分布        | $R country               | 表格：国家/大洲/tokens/占比            |
+| GitHub Releases | API/RSS                  | 最新 3 条：版本号+日期+公告正文        |
+
+聚合数字（热门模型总数/独立用户等）后补（$R 结构未核实，增量加）
+
+### 技术要点与硬限制
+
+- top-models-bar 为 SolidJS 渲染属性（data-slot/data-model 命名）——比 $R 块略脆，独立小解析函数 + 解析失败隐藏该区块不影响其他四块
+- 获取策略复用现有模式：60s 节流 + TTL 缓存 + 解析失败降级（$R 兼容 + 缺失容忍）
+- X/Twitter、小红书维持不可行结论不做
+
+### 工作量估算
+
+| 部分    | 内容      | 估算        |
+| ------- | --------- | ----------- |
+| 数据层  | PL002.1-4 | 半天~一天   |
+| UI+装配 | PL002.5-6 | 一天        |
+| 收尾    | PL002.7   | 半天        |
+| 合计    |           | **约 2 天** |
+
+### 待用户决策
+
+1. 第一版展示范围认可？（六区块如上表，聚合数字后补） - 认可
+2. 版本推进：实施完成后按第三位递进 ver 0.204？- 当前版本推进 可写为 ver 0.210
+
+---
+
+## PL003. UI 整体重构：四主题注册制 + 拟物化扩展实施方案（2026-08-22）
+
+> 来源：P25 立项（2026-08-13）+ 2026-08-22 两张参考风格图与四点拍板（双图皆做主题 / 命名按建议 / 下拉切换 / 配额阈值行为不变仅颜色随主题）
+> 状态：📌 方案已确认，待实施
+
+### 目标主题集（4 主题，默认仍 light）
+
+| 主题名  | 来源     | 风格                                                       |
+| ------- | -------- | ---------------------------------------------------------- |
+| light   | 现有保留 | 浅色扁平（默认主题不变，base.json default_theme 不动）     |
+| dark    | 现有保留 | 深色扁平                                                   |
+| console | 参考图 1 | 深色终端控制台：近黑底、等宽字体、卡片彩色描边、磷光屏气质 |
+| panel   | 参考图 2 | 浅色工业面板：米灰绿底、细线胶囊容器、极简线框瑞士版式     |
+
+ui.json：`"themes": ["light", "dark", "console", "panel"]`（数组顺序即下拉菜单顺序）
+
+### 任务分解
+
+#### PL003.1 主题注册制泛化（先行，视觉零变化）
+
+- themes.py：删除硬编码双主题段（light/dark 循环校验 + _LIGHT/_DARK_PALETTE），泛化为遍历 palettes 全键导入期构建 `_THEME_QSS: dict[str, str]`；删除 LIGHT/DARK 四常量，新增 `DEFAULT_THEME_NAME = THEME_NAMES[0]`
+- get_theme(name) 改字典查找 + 回退默认——顺带消除"第三主题静默错位"豁免项；A3.5（≥2 项）/C0.6（键序一致）校验原样保留（天然兼容 N 键）
+- 配额色族按渲染环境拆分：窗口内动态色（chunk 三档/quota_gray/pie_bg/pie_text）迁入各 palette 并加导入期必含校验（不走 QSS 占位符，残留检测兜不住，需显式契约）；quota_chunk_color(percent) → (percent, theme_name)；托盘图标色（QUOTA_OK/GRAY/pie_dot）渲染在系统任务栏与窗口主题无关——ui.json 顶层 colors 节瘦身为纯托盘色节，system_tray 消费方式基本不动
+- main_window.py：_is_dark 布尔 → _theme_name 字符串（settings 白名单回退已备）；_apply_theme/save_state 同步改造
+- settings.py 零改动（THEMES 白名单 + DEFAULT_THEME 回退天然支持 N 主题，外置红利兑现）
+- 验证：全量回归（43 个 verify）+ offscreen init，视觉零变化
+
+#### PL003.2 切换交互：按钮改下拉
+
+- 删 _theme_button/toggle_theme；明细区新增主题 QComboBox（维度下拉同款 combo_* 样式已备）
+- 显示名外置 ui.json theme_labels（浅色/深色/终端/面板），导入期校验键集与 themes 数组一致（C0.6 同机制防错位）
+- currentTextChanged → 更新 → 应用 → 立即 save_config（常驻托盘应用可能长期不关，切完即存防丢）；启动恢复 blockSignals 防回环
+- 连带修复：进度条 chunk 动态色切主题后统一重着色（现状 toggle 即有残留旧主题色问题）
+- 验证：offscreen init + 回归
+
+#### PL003.3 双新主题包数据落地（console + panel）
+
+- QSS 模板新增 {font_family} 占位符（两新主题强依赖等宽字体；light/dark 补 Segoe UI，console/panel 补 Consolas 族）——占位符残留检测自动强制旧 palette 补齐，机制兜底
+- console palette：近黑底 #0a0e14 族 / 卡片深底 + 强调色描边 / 绿磷光文字；渐变以 qlineargradient 表达式直接作为 palette 值注入（无需模板变体）
+- panel palette：米灰绿底 / 近黑文字细线描边 / 胶囊大圆角
+- 能力边界（预期管理）：QProgressBar::chunk 无法分段——参考图 1 分段像素进度条首版退化为普通圆角条，验收不满意再开 M3b 自绘控件单独评估；panel 圆形进度环复用现有 QPainter 饼图换色即可对齐
+- 验证：主题子集回归 + 截图对照参考图目检（标准：风格气质到位，非逐像素复刻）
+
+#### PL003.4 列元数据外置（P23 关联收尾）
+
+- ui.json table_headers 升级 `"table_columns": [{id, title, width?, visible?}]`，数组顺序即展示顺序；TABLE_HEADERS 从 title 派生单源化（删除平行数组防错位）
+- 导入期校验 columns id 集合与代码内 COLUMN_IDS 严格相等（P23 契约定案不推翻——键名仍在代码）
+- hidden_columns 用户持久化语义不变（运行时覆盖默认 visible）；width 缺省走 Qt 默认
+- 验证：全量回归
+
+#### PL003.5 收尾
+
+- 新增 .temp/verify_pl003_theme.py：_THEME_QSS 键集==THEME_NAMES / get_theme 未知名回退 / quota 三档随主题取色 / theme_labels 与 table_columns 契约校验触发
+- README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步
+
+### 技术要点与硬限制
+
+- QSS 无 box-shadow——拟物立体感首版用上亮下暗双描边高光模拟，不上 QGraphicsDropShadowEffect（避免逐控件代码侵入）
+- 配色只能"神似"不能逐像素复刻（QSS 表达力边界），验收标准为风格气质到位
+- palette 扩容后每主题约 30+ 色 × 4 主题，ui.json 变长属预期成本，仍为纯数据
+- 分段进度条自绘（M3b）为可选追加批次，不阻塞主线
+
+### 工作量估算
+
+| 部分        | 内容      | 估算       |
+| ----------- | --------- | ---------- |
+| 机制+交互   | PL003.1-2 | 半天       |
+| 双主题包    | PL003.3   | 半天~一天  |
+| 列外置+收尾 | PL003.4-5 | 半天       |
+| 合计        |           | **1~2 天** |
+
+### 已拍板决策（2026-08-22 记录在案）
+
+1. 双参考图都做成主题（共 4 主题）？ - 是，light/dark 保留 + 新增两个
+2. 主题命名按 AI 建议？ - 已定稿：console（深色终端控制台）/ panel（浅色工业面板）
+3. 主题切换交互？ - 下拉菜单选择（弃循环点击按钮），切换即持久化
+4. 配额三色阈值行为不变？ - 确认，仅颜色随主题走，阈值逻辑不动

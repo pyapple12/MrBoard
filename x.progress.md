@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.203（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字）
+> 当前版本：ver 0.213（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -168,374 +168,269 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 第四批重复/优化（6A.4）：新建 utils/sqlite_utils.py（只读连接两处收敛，URI 转义行为保留）；配额窗口键/主题名/VERSION 单一来源（QUOTA_WINDOW_KEYS/THEME_NAMES 从 ui.json 派生/utils.logger 导出）；\_base_sql 共用 time_clause；estimate_cost 四段抽 \_price_line；缓存率复合函数；配额预警去重（持续超限只通知一次）；日志轮转（RotatingFileHandler，base.json 参数）；to_float 合并评估**不合并**（0/None 兜底语义不同，结论记录说明区）。
 确认保留：go_quota add 闭包（第五轮确认项）；network RETRY_NETWORK_ERRORS 含 URLError 为有意设计（5xx/429 重试，401/403 已分类）——不整改
 
-## A. 第7轮审计修复任务清单（依据 z.plan.md 附录 A007）——✅ 全部完成（2026-08-13，A0-A4）
+---
 
-> 目标：P2 2 + P3 16 = 18 条 P 级 + 跨组提示补充 1 条（settings.py:16 注释失实）按五组整改（正确性 → 去重 → 配置化 → 清理 → 验证收尾）；基线回归 43 个验证脚本
-> 执行原则：每项完成后运行对应验证；全部完成后全量回归
-> go_quota add 闭包（第五轮确认项）；network RETRY_NETWORK_ERRORS 含 URLError 为有意设计（5xx/429 重试，401/403 已分类）——不整改
+## 第七轮审计整改完成（A 系列，2026-08-13 审计，2026-08-13 已实施）
 
-### A0 P0 正确性
+> 目标：18 条 P 级 + 跨组提示 1 条按五组整改（正确性 → 去重 → 配置化 → 清理 → 验证收尾）；全量回归 43/43
+> 依据：z.plan.md 附录 A007；结果：五组全部完成（probe_7a0-7a3 全 PASS）
 
-- [x] A0.1 os_crypt 非 dict 容错（browser_creds.py:167/322）——os_crypt = local_state.get("os_crypt"); if not isinstance(os_crypt, dict): return None；验证：verify 构造 {"os_crypt": "corrupted"} 断言 \_load_aes_key 返回 None 不抛
-- [x] A0.2 CDP_PROBE_TIMEOUT 重名去重（browser_creds.py:47）——删除 47 行旧定义，保留 70 行；验证：AST 断言全文件仅 1 处定义
-- [x] A0.3 host_key 兼容带点 domain cookie（browser_creds.py:187，需验证真实形态）——WHERE host_key IN (?, ?) 含 .opencode.ai；验证：构造带点 host_key 库断言命中
-- [x] A0.4 OpenAuth 误判收敛（go_quota.py:206，需验证）——限定登录页特征（URL 或专属脚本片段）；验证：正常 HTML 含 OpenAuth 字样不误判
-- [x] A0.5 进度条 None 分支重置格式（main_window.py:763-775）——补 bar.setFormat("") + 清 chunk 样式；验证：构造窗口值→None 过渡断言无旧百分比
-- [x] A0.6 CDP 引导期定时刷新重现引导卡（main_window.py:695-700）——引导标志位抑制 show_guide；验证：引导期模拟刷新断言引导卡不重现
-- [x] A0.7 引导期手动填写与 worker 并发写凭据（main_window.py:702-722）——引导期禁用手动按钮（与自动按钮对称）；验证：引导期手动按钮禁用断言
-- [x] A0.8 to_float/to_optional_float nan 拦截（convert.py:27/40）——转换后 math.isnan 回落 default/None；验证：to_float("nan") 返回 0.0
-- 状态：✅ 完成（2026-08-13，验证：probe_7a0 13 项全 PASS + 全量回归 43/43 + verify_s11 4/4；同步 verify_s5/v1010_1/6a4 断言）｜优先级：高
+第一批正确性（A0）：os_crypt 非 dict 容错两处（构造 corrupted 数据断言返回 None 不抛）；CDP_PROBE_TIMEOUT 重名定义删除（保留后定义）；host_key 带点 domain cookie 兼容（WHERE host_key IN (?, ?) 含 .opencode.ai）；OpenAuth 登录页特征限定（正常 HTML 含 OpenAuth 字样不误判）；进度条 None 分支重置格式（setFormat("") + 清 chunk 样式，防旧百分比残留）；CDP 引导期定时刷新重现引导卡抑制（引导标志位）；引导期手动填写按钮禁用（防与 worker 并发写凭据）；to_float/to_optional_float nan 拦截（math.isnan 回落 default）。
+第二批去重（A1）：标题格式单点 utils.logger.build_app_title() 导出（main_window/system_tray 两处引用收敛）。
+第三批配置化（A2）：K/M/B/G 单位体系决策记录（格式化约定不入配置）；default_theme 从 themes[0] 回退防护（改 ui.json themes 后默认主题仍生效）；go_quota CLI 时间格式外置 ui.json；network 默认超时 None 回退 base.json http_timeout。
+第四批清理（A3）：说明区失实修正 4 处（windows/main/settings/logger）；settings.py:16 注释失实修正（同源表述）；\_format_cache_rate_of 说明区补列；opencode_usage \_SC 单点解包（5 处直取消除）；themes 契约校验首建（\_build_theme 残留占位符检测 + THEME_NAMES 长度校验导入期抛错）。
+收尾（A4）：全量回归 43/43 + README ui.json 参数表补键 + z.plan A007 标注已修复。
 
-### A1 P1 去重
+---
 
-- [x] A1.1 标题格式单点（utils.logger 导出 build_app_title()）——main_window:452 + system_tray:31 改引用；验证：两处标题与函数输出一致断言
-- 状态：✅ 完成（2026-08-13，验证：probe_7a1 9 项全 PASS + 全量回归 43/43 + GUI 标题三处一致；同步 6 个历史脚本导入源/断言）｜优先级：中
+## 第八轮审计整改完成（B 系列，2026-08-13 审计，2026-08-13 已实施）
 
-### A2 P2 配置化
+> 目标：15 条修复任务按五组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A008；结果：五组全部完成（probe_8b0-8b3 + 行为验证）
 
-- [x] A2.1 K/M/B/G 单位体系决策（main_window.py:373-381）——外置 ui.json 或记录"格式化约定不入配置"；验证：按决策断言
-- [x] A2.2 default_theme 与 themes[0] 双源（base.json/config）——default_theme 从 themes[0] 派生或校验；验证：改 ui.json themes 后默认主题仍生效
-- [x] A2.3 go_quota CLI 时间格式外置（go_quota.py:426）——引用 ui.json reset_time_format 或新增键；验证：CLI 输出格式与配置一致
-- [x] A2.4 network.py 默认值双源（network.py:16）——默认改 None 强制显式传或注释锚定 base.json 键名；验证：调用方全部显式传参断言
-- 状态：✅ 完成（2026-08-13，验证：probe_7a2 11 项全 PASS + A2.4 timeout 回退行为验证 + 全量回归 43/43；同步 verify_6a1 E7 断言）｜优先级：中
+第一批正确性（B0）：Edge v20 判定下沉 browser_creds（has_v20_cookies 遍历双浏览器任一命中）；to_float/to_optional_float 补 OverflowError（10**400 实测逃逸封堵）；pricing currency/source null 兜底（防 "None" 字符串错值）；launch Popen OSError 分支清理临时目录；刷新序号 in-flight 去重（递增 seq，乱序完成丢弃过期结果）；ui.json 结构性键契约校验首建（删键导入期抛错）；notify 模板 .format 防护（未知占位符 KeyError 回退固定文案）；引导期暂停定时刷新（stop/start 配对恢复）；托盘不可用检查（isSystemTrayAvailable，closeEvent 不 hide）；CLI --limit 下界 max(1, ...)。
+第二批去重（B1）：settings \_themes 复用（THEMES = _themes）；hidden_columns 排序抽 \_sorted_hidden_columns 单点。
+第三批配置化（B2）：TOKEN_ABBR_UNITS 解包排序消除 JSON 键序依赖（乱序配置缩略仍正确）。
+第四批清理（B3）：说明区失实/残留修正 6 处（main_window VERSION 条目/system_tray APP_NAME/themes 异常处理/exporter/browser_creds/go_quota 关联配置）；节流文案动态化评估（运行时已动态无需改）。
 
-### A3 P3 清理
+---
 
-- [x] A3.1 说明区失实修正 4 处——windows.py:64（base.json app_name）/ main.py:98（ui.json）/ settings.py:95（min_refresh_interval_ms）/ logger.py:88（4 键）；验证：grep 说明区关键字
-- [x] A3.2 settings.py:16 注释失实修正——"themes.py 引用本常量"改为"与 themes.py 同源于 ui.json themes 数组"；验证：grep 注释文本
-- [x] A3.3 说明区漏 \_format_cache_rate_of（main_window.py:897-904）——补条目并标注被复合函数消费；验证：verify_s11 风格说明区全覆盖断言
-- [x] A3.4 opencode_usage 顶层 \_SC 单点解包（:24-37 五处）——统一 \_SC = get_static_config()；验证：AST 断言无直取
-- [x] A3.5 themes 契约校验（themes.py:89-94/104-106）——\_build_theme 后检测残留 {…} 抛 RuntimeError + THEME_NAMES 长度校验；验证：坏配置断言抛错
-- 状态：✅ 完成（2026-08-13，验证：probe_7a3 9 项全 PASS + 契约校验行为验证（坏配置导入期抛错）+ 全量回归 43/43；settings 关联配置行拆行）｜优先级：低
+## 第九轮审计整改完成（C 系列，2026-08-13 审计，2026-08-13 已实施）
 
-### A4 验证与收尾
+> 目标：13 条按五组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A009；结果：五组全部完成（probe_9c0/9c3 + 行为验证）
 
-- [x] A4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
-- 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；README ui.json 参数表补键、z.plan 附录 A007 标注已修复）｜优先级：高
+第一批正确性（C0）：**pricing 远程定价结构重构**（现网 api.json 实测：顶层 provider 键 → models dict、model key 无 provider/ 前缀——canonical_key 构造，死路径复活，P1）；B0.7 防护补全（`'{used'`/`'{used!q}'` ValueError、`'{}'` IndexError 实测逃逸封堵 + fallback 二次保护）；pricing 缓存写异常降级（OSError 仅 warning 不拖垮 estimate 链路）；convert inf 拦截（isfinite 统一 nan/inf/-inf）；quota/error 信号序号去重（与 usage 同机制）；themes 主题名-调色板顺序契约（改序导入期抛错）；TABLE_HEADERS 严格相等校验（防短防长，加列配置抛错）；ui.json 契约扩展至全部消费键（status_messages/dialog/guide/tooltips/button_labels/menu_labels + 模板占位符校验）。
+清理（C3）：opencode_usage 缩进对齐；go_quota "60s" 动态化 MIN_FETCH_INTERVAL；main_window VERSION 尾巴清理/PIE 归属修正；system_tray build_app_title 归类移入函数区。
 
-## B. 第8轮审计修复任务清单（依据 z.plan.md 附录 A008）——✅ 全部完成（2026-08-13，B0-B4）
+---
 
-> 目标：14 条 P 级（P2 1 + P3 13，说明区 6 处合并 1 条任务）+ 观察项提升 6 条（A1 键序/B7 托盘/B6 引导定时器/B8 节流文案/D2 CLI 下界/D1 排序）共 15 条修复任务 + B4 收尾；基线回归 43 个验证脚本
-> 执行原则：每项完成后运行对应验证；全部完成后全量回归
+## 第十轮审计整改完成（D 系列，2026-08-13 审计，2026-08-13 已实施，版本 ver 0.17）
 
-### B0 P0 正确性
+> 目标：15 条 P 级 + 大会战 5 条共 21 条按五组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A010；结果：五组全部完成（探针 15/15 + 修复验收 18/18——修复验收机制自本轮起强制）
 
-- [x] B0.1 Edge v20 判定下沉（main_window.py:343 + browser_creds.has_v20_cookies）——has_v20_cookies 改遍历 _browser_user_data_dirs() 任一命中即 True（复用既有单点）；验证：构造 Edge-only user data 断言判定 True
-- [x] B0.2 to_float/to_optional_float 补 OverflowError（convert.py:32/48）——except 元组加 OverflowError（与 to_int 对齐）；验证：to_float(10**400) 返回 default 不抛
-- [x] B0.3 pricing currency/source null 兜底（pricing.py:186-187）——item.get("currency") or "USD" / item.get("source") or default_source；验证：_rate_from_raw 传 None 断言非 "None"
-- [x] B0.4 launch Popen OSError 分支清理（browser_creds.py:399-401）——except OSError 分支补 rmtree + 置 None（与 376-378 对称）；验证：AST 断言两失败分支均清理
-- [x] B0.5 刷新 in-flight 去重（main_window.py:621-629/644-656）——refresh 递增序号，_on_usage_ready 校验丢弃过期结果；验证：模拟乱序完成断言旧任务不覆盖
-- [x] B0.6 ui.json 结构性键契约校验（main_window 消费点）——仿 themes A3.5：导入期校验 card_titles 5 键/quota_window_labels 对齐/table_headers 长度 ≥ COLUMN_IDS；验证：删键配置断言导入期抛错
-- [x] B0.7 notify 模板 .format 防护（main.py:55）——except KeyError 回退固定文案；验证：模板含未知占位符不抛
-- [x] B0.8 引导期暂停定时刷新（main_window.py _start_cdp_guide/_on_guide_*）——引导启动 stop 刷新定时器、结束恢复 start（与按钮恢复同处配对）；验证：引导期模拟定时触发断言不执行
-- [x] B0.9 托盘不可用检查（main.py:38）——tray.show 前 `QSystemTrayIcon.isSystemTrayAvailable()` 检查，不可用时 closeEvent 不 hide；验证：mock 不可用断言窗口不隐藏
-- [x] B0.10 CLI --limit 下界（opencode_usage CLI）——`limit = max(1, args.limit)` 防 0/负数语义；验证：--limit 0 断言不崩且行数正常
-- 状态：✅ 完成（2026-08-13，验证：probe_8b0 10 项 + 行为验证 8 项全 PASS + 全量回归 43/43；同步 verify_5a2/5a3/v3a1 断言）｜优先级：高
+正确性（D0×15）：pricing 字段名兼容现网 cost 键（真实 api.json 片段断言，禁自证 mock，P1 死路径终结）；status_messages 契约去自证（tuple(STATUS_MESSAGES) 改显式 18 键元组）；节流缓存不破坏预警去重（is_cached 分支不复位标志 + 托盘按数据更新）；go_quota in-flight 并发请求去重（模块级标志）；模板占位符校验补全（percent/value + pie/detail_line 两组并入）；usage_percent 双侧钳制（render clamp + overall 对称）；notify_title 入契约 + main.py 运行时防护双保险；凭据探测 TTL 缓存（防刷新重复全量探测）；解析空结果告警（结构变更不再静默，P1 潜伏放大器消除）；save_state 降级（磁盘满 warning 继续退出）；estimate LIMIT 防大库拖死；write_json mkstemp 移入 try（fd 泄漏边缘）；--version 提前于 PyQt import（CLI 不加载 GUI 依赖）；html_text 改名消模块遮蔽；hidden_columns 脏 id 过滤（保存点过滤非 COLUMN_IDS 的 id）。
+清理（D3）：HTTP_TIMEOUT 死代码删除 + 说明区四级网络链路（http_get timeout 单一来源）；说明区缺失/重复修正 5 处。版本 ver 0.17。
 
-### B1 P1 去重
+---
 
-- [x] B1.1 settings _themes 重复构造（settings.py:17/26）——THEMES = _themes（保留两名称避免改数组双处同步）；验证：两常量值一致断言
-- [x] B1.2 hidden_columns 排序提函数（main_window.py:838-841/873）——抽 `_sorted_hidden_columns()` 单点；验证：两处调用点输出一致断言
-- 状态：✅ 完成（2026-08-13，验证：probe_8b1 4 项 + 行为验证 2 项 + 全量回归 43/43）｜优先级：中
+## 第十一轮审计整改完成（E 系列，2026-08-13 审计，2026-08-13 已实施，版本 ver 0.18）
 
-### B2 P2 配置化
+> 目标：15 条 P 级按四组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A011；结果：四组全部完成（探针 + 修复验收 26/26——防漏损三项强制自本轮落地）
 
-- [x] B2.1 TOKEN_ABBR_UNITS 键序排序（main_window.py:123-126）——解包时 `sorted(..., reverse=True)` 消除 JSON 键序契约（观察项提升）；验证：乱序配置断言缩略仍正确
-- 状态：✅ 完成（2026-08-13，验证：probe_8b2 3 项 + 行为验证（乱序配置缩略仍正确）+ 全量回归 43/43）｜优先级：中
+正确性（E0）：C0.6 顺序契约补全（键序完全一致校验，真实改序 ui.json 导入抛错——上轮修复不完整收尾）；estimate ORDER BY created DESC（LIMIT 前排序，估算样本优先最新消息）；\_on_column_toggle save_config 加 try 降级（磁盘满槽函数不逃逸）；min_ts=0 天数归零告警（time.created=0 虚高 20676 天终结）。
+配置化（E2）：in-flight 提示文案外置 ui.json（in_flight 键）；CREDS_CACHE_TTL 走 base.json credentials_ttl。
+清理（E3）：in-flight 冗余节流查询删除（直返 \_fallback）；\_add_credential 闭包提为模块级函数；缺库分支写空缓存（TTL 全场景生效）；说明区同步 5 处 + \_add_credential 条目；palette 值类型 isinstance 校验。
+防漏损三项强制首次落地：同根因调用点全扫（write_json/save_config 全点防护核实）、说明区一致性扫描补 4 处漂移、credentials_ttl 三处一致。
 
-### B3 P3 清理
+---
 
-- [x] B3.1 说明区失实/残留修正 6 处——main_window.py:886（删 VERSION 条目）/ system_tray.py:103（删 APP_NAME/APP_SUBTITLE，补 build_app_title）/ themes.py:152（异常处理补 RuntimeError）/ exporter.py:107 + browser_creds.py:633 + go_quota.py:496（关联配置补 base.json/ui.json 键）；验证：grep 各说明区关键字
-- [x] B3.2 节流文案动态化（go_quota.py:315）——"60 秒"改 f-string 引用 MIN_FETCH_INTERVAL（观察项提升）；验证：grep 无 "60 秒" 字面量
-- 状态：✅ 完成（2026-08-13，验证：probe_8b3 10 项 + 全量回归 43/43；B3.2 运行时消息已动态化无需改，同步 verify_v3a1/v4a3 断言）｜优先级：低
+## 第十二轮审计整改完成（F 系列，2026-08-13 审计，2026-08-13 已实施，版本 ver 0.19）
 
-### B4 验证与收尾
+> 目标：7 条 P 级按四组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A012；结果：四组全部完成（探针 5/5 + 修复验收 15/15）
 
-- [x] B4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
-- 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；README 补 notify_message_fallback、z.plan 附录 A008 标注已修复）｜优先级：高
+正确性（F0）：go_quota_error_messages 契约组补齐（no_credentials/in_flight 删键导入期抛错）；refresh 连点 in-flight 去重 + pending 补发机制（在途不叠加任务，行为验证：在途不叠加/pending 复位）；TokenStats/UsageRow 显式字段键集契约（防字段改名 AttributeError 逃逸 Qt 槽）。
+清理（F3）：未用 VERSION import 删除（4 测试资产同步改读 utils.logger 单点——main.VERSION 消费面确认仅测试资产）；说明区补列 3 处（fallback 键/pricing 两函数/themes 键序语义）。
+防漏损扩展扫描：消费组×契约块交叉核对、说明区扫描覆盖 main.py/pricing/themes。
 
-## C. 第9轮审计修复任务清单（依据 z.plan.md 附录 A009）——✅ 全部完成（2026-08-13，C0-C4）
+---
 
-> 目标：P1 1 + P2 2 + P3 9 + 观察项提升 1（ui.json 契约扩展）共 13 条按五组整改；基线回归 43 个验证脚本
-> 执行原则：每项完成后运行对应验证；全部完成后全量回归
+## 第十三轮审计整改完成（G 系列，2026-08-13 审计，2026-08-13 已实施，版本 ver 0.20）
 
-### C0 P0 正确性
+> 目标：6 条 P 级按四组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A013；结果：四组全部完成（探针 3/3 行为验证 + 修复验收 15/15）
 
-- [x] C0.1 pricing 远程定价结构重构（pricing.py:253-282，P1）——遍历顶层 provider → 其 models dict，canonical_key(provider, model) 构造 key（结构判断 + key 解析一起改）；验证：用现网 api.json 样例片段（openai/gpt-4o + anthropic/claude-sonnet-4-5）断言解析成功且 key 含 provider 前缀
-- [x] C0.2 B0.7 防护补全（main.py:55-65）——except (KeyError, ValueError, IndexError) + fallback 二次 try 或纯静态拼接；验证：3 种坏模板（{used/!q/{}）实测不逃逸
-- [x] C0.3 pricing 缓存写异常降级（pricing.py:115）——write_json 包 try/except OSError 仅 warning（与 _fetch_remote_prices 降级风格一致）；验证：mock write_json 抛 OSError 断言 load_price_map 仍返回内存表
-- [x] C0.4 convert inf 拦截（convert.py:29-31/45-47）——if not math.isfinite(result) 统一覆盖 nan/inf/-inf；验证：to_float("inf") 返回 0.0、to_optional_float("inf") 返回 None
-- [x] C0.5 quota/error 信号序号去重（main_window.py:192/252-254/745）——quota_ready/error 携带 seq 与 usage 同机制（或 go_quota in-flight 去重二选一）；验证：模拟乱序断言旧结果不覆盖
-- [x] C0.6 themes 主题名-调色板顺序契约（themes.py:111-118）——校验 THEME_NAMES 与 palettes 键对齐且互异；验证：改序配置断言导入期抛错
-- [x] C0.7 TABLE_HEADERS 严格相等校验（main_window.py:174-177）——!= 替代 <；验证：加列配置断言抛错
-- [x] C0.8 ui.json 契约扩展（观察项 A1 提升）——B0.6 键集扩至全部消费键（status_messages 18 键/dialog_titles/dialog_prompts/guide_messages/tooltips/button_labels/menu_labels/notify_*）+ 模板类键占位符校验；验证：删键配置断言导入期抛错
-- 状态：✅ 完成（2026-08-13，验证：probe_9c0 14 项 + 行为验证 C0.5/C0.6 + 全量回归 43/43；同步 verify_s4/s7/s8/s9/5a3/6a4 断言）｜优先级：高
+正确性（G0）：F0.2 pending 丢弃路径修复（\_consume_pending 公共方法——过期丢弃/渲染两路径共用，连点数据挂起终结，行为验证复现：过期路径 pending 清空 + 补发最新序号）；UsageSummary 10 字段契约（\_USAGE_SUMMARY_FIELDS 与 dataclass 比对，消费方属性全命中）。
+清理（G3）：pricing 说明区语义修正（\_price_line 主语改 price 为 None 计 0/\_rate_from_raw cache 缺省 None 精确）、main.py VERSION 段改写为单点导出说明（同文件漏改第三次终结）、常量段补 \_SC/\_notified_danger、main_window refresh 行补 pending 描述 + 关联配置 VERSION 改 utils.logger。
+防漏损升级：说明区无残留字样反向断言（漏改三次同根因终结）+ 语义准确性扫描 + 契约消费方交叉。
 
-### C1 P1 去重
+---
 
-- 无新增条目（观察项均不提升）
-- 状态：— ｜优先级：—
+## 豁免清理批次完成（H 系列，2026-08-13 盘点立项，2026-08-13 已实施，版本 ver 0.201）
 
-### C2 P2 配置化
+> 目标：56 条豁免定案盘点后 13 条低成本可修项中 8 条零风险项一次修完；全量回归 43/43
+> 依据：2026-08-13 豁免盘点报告；结果：H0×8 + H3×3 全部完成（探针 10/10 + 修复验收 20/20），另 4 条验证项行为验证后 2 条并入（H0.6/H0.7）
 
-- 无新增条目（观察项均不提升）
-- 状态：— ｜优先级：—
+正确性（H0×8）：refresh 上限区间钳制（base.json max_refresh_interval_ms=3600000，超大值回退默认）；配额解析层百分比钳制（max(0.0, min(100.0, ...))——三层幂等收敛首层）；fdopen 异常路径关 fd（理论泄漏终结）；数值键白名单类型契约（\_NUMERIC_BASE_KEYS 25 键，type() is int 排 bool，字符串键导入期抛契约错误）；CLI limit 钳制 [1,10000]；\_UsageTask 复位统一 finally（异常路径不再残留标志）；subprocess CREATE_NO_WINDOW 三处（getattr 跨平台兜底，无控制台环境不闪黑窗）；notify 两模板键入契约（删键导入期报错）。
+清理（H3×3）：palettes 容器类型校验（裸 ValueError→契约 RuntimeError）；retry backoff 注释语义对齐（<1 递减退避也被归一 ≥1.0，以实现为准）；logger 注释措辞精确化。
+关键发现：坏模板导入期被占位符校验拦截——三级兜底链运行时近乎不可达（P24 记录）。
 
-### C3 P3 清理
+---
 
-- [x] C3.1 opencode_usage 缩进修正（opencode_usage.py:586-589）——参数行与闭括号缩进对齐；验证：v1010_3 行宽/格式断言
-- [x] C3.2 go_quota 说明区 60s 动态化（go_quota.py:308+481 两处）——"不足 60s" 改"不足 MIN_FETCH_INTERVAL 秒"；验证：grep 无 "60s" 字面量
-- [x] C3.3 main_window 说明区 VERSION 尾巴清理（main_window.py:950）——删括号内 VERSION 说明；验证：grep 说明区无 VERSION
-- [x] C3.4 main_window 说明区 PIE 归属修正（main_window.py:954-955）——PIE_START_ANGLE/FULL_CIRCLE_16 移出 ui.json 标注；验证：grep 说明区归属正确
-- [x] C3.5 system_tray build_app_title 归类修正（system_tray.py:102-103）——移入函数区；验证：说明区结构断言
-- 状态：✅ 完成（2026-08-13，验证：probe_9c3 5 项 + 全量回归 43/43；全部 edit 工具修改）｜优先级：低
+## 第十四轮审计整改完成（I 系列，2026-08-13 审计，2026-08-13 已实施，版本 ver 0.202）
 
-### C4 验证与收尾
+> 目标：5 条 P 级按三组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A014；结果：三组全部完成（探针 + 修复验收 11/11）
 
-- [x] C4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
-- 状态：✅ 完成（2026-08-13，验证：全量回归 43/43 + import + GUI offscreen；z.plan 附录 A009 标注已修复）｜优先级：高
+正确性（I0.1）：palettes 根容器类型前置校验（真实改根容器为 str 导入抛 RuntimeError——裸 AttributeError 终结，C0.6 .keys() 连带受益）。
+清理（I3×5）：G0.1 注释措辞与 H0.6 finally 实现对齐（"复位由 finally 保证"）；补发任务 run 链路行为探针（H0.6 验证盲区闭合——真实启动补发任务断言无 pending 挂起）；file_utils 说明区补 fdopen close 语义；豁免清单 fdopen 移入已修复记账；契约块说明区补 notify 两模板键。
+附带修复 verify_s6 历史欠账：D0.8 注入缺失的 \_reset_creds 定义（NameError）/缩进错误/4 处缓存串场。
 
-## D. 第10轮审计修复任务清单（依据 z.plan.md 附录 A010）
+---
 
-> 目标：P1 1 + P2 3 + P3 11 + 观察项提升 1（凭据探测 TTL）+ 大会战修复 5 条（A1-A5）共 21 条按五组整改；基线回归 43 个验证脚本
-> 执行原则：每项完成后运行对应验证；全部完成后全量回归；修复验证用独立数据快照（防自证陷阱）；**每批完成后加修复验收（反向验证，写入 .temp/verify_d{批}\_accept.py，防修复引入新缺陷）**
+## 第十五轮收尾审计整改完成（J 系列，2026-08-13 审计，2026-08-13 已实施，版本 ver 0.203）
 
-### D0 P0 正确性
+> 目标：4 条 P 级按三组整改；全量回归 43/43
+> 依据：z.plan.md 附录 A015；结果：三组全部完成（探针 3/3 含实测复现 + 修复验收 10/10）
 
-- [x] D0.1 pricing 字段名兼容（pricing.py:285，P1）——model_info.get("cost") or model_info.get("pricing")；验证：用真实 api.json 片段（cost 键 + 字符串/数字双形态）断言解析非空（禁用自证 mock）
-- [x] D0.2 status_messages 契约去自证（main_window.py:170）—— uple(STATUS_MESSAGES) 改显式 18 键元组（与 menu_labels 同式）；验证：删键配置断言导入期抛错
-- [x] D0.3 节流缓存不破坏预警去重（main.py:48-79）——缓存分支（is_cached）不复位 _notified_danger + 托盘按 overall_used_percent 更新而非置灰；验证：模拟缓存到达断言标志保持 + 不重复弹
-- [x] D0.4 刷新 in-flight 去重（go_quota.fetch_go_quota）——模块级进行中标志/锁，在途请求直接返回等待或缓存；验证：并发两次调用断言实际请求一次
-- [x] D0.5 模板占位符校验补全（main_window.py:212-240）——_TEMPLATE_PLACEHOLDERS 补 percent/value，_TEMPLATE_KEYS 并入 pie_remaining_template/detail_line_templates；验证：改坏占位符断言导入期抛错
-- [x] D0.6 usage_percent 钳制（main_window.py:922 + go_quota.py:360）——render 前 clamp 0-100、overall_used_percent 对称钳制；验证：负值/超百断言显示钳制值
-- [x] D0.7 notify_title 入契约 + 运行时防护（main.py:74 + main_window 契约）——契约组加 notify_title、main.py 74 行移入 try 链；验证：删键断言预警不逃逸
-- [x] D0.8 凭据探测 TTL（观察项提升）——find_dashboard_credentials 结果加短 TTL 缓存（如 30s），刷新不重复全量探测；验证：两次调用断言探测一次
-- [x] D0.9 解析空结果告警（pricing.py:298）——if not result: logger.warning(...) 与结构变更提示策略对齐；验证：空结果断言有 warning
-- [x] D0.10 save_state 降级（main.py _quit_app + main_window closeEvent）——保存失败仅 warning 继续退出流程；验证：mock write_json 抛 OSError 断言退出路径执行
-- [x] D0.11 estimate 查询加 LIMIT（opencode_usage _estimate_missing_costs，大会战 A1）——补 LIMIT 参数防大库拖死；验证：断言 SQL 含 LIMIT
-- [x] D0.12 write_json mkstemp 移入 try（file_utils，大会战 A2）——防 fd 泄漏边缘；验证：异常路径断言临时文件清理
-- [x] D0.13 --version 检查提前到 PyQt import 前（main.py，大会战 A3）——CLI 路径不加载 GUI 依赖；验证：--version 输出正常且不 import PyQt
-- [x] D0.14 go_quota html 局部变量改名（大会战 A4）——`html` → `html_text` 消除模块名遮蔽；验证：grep 无遮蔽
-- [x] D0.15 hidden_columns 脏 id 过滤（main_window _sorted_hidden_columns，大会战 A5）——保存点过滤不在 COLUMN_IDS 的 id；验证：脏 id 输入断言输出被过滤
-- 状态：✅ 已完成（2026-08-13：D0.1-D0.15 全部实施，探针 15/15 + 修复验收 18/18 + 全量回归 43/43；含 main.py 嵌套修复——D0.3 缓存判断归位错误路径，6A4/S8 回归同步）｜优先级：高
+正确性（J0×2）：parse_time_arg 相对时长上界钳制 min(amount, 100000) + except (ValueError, OverflowError) 双捕（999999999d 实测 OverflowError 逃逸终结——数值上界缺失家族第 3 例）；pricing 本地覆盖 key 归一（{k.lower(): v} 入口归一，canonical 小写索引一致——大小写写错覆盖静默失效终结，实测 FAIL→PASS）。
+清理（J3×2）：main.py 说明区常量段补 QUOTA_DANGER_PERCENT（同文件漏改模式第三次终结）；file_utils 补 get_project_root 函数条目；QSystemTrayIcon 导入条目补列。
+15 轮审计全部闭环。
 
-### D1 P1 去重
+## PL001 凭据指纹切换日志——多账户用量区分（依据 z.plan.md PL001 方案，2026-08-13 规划）
 
-- 无新增条目
-- 状态：— ｜优先级：—
+> 目标：账户切换自动记录时间点，启用后用量按账户时段切片统计；配额侧多凭据轮询看各账户余量
+> 决策（用户已确认）：全量实施（一二三）；日志存独立 data/credentials/switch_log.json；多凭据需要（今后两三个账号同时用）
+> 硬限制（文档明示）：启用前历史不可划分；程序未运行期间切换漏检（下次启动才检测）；新账户从首个检测点起算
 
-### D2 P2 配置化
+### 统计侧核心——凭据指纹切换日志
 
-- 无新增条目
-- 状态：— ｜优先级：—
+- [x] PL001.1 指纹计算与 switch_log.json 读写（2026-08-22 完成：探针 16/16 PASS）
+- [x] PL001.2 切换检测与去抖（2026-08-22 完成：A→B→A 两记录三区间断言 PASS）
+- [x] PL001.3 检测钩子接入（2026-08-22 完成：fetch 成功处 + 启动时，探针 5/5 PASS）
 
-### D3 P3 清理
+### 统计切片（消费侧）
 
-- [x] D3.1 HTTP_TIMEOUT 死代码 + 说明区失实（pricing.py:25/307/331）——删常量或显式传参统一；说明区补四级链路与关联配置键；验证：grep 无 HTTP_TIMEOUT 残留
-- [x] D3.2 说明区缺失/重复修正 4 处——main_window（_format_cost 描述、契约校验块补列、_on_quota_ready 合并）、themes（异常处理补 C0.6）、system_tray（导入函数补 themes 两符号）；验证：grep 各说明区关键字
-- 状态：✅ 已完成（2026-08-13：D3.1 删 pricing 死常量 + 说明区改四级链路（http_get timeout 回退单一来源）；D3.2 五处说明区修正；探针 13/13 + 全量回归 43/43；verify_v1010_3 同步删 pricing.HTTP_TIMEOUT 断言补 D3.1 语义）｜优先级：低
+- [x] PL001.4 _time_clause 账户时段过滤（2026-08-22 完成：内存库边界探针 8/8 PASS + s10 回归）
+- [x] PL001.5 GUI 账户时段选择器（2026-08-22 完成：offscreen 探针 15/15×2 零配置污染）
+- [x] PL001.6 CLI --account 与导出标注（2026-08-22 完成：探针 7/7 PASS + _ExportTask 连带）
 
-### D4 验证与收尾
+### 配额侧多凭据轮询
 
-- [x] D4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 文档同步（README/z.plan 状态标注/版本推进决策）
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + import 19 模块 + GUI offscreen；z.plan A010 附录状态更新为已修复；版本推进 ver 0.17——base.json/README 徽章/README 版本说明/x.progress 头部 4 处一致）｜优先级：高
+- [x] PL001.7 opencode-go.json 数组兼容（2026-08-22 完成：单对象/数组/追加不覆盖三断言 6/6 PASS）
+- [x] PL001.8 fetch_go_quota 循环轮询（2026-08-22 完成：mock 一好一坏 6/6 PASS；破坏性变更连带 main_window/main/go_quota.main 适配，全量回归涟漪 26 个脚本清零）
+- [x] PL001.9 GUI 配额区并列账户卡（2026-08-22 完成：offscreen 三账户探针 10/10 PASS；_set_status_style 孤儿删除）
 
-## E. 第11轮审计修复任务清单（依据 z.plan.md 附录 A011）
+### 验证收尾
 
-### E0 P0 正确性
+- [x] PL001.10 verify_pl001_accept 反向断言（2026-08-22 完成：六项 11/11 PASS）+ README 同步 + 版本定案 **ver 0.213**
 
-- [x] E0.1 C0.6 顺序契约修复（themes.py:117-125）——校验 tuple(palettes 键序) 与 THEME_NAMES 完全一致，否则导入期抛 RuntimeError；验证：真实改序 ui.json 导入断言抛错（probe_a011_c06 先 FAIL 后 PASS）
-- [x] E0.2 estimate LIMIT 补 ORDER BY（opencode_usage.py:463-465）——LIMIT 前加 ORDER BY time.created DESC（估算优先最新消息）；验证：断言 SQL 含 ORDER BY 且位置在 LIMIT 前
-- [x] E0.3 _on_column_toggle save_config 加 try（main_window.py:1000-1002）——与 D0.10 同式 try+warning 降级；验证：mock write_json 抛 OSError 断言槽函数不逃逸
-- [x] E0.4 min_ts=0 天数爆炸排查（opencode_usage.py:196-198，观察项提升）——确认 time.created=0 记录的过滤或告警（缺失形态已覆盖，补 0 值形态）；验证：构造 created=0 数据断言结果可控
-- 状态：✅ 已完成（2026-08-13：E0.1 键序完全一致校验（真实改序导入抛错）；E0.2 ORDER BY created DESC 先于 LIMIT；E0.3 列开关持久化降级 warning；E0.4 created=0 归零+告警。探针 4/4 + 修复验收 7/7 + 全量回归 43/43；测试资产同步：verify_6a4 版本断言 0.17、verify_v3a2 S3 days=0、verify_5a3 允许列表补 E0.3 文案）｜优先级：高
+## PL002 模型数据页 + 官方动态页签（依据 z.plan.md PL002 方案，2026-08-13 规划）
 
-### E1 P1 去重
+> 目标：数据页六区块（热门模型时序/Token 成本/缓存比/会话成本/国家分布/GitHub Releases）以新页签展示；UI 与功能三层分离
+> 架构：modules/opencode_data.py 零 Qt / ui/data_page.py 纯展示零解析 / main_window 装配最小侵入
+> 关键预研结论：go_quota._capture_object_body 仅支持单层对象（[^{}]* 不容嵌套），$R 数组引用链须新写独立展开器；异步对齐 QRunnable+signal+seq 模式
 
-- 无新增条目
-- 状态：— ｜优先级：—
+### PL002.1 配置外置与模块骨架（z.plan.md PL002.1）
 
-### E2 P2 配置化
+- [ ] PL002.1.a base.json 新增五键：data_url / gh_releases_api_url / gh_releases_rss_url / data_fetch_interval_sec(60) / data_cache_ttl_sec(300)
+- [ ] PL002.1.b modules/opencode_data.py 骨架：_SC 一次性解包 + DataPageError(category, message) 异常分类（network/decoding，对齐 GoQuotaError 模式）+ 文件尾 # ===== 说明区框架
+- [ ] PL002.1.c 验证：import modules.opencode_data 冒烟 + 常量断言（URL/间隔与 base.json 一致）
 
-- [x] E2.1 in-flight 提示文案外置（go_quota.py:391 + ui.json）——go_quota_error_messages 加 in_flight 键，代码改读 _SC.ui 键；验证：verify_6a3 同步断言新键存在
-- [x] E2.2 CREDS_CACHE_TTL 走 base.json（browser_creds.py:92，观察项提升）——常量改读 base.json 新键（credentials_ttl）；验证：grep 无硬编码 30.0 + 配置键有消费方
-- 状态：✅ 已完成（2026-08-13：E2.1 ui.json 加 in_flight 键 + 代码改读；E2.2 base.json 加 credentials_ttl=30 + 常量改读；护栏③文档同步：browser_creds 说明区 + README 配置表；探针 8/8 + 验收 16/16（含 E0 段）+ 全量回归 43/43；verify_6a3 补 in_flight 断言）｜优先级：高
+### PL002.2 节流缓存基础设施
 
-### E3 P3 清理
+- [ ] PL002.2.a _last_snapshot/_last_success_at 模块态 + _throttled_snapshot(force) 对齐 go_quota._throttled_cache:326 同式（窗口内返回标注缓存 is_cached）
+- [ ] PL002.2.b probe：注入时间断言窗口内返缓存/窗外重拉取（行为 mock 合规）
 
-- [x] E3.1 in-flight 分支删冗余调用（go_quota.py:386-388）——直返 _fallback，删重复 _throttled_cache；验证：grep 分支内无二次调用
-- [x] E3.2 嵌套闭包提为模块级函数（go_quota.py:127-137）——def add() 提为模块级私有函数（入参 seen/candidates）；验证：AST 扫描无 def 内 def
-- [x] E3.3 WIN32CRYPT/AES 缺失分支写空缓存（browser_creds.py:101-103）——与成功路径同式缓存；验证：mock 缺库断言缓存被写
-- [x] E3.4 main.py 说明区同步 D0.13（main.py:120-122）——main() 描述改"仅分发 run_gui()，--version 已顶层处理"；验证：grep 说明区关键字
-- [x] E3.5 network.py 说明区删 pricing 引用（network.py:45）——改"go_quota 的 HTTP_TIMEOUT；pricing 走默认回退"；验证：grep 无 pricing 字样
-- [x] E3.6 settings.py 说明区改写异常语义（settings.py:104）——补"写异常 re-raise 由调用方处理"；验证：grep 关键字
-- [x] E3.7 browser_creds 说明区补缓存符号（600-611）——补 _creds_cache/_creds_cache_at/CREDS_CACHE_TTL；验证：grep 三符号
-- [x] E3.8 pricing 关联配置补 retry 两键（pricing.py:342）——括号补 retry_count/retry_delay；验证：grep 两键
-- [x] E3.9 palette 值类型校验（themes.py:96-100，A010 遗留）——替换前 isinstance str 校验抛 RuntimeError；验证：改数字配置导入断言抛错
-- 状态：✅ 已完成（2026-08-13：E3.1 删冗余直返 _fallback；E3.2 _add_credential 模块级化；E3.3 缺库分支写空缓存；E3.4-E3.8 说明区 5 处同步 + go_quota 补 _add_credential 条目；E3.9 palette 值类型校验。探针 9/9 + 验收 26/26 + 全量回归 43/43）｜优先级：低
+### PL002.3 $R 引用展开器（z.plan.md PL002.2 前半）
 
-### E4 验证与收尾
+- [ ] PL002.3.a _extract_r_objects(body) -> dict[int, str]：正则提取全部 `$R[N]={...}` 单对象（实测 2135 个规模，嵌套大括号防御跳过畸形块）
+- [ ] PL002.3.b _parse_loose_object(text) -> dict：JS 对象字面量宽容解析（键无引号 model:"x"/数值/字符串/null）——轻量手写分词（顶层逗号拆分 + 首个冒号切键值 + 类型推断），禁 eval
+- [ ] PL002.3.c probe 结构样例独立性：真实页面片段快照断言解析字段齐全（禁止手写与实现同源 mock 自证）
 
-- [x] E4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_e_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——含三项防漏损强制（A011 分析结论，2026-08-13 定）：①同根因调用点全扫（grep 全部 write_json/save_config/写配置点，确认每个调用点都在异常防护内，不止 E0.3 目标一处）②说明区全量一致性扫描（本轮修改过的 themes/go_quota/browser_creds/opencode_usage/main_window 5 文件，说明区与实现 diff 逐行核对——含 E0.1/E0.2/E2.1/E2.2 修改处）③配置键文档同步检查（base.json 新键 → README 配置表/契约键集/说明区"关联配置"段三处一致；E2.1/E2.2 新增键必查）
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 26/26 + 冒烟；防漏损①全调用点防护闭环（exporter/go_quota 任务层与槽函数 try 已核实）；②说明区扫描补 4 处漂移（go_quota in_flight/opencode_usage ORDER BY+归零/browser_creds 缺库/main_window toggle 降级）；③credentials_ttl 三处一致；z.plan A011 状态已修复；版本推进 ver 0.18（base.json/README×2/x.progress/verify_6a4 五处一致））｜优先级：高
+### PL002.4 四数据块锚点提取（z.plan.md PL002.2 后半）
 
-## F. 第12轮审计修复任务清单（依据 z.plan.md 附录 A012）
+- [ ] PL002.4.a fetch_model_data()：`tokenCost:$R[N]=` 等四锚点正则定位根 ID → 数组引用链展开
+- [ ] PL002.4.b _expand_array_ref(array_text) -> list[dict]：`[$R[1868]={...},$R[1869]={...}]` 拆元素查表拼装
+- [ ] PL002.4.c 缺块容忍：锚点缺失返回部分结果 + errors 追加 decoding 警告，不抛异常中断
+- [ ] PL002.4.d probe：真实页面断言四块非空 + 字段齐全（model/total/input/output/cached/ratio/country/share 等）+ 行数量级合理
 
-### F0 P0 正确性
+### PL002.5 热门模型时序解析（z.plan.md PL002.3）
 
-- [x] F0.1 go_quota_error_messages 契约组（main_window.py:150-223 契约块 + go_quota.py:406/416）——_UI_STRUCT_KEYS 补 `("go_quota_error_messages", ("no_credentials","in_flight"), GO_QUOTA_ERROR_MESSAGES)` 组（含模块级解包与消费方同步）；验证：真实删 in_flight 键导入断言抛错（probe_a012_contract 先 FAIL 后 PASS）
-- [x] F0.2 refresh 连点排队排查（main_window.py:759-767，观察项提升）——确认 _UsageTask 排队上限或 in-flight 去重（QThreadPool 有界 + 序号丢弃是否足够）；验证：并发调用断言任务不叠加（需验证后定案）
-- [x] F0.3 UsageRow 契约校验（opencode_usage.py UsageRow + main_window.py:1015-1026，观察项提升）——dataclass 字段显式键集与 _render_table 消费属性比对（防字段改名 AttributeError 逃逸 Qt 槽）；验证：删字段断言导入/渲染抛契约错误
-- 状态：✅ 已完成（2026-08-13：F0.1 契约组补 no_credentials/in_flight 两键（真实删键导入抛错）；F0.2 refresh 入口 in-flight 去重 + _UsageTask.run 提前复位 + _on_usage_ready pending 补发（行为验证：在途不叠加/pending 复位）；F0.3 TokenStats/UsageRow 显式字段键集契约（与 dataclass 字段比对，不一致导入期抛错）。探针 5/5 + 验收 10/10 + 全量回归 43/43；verify_s11 抓出 F0.2 的 global 声明插注释前违规并已修正）｜优先级：高
+- [ ] PL002.5.a parse_daily_usage(body)：top-models-bar 的 aria-label 提取（`JUN 29 3.2T 总计` → 日期+总量 T 浮点）
+- [ ] PL002.5.b stack 分段配对：grid-template-rows 百分比序列 × data-model 名单按序 zip → models dict
+- [ ] PL002.5.c 月份缩写映射排序（JAN=1…DEC=12）保证时序升序
+- [ ] PL002.5.d probe：真实页面断言条数 ≥7 + 日期升序 + 各 bar 百分比和≈100%（容差 1%）
 
-### F1 P1 去重
+### PL002.6 GitHub Releases 拉取（z.plan.md PL002.4）
 
-- 无新增条目
-- 状态：— ｜优先级：—
+- [ ] PL002.6.a _fetch_releases_json()：api.github.com releases?per_page=5（User-Agent 头必须）→ 最新 3 条 {tag_name, published_at, body}
+- [ ] PL002.6.b _fetch_releases_rss() 回退：releases.atom entry 解析 title/updated/content（xml.etree 命名空间）
+- [ ] PL002.6.c fetch_github_releases(force)：JSON 优先异常回退 RSS；接入 _throttled_snapshot 节流
+- [ ] PL002.6.d probe：mock http_get 抛错断言 RSS 回退（行为 mock）+ 真实拉取断言 tag_name 匹配 v\d+ 格式
 
-### F2 P2 配置化
+### PL002.7 快照聚合入口（数据层收口）
 
-- 无新增条目
-- 状态：— ｜优先级：—
+- [ ] PL002.7.a ModelDataSnapshot dataclass：model_blocks/daily_usage/releases/is_cached/fetched_at/errors
+- [ ] PL002.7.b refresh_data_page(force)：三源独立 try 互不拖垮；整体失败保留上次快照标 is_cached（缓存兜底策略）
+- [ ] PL002.7.c probe：mock 两源失败一源成功断言部分快照可用
 
-### F3 P3 清理
+### PL002.8 DataPage widget 骨架（z.plan.md PL002.5 前半）
 
-- [x] F3.1 main.py:19 删未用 VERSION import（D0.13 残留，E3.4 同根因漏改）——import 改 `from utils.logger import APP_NAME, get_logger`；验证：grep main.py 函数体无 VERSION 引用
-- [x] F3.2 main.py:132 说明区补 notify_message_fallback（main.py 不在 E4 扫描范围漏网）——关联配置段补列；验证：grep 关键字
-- [x] F3.3 pricing.py:321-337 说明区补 _price_line/_rate_from_raw 两函数——函数段补两条（count/1e6*price 与弹性构建语义）；验证：grep 两符号
-- [x] F3.4 themes.py:170-171 说明区同步 E0.1 键序语义——补"且顺序必须与 palettes 键序完全一致"；验证：grep 关键字
-- 状态：✅ 已完成（2026-08-13：F3.1 删 VERSION import（同步 4 个测试资产 verify_s1/s9/s12/s14 改读 utils.logger 单点——main.VERSION 模块属性消费面确认仅测试资产）；F3.2 补 fallback 键；F3.3 补两函数；F3.4 键序语义。探针 5/5 + 验收 15/15 + 全量回归 43/43）｜优先级：低
+- [ ] PL002.8.a ui/data_page.py：QWidget + QVBoxLayout + QScrollArea；objectName="dataPage" 系列命名供 QSS（P25 拟物化取舍点集中此处）
+- [ ] PL002.8.b Releases 卡片区：版本号粗体 + 发布日期 + 正文只读展示
+- [ ] PL002.8.c 五表格区：时序表（日期/总 tokens(T)/Top 模型占比）+ 四数据表（列头常量显式声明 + 导入期校验，对齐 P23 契约层惯例）
 
-### F4 验证与收尾
+### PL002.9 渲染入口与占位（z.plan.md PL002.5 后半）
 
-- [x] F4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_f_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——防漏损延续：①同根因调用点全扫（契约组新增后 go_quota 消费方与契约键集交叉核对）②说明区全量一致性扫描扩展（覆盖 main.py/pricing/themes + 上轮 5 文件，含 F3 修改处）③配置键文档同步检查（无新增键，核对 E 系列键无漂移）
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 15/15 + 冒烟；防漏损①消费组×契约块交叉（go_quota_error_messages/quota_window_labels 全在契约块）；②说明区扩展扫描补 3 处漂移（main_window 契约组/_usage 标志、opencode_usage 字段契约键集——F0 三修复的说明区同步漏网）；③E 系列键无漂移（credentials_ttl 单点定义/消费、README 徽章==base.json）；z.plan A012 状态已修复；E4 残留状态行清理；版本推进 ver 0.19（五处一致））｜优先级：高
+- [ ] PL002.9.a set_releases/set_daily_usage/set_model_data 三纯渲染方法（快照结构直接灌入零解析）
+- [ ] PL002.9.b 空数据占位文案（"尚未获取/暂无数据"）
+- [ ] PL002.9.c probe：offscreen 构造断言零网络调用 + mock 快照灌入行列数正确
 
-## G. 第13轮审计修复任务清单（依据 z.plan.md 附录 A013）
+### PL002.10 懒加载后台任务（z.plan.md PL002.5 尾）
 
-### G0 P0 正确性
+- [ ] PL002.10.a needs_load 标志：首次 showEvent 置位触发
+- [ ] PL002.10.b _DataPageTask(QRunnable) + _DataSignals(data_ready/error) 对齐 main_window 异步模式（seq 防竞态）
+- [ ] PL002.10.c probe：offscreen show 多次断言仅首次拉取（幂等）
 
-- [x] G0.1 F0.2 pending 丢弃路径修复（main_window.py:817-819/833-835）——seq 不匹配分支 return 前消费 pending（用最新 _refresh_seq 启动补发，与渲染路径同逻辑；抽公共方法防双路径漂移）；验证：probe_a013_f02 连点场景断言 pending 被清空 + 补发一次（先 FAIL 后 PASS）
-- [x] G0.2 UsageSummary 字段契约（opencode_usage.py:120-133，观察项提升）——与 F0.3 同机制补 _USAGE_SUMMARY_FIELDS 显式键集比对（sessions/messages/days/tokens/recorded_cost 等 10 字段）；验证：键集与实际字段一致 + 消费方（main_window/exporter/CLI）属性全命中
-- 状态：✅ 已完成（2026-08-13：G0.1 _consume_pending 公共方法（过期丢弃/渲染两路径共用，无 pending 不补发防多余查询）；G0.2 _USAGE_SUMMARY_FIELDS 10 字段契约（类定义后比对，消费方全命中）。探针 3/3（行为验证：过期路径 pending 清空 + 补发最新序号）+ 验收 9/9 + 全量回归 43/43）｜优先级：高
+### PL002.11 QTabWidget 改造（z.plan.md PL002.6）
 
-### G1 P1 去重
+- [ ] PL002.11.a _build_ui：central 改 QTabWidget，「用量监控」页容器承载现有卡片区/配额区/明细区（只换父容器逻辑不动）
+- [ ] PL002.11.b 「数据与动态」挂 DataPage；currentChanged 首次切换触发拉取
+- [ ] PL002.11.c 主刷新定时器隔离：_refresh_timer 仅驱动原 refresh()，不触达 DataPage
+- [ ] PL002.11.d probe：offscreen 双页切换断言 + DataPage 拉取计数 == 1
 
-- 无新增条目
-- 状态：— ｜优先级：—
+### PL002.12 验证收尾（z.plan.md PL002.7）
 
-### G2 P2 配置化
+- [ ] PL002.12.a verify_pl002_accept 反向断言：$R 坏 JSON 容忍（截断 body 不崩）/缺块部分返回/懒加载幂等/RSS 回退生效/节流窗口命中
+- [ ] PL002.12.b 全量回归 43 脚本 + GUI offscreen 双页冒烟
+- [ ] PL002.12.c README 功能段同步 + y.problem P20 标注已实施 + z.plan PL002 状态更新
+- [ ] PL002.12.d 版本推进决策（待用户确认 ver 0.204）
 
-- 无新增条目
-- 状态：— ｜优先级：—
+## PL003 UI 整体重构：四主题注册制 + 拟物化扩展（依据 z.plan.md PL003 方案，2026-08-22 规划）
 
-### G3 P3 清理
+> 目标：主题注册制泛化（light/dark 保留 + console 终端控制台/panel 工业面板新增）+ 下拉切换即持久化 + 列元数据外置（P23 收尾）
+> 已拍板（2026-08-22）：四主题皆做/命名 console·panel/下拉切换切完即存/配额阈值行为不变仅颜色随主题
+> 硬限制：QSS 无 box-shadow 用双描边模拟立体；配色神似不逐像素；QProgressBar::chunk 无法分段（首版退化普通圆角条，M3b 自绘可选追加不阻塞）
 
-- [x] G3.1 pricing 说明区失实修正（pricing.py:327/329）——_price_line 改"price 为 None 计 0"、_rate_from_raw 改"input/output 按 0、cache 缺省 None 按无折扣"；验证：grep 关键字精确匹配
-- [x] G3.2 main.py 说明区 VERSION 段改写（main.py:115-116）——删"模块级常量 VERSION"条目，改为"VERSION 由 utils.logger 单点导出（R4），main 仅 --version 分支局部 import（D0.13）"；验证：grep 无"模块级常量 VERSION"字样
-- [x] G3.3 main.py 说明区补列（main.py:113-117）——模块级常量段补 _SC（静态配置解包）/ _notified_danger（预警去重标志）；验证：grep 两符号
-- [x] G3.4 main_window 说明区两处同步（main_window.py:1151/1178）——refresh 行补"in_flight 时仅置 pending 并只启动配额任务"；关联配置 VERSION 改"utils.logger"；验证：grep 关键字
-- 状态：✅ 已完成（2026-08-13：G3.1 主语修正（price 为 None 计 0）+ cache 缺省精确；G3.2 VERSION 条目改写为单点导出说明（同根因 F3.1 漏改第三次终结）；G3.3 补 _SC/_notified_danger；G3.4 refresh 行 pending 描述 + 关联配置 VERSION 改 utils.logger。探针 7/7 + 验收 15/15 + 全量回归 43/43）｜优先级：低
+### PL003.1 主题注册制泛化（先行，视觉零变化）
 
-### G4 验证与收尾
+- [ ] PL003.1.a themes.py 删硬编码双主题段（_LIGHT/_DARK_PALETTE:94-95、LIGHT/DARK_THEME:124-125、LIGHT/DARK_THEME_NAME:148-149 四常量）→ 泛化遍历 palettes 全键导入期构建 `_THEME_QSS: dict[str, str]` + `DEFAULT_THEME_NAME = THEME_NAMES[0]`
+- [ ] PL003.1.b A3.5/C0.6 校验泛化保留：逐主题占位符残留检测 + palettes 键集==THEME_NAMES 严格相等（天然兼容 N 键）
+- [ ] PL003.1.c get_theme(name) 改字典查找 + 未知名回退 DEFAULT_THEME_NAME（消除"第三主题静默错位"豁免项）
+- [ ] PL003.1.d 配额窗口内动态色迁 palette：quota_chunk 三档/quota_gray/pie_bg/pie_text 进各 palette 节 + 导入期必含显式契约校验（不走 QSS 占位符，残留检测兜不住）；quota_chunk_color(percent) → (percent, theme_name)，连带 main_window:441/1006 两调用点
+- [ ] PL003.1.e ui.json 顶层 colors 节瘦身为纯托盘色节（QUOTA_OK/GRAY/pie_dot 与窗口主题无关）——system_tray:15-16 消费方式基本不动
+- [ ] PL003.1.f main_window._is_dark 布尔 → _theme_name 字符串（:625/:810/:818 三处 + :63 import 连带）；_apply_theme/save_state 同步改造；settings.py 零改动（白名单+回退已支持 N 主题，外置红利兑现）
+- [ ] PL003.1.g 验证：offscreen init 视觉零变化（light/dark 渲染不变）+ 全量回归 43 脚本
 
-- [x] G4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_g_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态 + 版本推进决策）——防漏损延续：①探针补"说明区无残留字样"反向断言（A013 教训：F3.1 漏改三次同根因，grep 存在性检查抓不到说明区失实）②说明区语义准确性扫描（非仅符号存在——P2 教训）③契约扩展后消费方交叉核对（G0.2 新增键集 vs main_window/exporter/CLI）
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 15/15 + 冒烟；防漏损①说明区无残留字样 4 处全过（F3.1 漏改三次终结）；②语义准确性扫描 4 处（_price_line/_rate_from_raw 说明与实现一致）；③契约消费方交叉（main_window/exporter/CLI 属性全命中，排除 row.addWidget/summary.csv 误匹配）；z.plan A013 状态已修复；版本推进 ver 0.20（五处一致））｜优先级：高
+### PL003.2 切换交互：按钮改下拉
 
-## H. 豁免清理批次（依据 2026-08-13 豁免盘点报告——8 条零风险项，4 条验证项待用户决策）
+- [ ] PL003.2.a 删 _theme_button/toggle_theme（:749-750/:768/:808）；明细区新增主题 QComboBox（维度下拉 combo_* 样式复用）
+- [ ] PL003.2.b ui.json 新增 theme_labels 显示名映射（浅色/深色/终端/面板）+ 导入期键集与 themes 数组一致校验（C0.6 同机制防错位）
+- [ ] PL003.2.c currentTextChanged → 应用 → 立即 save_config（常驻托盘长期不关，切完即存防丢）；启动恢复 blockSignals 防回环
+- [ ] PL003.2.d 连带修复：进度条 chunk 动态色切主题后统一重着色（现状 toggle 即有残留旧主题色问题）
+- [ ] PL003.2.e 验证：offscreen 切换断言 QSS 变化 + 持久化落盘 + 回归
 
-> 背景：56 条豁免定案清单盘点后，13 条低成本可修项中 8 条判定零/极低风险（修复不产生新问题，或新问题可被既有回归体系捕获）——一次性修完共享全量回归成本；4 条需验证项已完成行为验证，结果供用户决策后另行排期
+### PL003.3 双新主题包数据落地（console + panel）
 
-### H0 P0 正确性
+- [ ] PL003.3.a _QSS_TEMPLATE 新增 {font_family} 占位符；light/dark 补 Segoe UI、console/panel 补 Consolas 族（占位符残留检测自动强制旧 palette 补齐，机制兜底）
+- [ ] PL003.3.b console palette：近黑底 #0a0e14 族 / 卡片深底 + 强调色描边 / 绿磷光文字 / 等宽字体；qlineargradient 表达式直接作 palette 值（无需模板变体）
+- [ ] PL003.3.c panel palette：米灰绿底 / 近黑文字细线描边 / 胶囊大圆角极简线框
+- [ ] PL003.3.d 能力边界落地：分段进度条首版退化普通圆角条（M3b 自绘可选追加单独评估不阻塞）；panel 圆形进度环复用 QPainter 饼图换色对齐
+- [ ] PL003.3.e 截图对照参考图目检（标准：风格气质到位非逐像素复刻；读图核对需切换多模态模型）
 
-- [x] H0.1 refresh_interval_ms 加上限（settings.py:17-27 + base.json）——base.json 加 max_refresh_interval_ms（3600000），from_dict 区间校验（下限 ≤ x ≤ 上限）；验证：超大值配置断言回退默认
-- [x] H0.2 _parse_window 解析处钳制（go_quota.py:276-280）——percent = max(0.0, min(100.0, percent))；验证：构造 -5%/120% 断言钳制值
-- [x] H0.3 file_utils fdopen 理论泄漏（file_utils.py:45-49）——fdopen 失败时 os.close(fd)（OSError 吞掉，E5 同式）；验证：mock fdopen 抛错断言 fd 被关
-- [x] H0.4 数值键类型契约（static_config.py）——_NUMERIC_BASE_KEYS 白名单校验（23 键，type() is int 排除 bool）；验证：字符串数值键断言抛契约错误
-- [x] H0.5 CLI --limit 钳制（opencode_usage.py:590）——args.limit = max(1, min(args.limit, 10000))；验证：-5/超大值断言钳制
-- [x] H0.6 _UsageTask 复位统一 finally（main_window.py _UsageTask.run，验证 4 已通过）——双分支手动复位改 finally 单点（与 go_quota 同式；_consume_pending 只读 pending 不读 in_flight，时序兼容已验证）；验证：连点 + 异常场景探针断言复位
-- [x] H0.7 subprocess 加 CREATE_NO_WINDOW（opencode_usage.py:138 + browser_creds.py:318/589，验证 2 已通过）——creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) 三处；验证：getattr 兜底 + 三处调用点断言
-- [x] H0.8 notify 两模板键入契约（main_window.py:228-230 后，选项 B 定案）——for 循环校验 notify_message_template/notify_message_fallback 存在，删键导入期抛 RuntimeError；三级链逻辑不动（except 全类型保留）；验证：真实删键导入抛错 + 坏模板导入期被占位符校验拦截（验收新发现：三级链运行时近乎不可达，P24 已记录）
-- 状态：✅ 已完成（2026-08-13：H0.1-H0.8 全部实施；探针 10/10 + 验收 17/17 + 全量回归 43/43；关键发现：坏模板导入期被占位符校验拦截（C0.8 机制），三级链运行时近乎不可达——P24 新增证据，强化选项 X 论据）｜优先级：中
+### PL003.4 列元数据外置（P23 关联收尾）
 
-### H1 P1 去重
+- [ ] PL003.4.a ui.json table_headers 升级 `"table_columns": [{id, title, width?, visible?}]`，数组顺序即展示顺序
+- [ ] PL003.4.b TABLE_HEADERS 从 title 派生单源化（删除平行数组防错位）；COLUMN_IDS 保持代码内显式声明（P23 契约定案不推翻——键名仍在代码）
+- [ ] PL003.4.c 导入期校验 columns id 集合与 COLUMN_IDS 严格相等；hidden_columns 用户持久化语义不变（运行时覆盖默认 visible）；width 缺省走 Qt 默认
+- [ ] PL003.4.d 验证：全量回归
 
-- 无新增条目
-- 状态：— ｜优先级：—
+### PL003.5 收尾
 
-### H2 P2 配置化
-
-- 无新增条目
-- 状态：— ｜优先级：—
-
-### H3 P3 清理
-
-- [x] H3.1 palettes 容器类型校验（themes.py:80-81）——isinstance dict 校验抛 RuntimeError（E3.9 同式）；验证：改容器为 str 导入断言抛契约错误
-- [x] H3.2 retry backoff 注释对齐（retry.py:24-28，方向 a 纯注释）——注释修正为"<1 递减退避也被归一为 ≥1.0"；验证：grep 注释关键字
-- [x] H3.3 logger 注释措辞（logger.py:15/79）——改"main（--version 分支）/main_window（经 build_app_title）消费"；验证：grep 关键字
-- 状态：✅ 已完成（2026-08-13：H3.1 palettes 容器 dict 校验（真实改容器导入抛 RuntimeError，原裸 ValueError）；H3.2 retry 注释语义对齐（<1 也被归一，以实现为准）；H3.3 logger 注释措辞（两处）。探针 3/3 + 验收 20/20 + 全量回归 43/43）｜优先级：低
-
-### H4 验证与收尾
-
-- [x] H4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_h_accept 反向断言）+ 文档同步（README/z.plan/x.progress 状态）——防漏损延续：①base.json 新键（H0.1/H0.4）文档三处同步 ②说明区无残留字样 + 语义准确性扫描（H 系列修改文件）③配置键消费方交叉
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 20/20 + 冒烟；防漏损①补 4 处文档漂移（README 配置表 max_refresh_interval_ms、settings 说明区 MAX、static_config 说明区数值键契约、白名单补 window_width/height——H0.4 原 23 键白名单遗漏两键）；②说明区 12 项全过；③白名单 25 键与消费清单一致、无孤儿键；版本推进 ver 0.201（2026-08-13 起审计只提升第三位数字，五处一致））｜优先级：中
-
-## I. 第14轮审计修复任务清单（依据 z.plan.md 附录 A014）
-
-### I0 P0 正确性
-
-- [x] I0.1 palettes 根容器类型校验（themes.py:83，H3.1 不完整）——循环前加 `if not isinstance(_SC.ui["palettes"], dict): raise RuntimeError(...)`（C0.6 .keys() 连带受益）；验证：真实改根容器为 str 导入断言抛契约错误
-- 状态：✅ 已完成（2026-08-13：I0.1 根容器前置校验（真实改 str/list 导入抛 RuntimeError，原裸 AttributeError 终结；C0.6 .keys() 连带受益）。探针 1/1 + 验收 4/4 + 全量回归 43/43）｜优先级：高
-
-### I1 P1 去重
-
-- 无新增条目
-- 状态：— ｜优先级：—
-
-### I2 P2 配置化
-
-- 无新增条目
-- 状态：— ｜优先级：—
-
-### I3 P3 清理
-
-- [x] I3.1 G0.1 注释同步（main_window.py:842/846）——"run 已提前复位在途标志"改"复位由 finally 保证（H0.6），槽内判定安全依赖队列连接时序"；验证：grep 无旧措辞
-- [x] I3.2 补发任务 run 链路行为探针（H0.6 验证盲区）——真实启动补发任务（不 mock _pool.start）断言 run 入口 in_flight 检查在 finally 复位后为 False；验证：probe 断言无 pending 挂起
-- [x] I3.3 file_utils 说明区补 fdopen（H0.3 文档遗漏）——异常处理段补"fdopen 失败时 os.close(fd)（OSError 吞掉）再清理临时文件"；验证：grep 关键字
-- [x] I3.4 豁免清单 fdopen 移入已修复记账（z.plan.md:320，H 批次收尾遗漏）——② 条件豁免段删除该条，① 已修复记账段补"H0.3 fdopen 泄漏"；验证：grep 两段状态一致
-- [x] I3.5 main_window 契约块说明区补 notify 两键（main_window.py:1136，H0.8 文档同步）——契约校验块描述补 "notify_message_template/notify_message_fallback（H0.8）"；验证：grep 关键字
-- 状态：✅ 已完成（2026-08-13：I3.1 注释措辞修正（finally 保证语义）；I3.2 行为探针 3/3（补发任务真实执行、pending 复位、run finally 复位——H0.6 验证盲区闭合）；I3.3 说明区补 fdopen；I3.4 记账迁移；I3.5 契约块说明区补列。探针 6/6 + 验收 11/11 + 全量回归 43/43（含测试资产修复：verify_s6 历史欠账——D0.8 注入缺失的 _reset_creds 定义与缩进、4 处缓存串场补齐；verify_s5 循环内时序误报单跑通过））｜优先级：低
-
-### I4 验证与收尾
-
-- [x] I4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_i_accept 反向断言）+ 文档同步（x.progress 状态 + 版本推进 ver 0.202）——防漏损延续：①新增契约/校验块必进说明区（A014 教训：扫描盲区）②说明区无残留字样 + 语义扫描（I 系列修改文件）③豁免清单状态一致性核对
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43（s5 单跑 exit=0，循环内时序误报已知）+ 验收 11/11 + 冒烟；防漏损①契约/校验块×5 说明区交叉全过（A014 教训落地）；②说明区无残留 + 语义 4 项；③豁免清单一致性（fdopen 记账迁移、A014 附录、I 系列标题）；z.plan A014 状态已修复；版本推进 ver 0.202（五处一致））｜优先级：高
-
-## J. 第15轮收尾审计修复任务清单（依据 z.plan.md 附录 A015）
-
-### J0 P0 正确性
-
-- [x] J0.1 parse_time_arg 相对时长上界（opencode_usage.py:551-563，数值上界缺失家族第 3 例）——amount 钳制（min(amount, 100000) 与 H0.5 同模式）+ except 补 OverflowError 双保险；验证：999999999d 构造断言不逃逸
-- [x] J0.2 pricing 本地覆盖 key 归一（pricing.py:252-257，B4 定案盲区）——_apply_local_overrides 对 local 来源 key.lower()（与内置表/canonical 索引一致）；验证：大小写不匹配覆盖断言生效（实测 FAIL→PASS）
-- 状态：✅ 已完成（2026-08-13：J0.1 源头钳制 min(amount, 100000)（999999999d 实测不再逃逸）+ main 解析 except 双捕 (ValueError, OverflowError)；J0.2 _apply_local_overrides local 入口 {k.lower(): v} 归一（大写 key 覆盖生效、小写幂等、非 dict 宽容——三断言全过）。探针 3/3（含 OverflowError/覆盖失效实测复现）+ 验收 7/7 + 全量回归 43/43）｜优先级：高
-
-### J1 P1 去重
-
-- 无新增条目
-- 状态：— ｜优先级：—
-
-### J2 P2 配置化
-
-- 无新增条目
-- 状态：— ｜优先级：—
-
-### J3 P3 清理
-
-- [x] J3.1 main.py 说明区补 QUOTA_DANGER_PERCENT（A013 G3.3 同文件漏改模式第三次终结）——模块级常量段补列（ui/themes.py 导出，ui.json quota_danger_percent 驱动）；验证：grep 关键字
-- [x] J3.2 file_utils 说明区补 get_project_root 函数条目（AGENTS.md"涵盖所有函数"硬性要求）——补独立条目（输入/输出/逻辑/异常）；验证：grep 关键字
-- 状态：✅ 已完成（2026-08-13：J3.1 main 常量段补 QUOTA_DANGER_PERCENT（A013 同文件漏改模式第三次终结）；J3.2 file_utils 补 get_project_root 独立条目（输入/输出/逻辑/异常四要素）。探针 2/2 + 验收 10/10 + 全量回归 43/43）｜优先级：低
-
-### J4 验证与收尾
-
-- [x] J4.1 全量回归 43 个验证脚本零失败 + GUI offscreen + 修复验收（verify_j_accept 反向断言）+ 文档同步（x.progress 状态 + 版本推进 ver 0.203）——防漏损延续：①顶层 import 常量与说明区覆盖率核对（A015 教训：main.py 漏导入常量——可扩展 verify 脚本自动比对）②说明区无残留 + 语义扫描（J 系列修改文件）③豁免清单状态一致性（⑤ 段记录核对）
-- 状态：✅ 已完成（2026-08-13：全量回归 43/43 + 验收 10/10 + 冒烟；防漏损①顶层 import×4 与说明区覆盖率核对（A015 教训落地：抓出并补 QSystemTrayIcon 条目）；②说明区无残留 + 语义 4 项；③豁免清单一致性（A015 附录/⑤ 段/J 系列标题）；z.plan A015 状态已修复；版本推进 ver 0.203（五处一致）——J 系列为第 15 轮收尾轮，全部闭环）｜优先级：高
+- [ ] PL003.5.a .temp/verify_pl003_theme.py 反向断言：_THEME_QSS 键集==THEME_NAMES / get_theme 未知名回退默认 / quota 三档随主题取色 / theme_labels 与 table_columns 契约校验可触发
+- [ ] PL003.5.b README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步
+- [ ] PL003.5.c 版本推进决策

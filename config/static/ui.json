@@ -30,7 +30,6 @@
   "notify_duration_ms": 5000,
   "notify_title": "OpenCode Go 配额预警",
   "notify_message_template": "最紧窗口已使用 {used}%，剩余 {remaining}%",
-  "notify_message_fallback": "配额已使用 {used}%，剩余 {remaining}%",
   "pie_size": 56,
   "pie_font_size": 7.5,
   "layout_margins": [16, 12, 16, 8],
@@ -64,7 +63,11 @@
     "cost": "总费用"
   },
   "quota_section_title": "OpenCode Go 配额",
+  "quota_account_title_template": "账户 {workspace}",
   "detail_section_title": "用量明细",
+  "account_filter_all_label": "全部账户",
+  "account_combo_template": "{workspace}·{date}",
+  "account_label_date_format": "%m-%d",
   "button_labels": {
     "refresh": "刷新",
     "export": "导出",

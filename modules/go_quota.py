@@ -12,7 +12,7 @@ from typing import Any
 
 from config.static.static_config import get_static_config
 from modules import browser_creds, credential_store
-from utils.file_utils import get_project_root, write_json
+from utils.file_utils import get_project_root, read_json, write_json
 from utils.logger import get_logger
 from utils.network import RETRY_NETWORK_ERRORS, http_get
 from utils.retry import retry_call
@@ -46,6 +46,8 @@ AUTH_COOKIE_FIELDS = (
 OAUTH_REDIRECT_MARKER = "<title>OpenAuth"
 # dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
 CREDENTIALS_FILE = get_project_root() / _SC.base["credentials_dir"] / "opencode-go.json"
+# 账户切换日志文件（PL001：与凭据文件同目录，credentials_dir 驱动）
+SWITCH_LOG_FILE = CREDENTIALS_FILE.parent / credential_store.SWITCH_LOG_FILENAME
 # 窗口键映射：GoQuotaInfo 字段名 → dashboard HTML 窗口键（解析与组装共用；
 # 字段名与 ui.json quota_window_labels 的 key 对齐，CLI 文案直接复用，5A.2 R2）
 QUOTA_WINDOW_KEYS = {
@@ -59,21 +61,55 @@ ERROR_STAGE_AUTH = "auth"
 ERROR_STAGE_NETWORK = "network"
 ERROR_STAGE_PROVIDER = "provider"
 
-# 模块级缓存：上次成功结果与时间戳（网络失败兜底用，z.plan 第四章缓存兜底策略）
-_last_quota: "GoQuotaInfo | None" = None
+# 模块级缓存：上次成功结果与时间戳（网络失败兜底用，z.plan 第四章缓存兜底策略；
+# PL001.8 起为多账户列表）
+_last_quotas: list["GoQuotaInfo"] = []
 _last_success_at: float = 0.0
 
 
 def save_dashboard_credentials(workspace_id: str, auth_cookie: str) -> None:
-    # 保存 dashboard 凭据到配置文件（DPAPI 加密写入，P4；win32crypt 缺失拒绝明文写入）
-    write_json(
-        CREDENTIALS_FILE,
-        {
-            credential_store.ENCRYPTED_KEY: credential_store.encrypt_credentials(
-                workspace_id, auth_cookie
-            )
-        },
-    )
+    # 保存 dashboard 凭据到配置文件（DPAPI 加密写入，P4）：多账户数组格式（PL001.7）——
+    # 同 workspaceId 覆盖更新该条、异 workspaceId 追加；旧单对象文件首次写入升级为数组
+    new_entry = {
+        credential_store.ENCRYPTED_KEY: credential_store.encrypt_credentials(
+            workspace_id, auth_cookie
+        )
+    }
+    raw = read_json(CREDENTIALS_FILE, default=None, use_cache=False)
+    if isinstance(raw, dict) and credential_store.ENCRYPTED_KEY in raw:
+        entries: list[dict[str, Any]] = [raw]
+    elif isinstance(raw, list):
+        entries = [item for item in raw if isinstance(item, dict)]
+    else:
+        entries = []
+    replaced = False
+    for index, item in enumerate(entries):
+        old_text = item.get(credential_store.ENCRYPTED_KEY)
+        if not isinstance(old_text, str):
+            continue
+        old_raw = credential_store.decrypt_credentials(old_text)
+        if (
+            old_raw is not None
+            and str(old_raw.get(credential_store.WORKSPACE_ID_KEY, "")) == workspace_id
+        ):
+            entries[index] = new_entry
+            replaced = True
+            break
+    if not replaced:
+        entries.append(new_entry)
+    write_json(CREDENTIALS_FILE, entries)
+
+
+def record_credential_switch() -> bool:
+    # 账户切换检测钩子（PL001.3）：fetch 刷新成功后与程序启动时各调一次；
+    # 任何失败仅 debug 日志不影响主流程（非核心子系统错误策略）
+    try:
+        return credential_store.detect_credential_switch(
+            CREDENTIALS_FILE, SWITCH_LOG_FILE
+        )
+    except Exception as exc:
+        logger.debug("账户切换检测失败（不影响主流程）：%s", exc)
+        return False
 
 
 @dataclass
@@ -100,6 +136,9 @@ class GoQuotaInfo:
     overall_used_percent: int = 0
     remaining_percent: int = 0
     credential_source: str = ""
+    # PL001.8：多账户轮询标注（指纹与 workspace 标识，UI 卡片标题/切换日志匹配用）
+    fingerprint: str = ""
+    workspace_id: str = ""
     fetched_at: datetime | None = None
     is_cached: bool = False
     error: str | None = None
@@ -149,16 +188,15 @@ def find_dashboard_credentials() -> list[DashboardCredentials]:
     if env_workspace and env_cookie:
         _add_credential(candidates, seen, env_workspace, env_cookie, "Environment")
     for path in _dashboard_config_paths():
-        raw = credential_store.read_credentials_file(path)
-        if raw is None:
-            continue
-        _add_credential(
-            candidates,
-            seen,
-            _first_value(raw, WORKSPACE_ID_FIELDS),
-            _first_value(raw, AUTH_COOKIE_FIELDS),
-            str(path),
-        )
+        # PL001.7：read_credentials_file 返回 list[dict]（单对象/数组统一规范化）
+        for raw in credential_store.read_credentials_file(path):
+            _add_credential(
+                candidates,
+                seen,
+                _first_value(raw, WORKSPACE_ID_FIELDS),
+                _first_value(raw, AUTH_COOKIE_FIELDS),
+                str(path),
+            )
     # 浏览器凭据（零配置体验，S6.1）：Chrome/Edge 登录 opencode.ai 后自动探测
     for cred in browser_creds.find_browser_credentials():
         _add_credential(
@@ -323,51 +361,30 @@ def _http_get(
         raise
 
 
-def _throttled_cache(force: bool) -> GoQuotaInfo | None:
-    # 节流检查：非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒时返回标注后的缓存（避免打爆接口）
+def _throttled_cache(force: bool) -> list["GoQuotaInfo"] | None:
+    # 节流检查（PL001.8 多账户列表）：非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒
+    # 时返回标注后的缓存列表拷贝（避免打爆接口）
     if (
         not force
-        and _last_quota is not None
+        and _last_quotas
         and time.time() - _last_success_at < MIN_FETCH_INTERVAL
     ):
-        return _mark_cached(
-            _last_quota, f"距上次刷新不足 {MIN_FETCH_INTERVAL} 秒，显示缓存数据"
-        )
+        return [
+            _mark_cached(item, f"距上次刷新不足 {MIN_FETCH_INTERVAL} 秒，显示缓存数据")
+            for item in _last_quotas
+        ]
     return None
-
-
-def _fetch_usage_with_fallback(
-    credentials: list[DashboardCredentials],
-) -> tuple[dict[str, GoQuotaWindow | None] | None, str, str, str]:
-    # 逐个尝试凭据候选拉取 dashboard 用量；返回 (usage, used_source, last_stage, last_error)
-    last_error = ""
-    last_stage = ERROR_STAGE_NETWORK
-    for credentials_item in credentials:
-        try:
-            usage = fetch_dashboard_usage(credentials_item)
-            # C14：成功路径不携带前序失败残留（last_stage/last_error 仅失败时有效）
-            return usage, credentials_item.source, "", ""
-        except GoQuotaError as exc:
-            last_error = exc.message
-            last_stage = (
-                exc.code
-                if exc.code
-                in (ERROR_STAGE_AUTH, ERROR_STAGE_NETWORK, ERROR_STAGE_PROVIDER)
-                else ERROR_STAGE_PROVIDER
-            )
-            logger.warning(
-                "dashboard 凭据 %s 失败：%s", credentials_item.source, exc.message
-            )
-    return None, "", last_stage, last_error
 
 
 def _build_info(
     now: datetime,
     usage: dict[str, GoQuotaWindow | None],
     used_source: str,
+    credential: DashboardCredentials | None = None,
 ) -> GoQuotaInfo:
-    # 组装成功配额信息并更新缓存（overall = max 三窗口）
-    global _last_quota, _last_success_at
+    # 组装单账户成功配额信息（PL001.8：附指纹/账户标注并写入多账户缓存；
+    # overall = max 三窗口，D0.6 钳制 0-100）
+    global _last_success_at
     windows = [
         window
         for window in (usage.get(key) for key in QUOTA_WINDOW_KEYS.values())
@@ -376,14 +393,23 @@ def _build_info(
     overall = max((w.usage_percent for w in windows), default=0.0)
     # D0.6：overall 钳制 0-100（与 remaining 对称，异常数据不外显负数/超百）
     clamped_overall = max(0, min(100, int(round(overall))))
+    fingerprint = ""
+    workspace_id = ""
+    if credential is not None:
+        workspace_id = credential.workspace_id
+        fingerprint = credential_store.credential_fingerprint(
+            credential.workspace_id, credential.auth_cookie
+        )
     info = GoQuotaInfo(
         **{field: usage.get(key) for field, key in QUOTA_WINDOW_KEYS.items()},
         overall_used_percent=clamped_overall,
         remaining_percent=max(0, 100 - clamped_overall),
         credential_source=used_source,
+        fingerprint=fingerprint,
+        workspace_id=workspace_id,
         fetched_at=now,
     )
-    _last_quota = info
+    _last_quotas.append(info)
     _last_success_at = time.time()
     return info
 
@@ -392,10 +418,11 @@ def _build_info(
 _fetch_in_flight = False
 
 
-def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
-    # 主流程：节流 → dashboard 凭据 → 三窗口；缓存兜底 + 分类错误（P3：无 key 链路；
-    # D0.4：在途请求去重——并发调用直接返回上次成功缓存，不叠加请求）
-    global _fetch_in_flight
+def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
+    # 主流程（PL001.8 多凭据循环轮询）：节流 → 凭据候选逐个拉取（单凭据失败降级
+    # 为占位错误项不拖垮其他）→ 返回 list[GoQuotaInfo]；
+    # D0.4：在途请求去重——并发调用直接返回上次成功缓存，不叠加请求
+    global _fetch_in_flight, _last_quotas
     now = datetime.now(timezone.utc)
     cached = _throttled_cache(force)
     if cached is not None:
@@ -403,33 +430,61 @@ def fetch_go_quota(force: bool = False) -> GoQuotaInfo:
     if _fetch_in_flight:
         # E3.1：已有请求在途——入口 _throttled_cache(force) 已返回 None 才进入
         # 此分支，直返 _fallback（进行中提示），删重复节流查询
-        return _fallback(
-            now,
-            # E2.1：in-flight 提示文案外置 ui.json（与 no_credentials 同组，6A.3 H3）
-            str(_SC.ui["go_quota_error_messages"]["in_flight"]),
-            stage=ERROR_STAGE_NETWORK,
-        )
+        return [
+            _fallback(
+                now,
+                # E2.1：in-flight 提示文案外置 ui.json（与 no_credentials 同组，6A.3 H3）
+                str(_SC.ui["go_quota_error_messages"]["in_flight"]),
+                stage=ERROR_STAGE_NETWORK,
+            )
+        ]
     _fetch_in_flight = True
     try:
         credentials = find_dashboard_credentials()
         if not credentials:
             # 6A.3 H3：错误提示文案外置 ui.json（与 status_messages 体系一致）
-            return _fallback(
-                now,
-                str(_SC.ui["go_quota_error_messages"]["no_credentials"]),
-                stage=ERROR_STAGE_NO_CREDS,
-            )
-
-        usage, used_source, last_stage, last_error = _fetch_usage_with_fallback(
-            credentials
-        )
-        if usage is None:
-            return _fallback(
-                now,
-                f"dashboard 拉取失败：{last_error or '未知错误'}",
-                stage=last_stage,
-            )
-        return _build_info(now, usage, used_source)
+            return [
+                _fallback(
+                    now,
+                    str(_SC.ui["go_quota_error_messages"]["no_credentials"]),
+                    stage=ERROR_STAGE_NO_CREDS,
+                )
+            ]
+        _last_quotas = []
+        results: list[GoQuotaInfo] = []
+        for credentials_item in credentials:
+            try:
+                usage = fetch_dashboard_usage(credentials_item)
+                # PL001.3：配额刷新成功（凭据确认有效）后检测账户切换
+                record_credential_switch()
+                results.append(
+                    _build_info(now, usage, credentials_item.source, credentials_item)
+                )
+            except GoQuotaError as exc:
+                # PL001.8：单凭据失败降级——占位错误项标注该账户，不拖垮其他
+                logger.warning(
+                    "dashboard 凭据 %s 失败：%s", credentials_item.source, exc.message
+                )
+                stage = (
+                    exc.code
+                    if exc.code
+                    in (ERROR_STAGE_AUTH, ERROR_STAGE_NETWORK, ERROR_STAGE_PROVIDER)
+                    else ERROR_STAGE_PROVIDER
+                )
+                results.append(
+                    GoQuotaInfo(
+                        credential_source=credentials_item.source,
+                        workspace_id=credentials_item.workspace_id,
+                        fingerprint=credential_store.credential_fingerprint(
+                            credentials_item.workspace_id,
+                            credentials_item.auth_cookie,
+                        ),
+                        fetched_at=now,
+                        error=exc.message,
+                        error_stage=stage,
+                    )
+                )
+        return results
     finally:
         _fetch_in_flight = False
 
@@ -440,10 +495,10 @@ def _mark_cached(info: GoQuotaInfo, message: str) -> GoQuotaInfo:
 
 
 def _fallback(now: datetime, message: str, stage: str | None = None) -> GoQuotaInfo:
-    # 失败兜底：返回上次缓存（标注 is_cached）或空白信息（带 error 提示与阶段）
-    global _last_quota
-    if _last_quota is not None:
-        marked = _mark_cached(_last_quota, message)
+    # 失败兜底单条（PL001.8 起由调用方包装为列表）：优先返回缓存首条标注副本，
+    # 无缓存时返回空白信息（带 error 提示与阶段）
+    if _last_quotas:
+        marked = _mark_cached(_last_quotas[0], message)
         if stage is not None:
             marked.error_stage = stage
         return marked
@@ -455,28 +510,38 @@ def _fallback(now: datetime, message: str, stage: str | None = None) -> GoQuotaI
 
 
 def main() -> None:
-    # CLI 自测入口：打印 Go 配额三窗口与状态（不打印任何凭据）
-    info = fetch_go_quota()
-    print(f"OpenCode Go 配额（获取时间：{info.fetched_at}）")
-    print(f"  dashboard 凭据来源：{info.credential_source or '未找到'}")
-    # R2：窗口标签与键统一来自 ui.json（quota_window_labels，字段名与 GoQuotaInfo 对齐）
-    window_labels = dict(_SC.ui["quota_window_labels"])
-    for field, label in window_labels.items():
-        window = getattr(info, field)
-        if window:
-            print(
-                f"  {label}：已用 {window.usage_percent:.0f}%"
-                # A2.3：CLI 重置时间格式外置 ui.json（与 GUI reset_time_format 分离）
-                f"，重置于 "
-                f"{window.reset_date.astimezone().strftime(str(_SC.ui['cli_reset_time_format']))}"
-            )
-        else:
-            print(f"  {label}：未获取到")
-    print(f"  最紧窗口：{info.overall_used_percent}%（剩余 {info.remaining_percent}%）")
-    if info.is_cached:
-        print(f"  [缓存数据] {info.error}")
-    elif info.error:
-        print(f"  [错误] {info.error}")
+    # CLI 自测入口：逐账户打印 Go 配额三窗口与状态（不打印任何凭据；PL001.8 多账户）
+    infos = fetch_go_quota()
+    for info in infos:
+        account_label = (
+            f"{info.workspace_id}"
+            if info.workspace_id
+            else (info.credential_source or "未知账户")
+        )
+        print(f"OpenCode Go 配额[{account_label}]（获取时间：{info.fetched_at}）")
+        print(f"  dashboard 凭据来源：{info.credential_source or '未找到'}")
+        # R2：窗口标签与键统一来自 ui.json（quota_window_labels，字段名与 GoQuotaInfo 对齐）
+        window_labels = dict(_SC.ui["quota_window_labels"])
+        for field, label in window_labels.items():
+            window = getattr(info, field)
+            if window:
+                reset_text = window.reset_date.astimezone().strftime(
+                    str(_SC.ui["cli_reset_time_format"])
+                )
+                print(
+                    f"  {label}：已用 {window.usage_percent:.0f}%"
+                    # A2.3：CLI 重置时间格式外置 ui.json（与 GUI reset_time_format 分离）
+                    f"，重置于 {reset_text}"
+                )
+            else:
+                print(f"  {label}：未获取到")
+        print(
+            f"  最紧窗口：{info.overall_used_percent}%（剩余 {info.remaining_percent}%）"
+        )
+        if info.is_cached:
+            print(f"  [缓存数据] {info.error}")
+        elif info.error:
+            print(f"  [错误] {info.error}")
 
 
 if __name__ == "__main__":
@@ -492,6 +557,7 @@ if __name__ == "__main__":
 #   OAUTH_REDIRECT_MARKER：OpenAuth 登录页特征标记（凭据失效判定）
 #   CREDENTIALS_FILE：dashboard 凭据文件（项目内 data/credentials/opencode-go.json，
 #     P2 定案集中项目内；含凭据严禁入库）
+#   SWITCH_LOG_FILE：账户切换日志文件（PL001，同目录 switch_log.json）
 # 模块级变量：_last_quota / _last_success_at——成功结果缓存与时间戳（缓存兜底）
 # 类型：
 #   GoQuotaWindow：单窗口（usage_percent/reset_in_sec/reset_date）
@@ -501,6 +567,8 @@ if __name__ == "__main__":
 # 函数：
 #   save_dashboard_credentials()：DPAPI 加密写入凭据（P4：经 credential_store，
 #     win32crypt 缺失拒绝明文落盘）
+#   record_credential_switch()：账户切换检测钩子（PL001.3）——fetch 刷新成功后与
+#     程序启动时各调一次；失败仅 debug 日志不影响主流程
 #   _add_credential()：凭据候选去重追加（E3.2 由闭包提为模块级，可单测）
 #   find_dashboard_credentials()：环境变量 → 配置文件多路径收集候选，
 #     去重键 workspace_id::auth_cookie；key 名兼容集合（workspaceId/workspaceID/
@@ -521,7 +589,6 @@ if __name__ == "__main__":
 #     "field":$R[12]={...} 赋值形态与字符串/数字双形态值）
 #   _http_get()：GET 请求（401/403 转 auth 分类；其余异常原样抛交 retry 重试）
 #   _throttled_cache(force)：节流检查——非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒返回缓存
-#   _fetch_usage_with_fallback()：凭据候选逐个尝试（首成功返回 + 来源标注）
 #   _build_info()：组装成功配额信息并更新缓存（overall = max 三窗口）
 #   _mark_cached()：缓存兜底标注（浅拷贝防污染）
 #   fetch_go_quota(force)：主流程——节流检查 → 凭据候选逐个尝试（首成功返回）→

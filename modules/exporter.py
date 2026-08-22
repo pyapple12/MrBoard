@@ -28,19 +28,54 @@ SUMMARY_CSV_COLUMNS = ("sessions", "messages", "days") + _TOKEN_COLUMNS + ("cost
 GROUP_CSV_COLUMNS = ("label", "calls") + _TOKEN_COLUMNS + ("cost",)
 
 
-def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
-    # 导出全部用量数据到 out_dir：summary + 六维度 CSV（UTF-8 BOM）+ usage.json（P8 月份、P19 会话）
+def export_all(
+    db: OpenCodeDB,
+    out_dir: Path,
+    account_intervals: list[tuple[int | None, int | None]] | None = None,
+    account_label: str = "",
+) -> Path:
+    # 导出全部用量数据到 out_dir：summary + 六维度 CSV（UTF-8 BOM）+ usage.json（P8 月份、P19 会话）；
+    # account_intervals 非空时查询按账户时段过滤，account_label 非空时 CSV/JSON 行附标注列（PL001.6）
     out_dir.mkdir(parents=True, exist_ok=True)
-    summary = db.totals()
+    summary = db.totals(intervals=account_intervals)
     datasets: dict[str, list[Any]] = {
         "summary": [_summary_to_row(summary)],
-        "by_month": [_group_to_row(r) for r in db.by_month(limit=EXPORT_LIMIT)],
-        "by_day": [_group_to_row(r) for r in db.by_day(limit=EXPORT_LIMIT)],
-        "by_model": [_group_to_row(r) for r in db.by_model(limit=EXPORT_LIMIT)],
-        "by_provider": [_group_to_row(r) for r in db.by_provider(limit=EXPORT_LIMIT)],
-        "by_agent": [_group_to_row(r) for r in db.by_agent(limit=EXPORT_LIMIT)],
-        "by_session": [_group_to_row(r) for r in db.by_session(limit=EXPORT_LIMIT)],
+        "by_month": [
+            _group_to_row(r)
+            for r in db.by_month(limit=EXPORT_LIMIT, intervals=account_intervals)
+        ],
+        "by_day": [
+            _group_to_row(r)
+            for r in db.by_day(limit=EXPORT_LIMIT, intervals=account_intervals)
+        ],
+        "by_model": [
+            _group_to_row(r)
+            for r in db.by_model(limit=EXPORT_LIMIT, intervals=account_intervals)
+        ],
+        "by_provider": [
+            _group_to_row(r)
+            for r in db.by_provider(limit=EXPORT_LIMIT, intervals=account_intervals)
+        ],
+        "by_agent": [
+            _group_to_row(r)
+            for r in db.by_agent(limit=EXPORT_LIMIT, intervals=account_intervals)
+        ],
+        "by_session": [
+            _group_to_row(r)
+            for r in db.by_session(limit=EXPORT_LIMIT, intervals=account_intervals)
+        ],
     }
+    # PL001.6：账户时段标注——所有行追加 account 列值（CSV 表头同步扩展）
+    if account_label:
+        for rows in datasets.values():
+            for row in rows:
+                row["account"] = account_label
+    summary_columns = (
+        SUMMARY_CSV_COLUMNS + ("account",) if account_label else SUMMARY_CSV_COLUMNS
+    )
+    group_columns = (
+        GROUP_CSV_COLUMNS + ("account",) if account_label else GROUP_CSV_COLUMNS
+    )
     # C16：单次遍历完成 CSV 写入与 JSON 组装（C17：CSV 数量动态计算）
     json_payload: dict[str, Any] = {
         "exported_at": datetime.now().isoformat(timespec="seconds")
@@ -48,9 +83,9 @@ def export_all(db: OpenCodeDB, out_dir: Path) -> Path:
     for name, rows in datasets.items():
         if name == "summary":
             json_payload[name] = rows[0]
-            _write_csv(out_dir / "summary.csv", SUMMARY_CSV_COLUMNS, rows)
+            _write_csv(out_dir / "summary.csv", summary_columns, rows)
         else:
-            _write_csv(out_dir / f"{name}.csv", GROUP_CSV_COLUMNS, rows)
+            _write_csv(out_dir / f"{name}.csv", group_columns, rows)
             json_payload[name] = rows
     write_json(out_dir / "usage.json", json_payload)
     logger.info("导出完成：%s（%d 个 CSV + 1 个 JSON）", out_dir, len(datasets))
@@ -94,9 +129,10 @@ def _write_csv(
 #   _TOKEN_COLUMNS：token 列名（由 flatten_tokens 键推导，单一来源）
 #   SUMMARY_CSV_COLUMNS / GROUP_CSV_COLUMNS：CSV 固定列顺序（由 _TOKEN_COLUMNS 推导）
 # 函数：
-#   export_all(db, out_dir)：主入口——查询 totals + 六维度分组 → 写 7 个 CSV
-#     （summary/by_month/by_day/by_model/by_provider/by_agent/by_session，P8 月份、
-#     P19 会话）+ usage.json → 返回输出目录
+#   export_all(db, out_dir, account_intervals=None, account_label="")：主入口——
+#     查询 totals + 六维度分组 → 写 7 个 CSV（summary/by_month/by_day/by_model/
+#     by_provider/by_agent/by_session，P8 月份、P19 会话）+ usage.json → 返回输出目录；
+#     account_intervals 非空按账户时段过滤，account_label 非空行附标注列（PL001.6）
 #   _summary_to_row / _group_to_row：dataclass 转平铺 dict（复用
 #     opencode_usage.flatten_tokens(prefix="tokens_") + cost 等扩展字段）
 #   _write_csv：utf-8-sig（UTF-8 BOM）——Excel 按 UTF-8 识别中文不乱码

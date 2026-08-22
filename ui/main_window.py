@@ -46,6 +46,7 @@ from modules.go_quota import (
     ERROR_STAGE_AUTH,
     ERROR_STAGE_NO_CREDS,
     QUOTA_WINDOW_KEYS,
+    SWITCH_LOG_FILE,
     DashboardCredentials,
     GoQuotaError,
     GoQuotaInfo,
@@ -60,6 +61,7 @@ from modules.opencode_usage import (
     UsageSummary,
     find_db_path,
 )
+from modules.credential_store import load_switch_log
 from ui.themes import DARK_THEME_NAME, LIGHT_THEME_NAME, get_theme, quota_chunk_color
 from utils.logger import build_app_title, get_logger
 
@@ -81,6 +83,11 @@ PIE_SIZE = int(_SC.ui["pie_size"])
 PIE_FONT_SIZE = float(_SC.ui["pie_font_size"])
 PIE_COLOR_BG = str(_SC.ui["colors"]["quota_pie_bg"])
 PIE_COLOR_TEXT = str(_SC.ui["colors"]["quota_pie_text"])
+# PL001.5：账户时段选择器文案（ui.json 驱动）
+ACCOUNT_ALL_LABEL = str(_SC.ui["account_filter_all_label"])
+ACCOUNT_COMBO_TEMPLATE = str(_SC.ui["account_combo_template"])
+ACCOUNT_DATE_FORMAT = str(_SC.ui["account_label_date_format"])
+QUOTA_ACCOUNT_TITLE_TEMPLATE = str(_SC.ui["quota_account_title_template"])
 # C11：饼图绘制角度常量（Qt 角度单位 1/16 度；90°=12 点方向起点）
 PIE_START_ANGLE = 90 * 16
 FULL_CIRCLE_16 = 360 * 16
@@ -235,9 +242,10 @@ for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
 # D0.7：notify_title 为标量键，单独契约校验（main.py 消费，C0.8 键集遗漏补全）
 if "notify_title" not in _SC.ui:
     raise RuntimeError("ui.json 缺少必需键：notify_title")
-# H0.8：notify 两模板键入契约——删键从运行时兜底改导入期报错（与 C0.8
-# "键集扩至全部消费键"宣称对齐；三级链保留：.format 坏模板仍需运行时兜底）
-for _notify_key in ("notify_message_template", "notify_message_fallback"):
+# H0.8：notify 模板键入契约——删键从运行时兜底改导入期报错（与 C0.8
+# "键集扩至全部消费键"宣称对齐；P24 定案选项 X'：fallback 键随三层链
+# 单层化移除，仅保留主模板键）
+for _notify_key in ("notify_message_template",):
     if _notify_key not in _SC.ui:
         raise RuntimeError(f"ui.json 缺少必需键：{_notify_key}")
 # C0.7：table_headers 严格相等（防短防长——加列后多出列渲染为空且列开关无法控制）
@@ -265,7 +273,6 @@ _TEMPLATE_MAP = {
     "pie_remaining_template": PIE_REMAINING_TEMPLATE,
     **{f"detail.{k}": v for k, v in DETAIL_LINE_TEMPLATES.items()},
     "notify_message_template": str(_SC.ui.get("notify_message_template", "")),
-    "notify_message_fallback": str(_SC.ui.get("notify_message_fallback", "")),
 }
 for _tname, _tmpl in _TEMPLATE_MAP.items():
     try:
@@ -314,6 +321,7 @@ class _UsageTask(QRunnable):
         self.db_path = db_path
         self.signals = signals
         self.seq = seq
+        self.intervals: list[tuple[int | None, int | None]] | None = None
 
     def run(self) -> None:
         # 后台执行：totals + 全部分组查询，失败发 error 信号
@@ -326,12 +334,13 @@ class _UsageTask(QRunnable):
         try:
             db = OpenCodeDB(self.db_path)
             try:
-                summary = db.totals()
+                summary = db.totals(intervals=self.intervals)
                 # C1：rows 不含 total 伪维度（从未消费；总量明细弹窗直接读 summary）
                 # R1：按 DIMENSIONS 推导构建（day 特例 TABLE_LIMIT_DAY），新增维度只改 DIMENSIONS
                 rows = {
                     dim: getattr(db, f"by_{dim}")(
-                        limit=TABLE_LIMIT_DAY if dim == "day" else TABLE_LIMIT_GROUP
+                        limit=TABLE_LIMIT_DAY if dim == "day" else TABLE_LIMIT_GROUP,
+                        intervals=self.intervals,
                     )
                     for dim in DIMENSIONS
                 }
@@ -358,7 +367,7 @@ class _QuotaTask(QRunnable):
     def __init__(
         self,
         signals: _LoadSignals,
-        quota_fetcher: Callable[..., GoQuotaInfo],
+        quota_fetcher: Callable[..., list[GoQuotaInfo]],
         seq: int = 0,
     ) -> None:
         # 初始化任务：记录信号对象、配额获取函数与刷新序号（C0.5 去重）
@@ -368,15 +377,17 @@ class _QuotaTask(QRunnable):
         self.seq = seq
 
     def run(self) -> None:
-        # 后台执行：拉取 Go 配额（内部含节流与缓存兜底）
+        # 后台执行：拉取 Go 配额（内部含节流与缓存兜底；PL001.8 返回多账户列表）
         try:
             self.signals.quota_ready.emit(self.seq, self.quota_fetcher())
         except Exception as exc:
             self.signals.quota_ready.emit(
                 self.seq,
-                GoQuotaInfo(
-                    error=STATUS_MESSAGES["quota_failed_template"].format(error=exc)
-                ),
+                [
+                    GoQuotaInfo(
+                        error=STATUS_MESSAGES["quota_failed_template"].format(error=exc)
+                    )
+                ],
             )
 
 
@@ -389,13 +400,21 @@ class _ExportTask(QRunnable):
         self.db_path = db_path
         self.out_dir = out_dir
         self.signals = signals
+        # PL001.6：账户时段过滤与标注（None/空 = 全量导出无标注列）
+        self.account_intervals: list[tuple[int | None, int | None]] | None = None
+        self.account_label = ""
 
     def run(self) -> None:
         # 后台执行：全量导出到 out_dir，成功发 done / 失败发 failed
         try:
             db = OpenCodeDB(self.db_path)
             try:
-                export_all(db, self.out_dir)
+                export_all(
+                    db,
+                    self.out_dir,
+                    account_intervals=self.account_intervals,
+                    account_label=self.account_label,
+                )
             finally:
                 db.close()
             self.signals.done.emit(
@@ -583,12 +602,14 @@ def _format_total_tokens(count: int) -> str:
 class MainWindow(QMainWindow):
     # myboard 主窗口：装配卡片/配额/表格 + 后台加载 + 定时刷新 + 主题切换
 
-    quota_updated = pyqtSignal(object)  # 配额加载完成信号（托盘图标/预警接线用）
+    quota_updated = pyqtSignal(
+        object
+    )  # 配额加载完成信号（托盘图标/预警接线用；PL001.8 起载荷为 list[GoQuotaInfo]）
 
     def __init__(
         self,
         db_path: Path | None = None,
-        quota_fetcher: Callable[..., GoQuotaInfo] = fetch_go_quota,
+        quota_fetcher: Callable[..., list[GoQuotaInfo]] = fetch_go_quota,
     ) -> None:
         # 初始化窗口：探测数据库、装配 UI、启动延迟加载与定时器
         super().__init__()
@@ -623,6 +644,8 @@ class MainWindow(QMainWindow):
         # 恢复配置：主题/窗口几何（S5 配置持久化）
         self._config = load_config()
         self._is_dark = self._config.theme == DARK_THEME_NAME
+        # 账户时段过滤区间（PL001.5：None = 全部账户不过滤；由账户下拉同步）
+        self._account_intervals: list[tuple[int | None, int | None]] | None = None
         # 列开关状态（P13：持久化于用户配置 hidden_columns）
         self._hidden_columns: set[str] = set(self._config.hidden_columns)
         if self._config.window_geometry:
@@ -675,24 +698,36 @@ class MainWindow(QMainWindow):
         self._layout.addLayout(cards_layout)
 
     def _build_quota_section(self) -> None:
-        # 构建 Go 配额区（标题/状态 + 3 进度条 + 重置时间 + 剩余量饼图；P12 已移除凭据元信息行）
-        quota_frame = QFrame()
-        quota_frame.setObjectName("card")
-        quota_box = QVBoxLayout(quota_frame)
+        # 构建 Go 配额区（PL001.9：主卡 + 动态账户卡并列容器；主卡保留兼容引用）
+        self._quota_cards: list[dict[str, Any]] = []
+        container = QWidget()
+        self._quota_cards_layout = QHBoxLayout(container)
+        self._quota_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._build_quota_card(QUOTA_SECTION_TITLE, primary=True)
+        self._layout.addWidget(container)
+
+    def _build_quota_card(
+        self, title_text: str, primary: bool = False
+    ) -> dict[str, Any]:
+        # 构建单张配额卡（标题/状态 + 3 窗口进度条 + 重置时间 + 饼图）；
+        # primary=True 时组件引用保留到 self._quota_*（旧测试/托盘依赖兼容，PL001.9）
+        frame = QFrame()
+        frame.setObjectName("card")
+        box = QVBoxLayout(frame)
         title_row = QHBoxLayout()
-        quota_title = QLabel(QUOTA_SECTION_TITLE)
-        quota_title.setObjectName("section_title")
-        self._quota_status = QLabel("")
-        self._quota_status.setObjectName("status_ok")
-        title_row.addWidget(quota_title)
+        title_label = QLabel(title_text)
+        title_label.setObjectName("section_title")
+        status_label = QLabel("")
+        status_label.setObjectName("status_ok")
+        title_row.addWidget(title_label)
         title_row.addStretch(1)
-        title_row.addWidget(self._quota_status)
+        title_row.addWidget(status_label)
         # P16：剩余量饼图（正常显示；缓存/错误时隐藏让位给警告文字）
-        self._quota_pie = _RemainingPieChart()
-        title_row.addWidget(self._quota_pie)
-        quota_box.addLayout(title_row)
-        self._quota_bars: dict[str, QProgressBar] = {}
-        self._quota_reset: dict[str, QLabel] = {}
+        pie = _RemainingPieChart()
+        title_row.addWidget(pie)
+        box.addLayout(title_row)
+        bars: dict[str, QProgressBar] = {}
+        resets: dict[str, QLabel] = {}
         # R2：窗口键统一来自 go_quota.QUOTA_WINDOW_KEYS（6A.3，字段名 = GoQuotaInfo 字段）
         for key in QUOTA_WINDOW_KEYS:
             row = QHBoxLayout()
@@ -706,10 +741,27 @@ class MainWindow(QMainWindow):
             row.addWidget(name_label)
             row.addWidget(bar, 1)
             row.addWidget(reset_label)
-            quota_box.addLayout(row)
-            self._quota_bars[key] = bar
-            self._quota_reset[key] = reset_label
-        self._layout.addWidget(quota_frame)
+            box.addLayout(row)
+            bars[key] = bar
+            resets[key] = reset_label
+        card = {
+            "frame": frame,
+            "title": title_label,
+            "bars": bars,
+            "resets": resets,
+            "status": status_label,
+            "pie": pie,
+        }
+        self._quota_cards_layout.addWidget(frame)
+        self._quota_cards.append(card)
+        if primary:
+            # 兼容引用：主卡组件继续暴露为实例属性（旧测试/托盘消费不变）
+            self._quota_frame = frame
+            self._quota_status = status_label
+            self._quota_pie = pie
+            self._quota_bars = bars
+            self._quota_reset = resets
+        return card
 
     def _build_guide_card(self) -> None:
         # 构建凭据配置引导卡片（凭据缺失时显示，S6.2；文案外置 ui.json，D5）
@@ -742,6 +794,10 @@ class MainWindow(QMainWindow):
         for dim in DIMENSIONS:
             self._dimension_combo.addItem(DIMENSION_LABELS[dim], dim)
         self._dimension_combo.currentIndexChanged.connect(self._render_table)
+        # PL001.5：账户时段过滤下拉（"全部账户" + 各指纹区间）
+        self._account_combo = QComboBox()
+        self._account_combo.currentIndexChanged.connect(self._on_account_changed)
+        self._rebuild_account_combo()
         self._refresh_button = QPushButton(BUTTON_LABELS["refresh"])
         self._refresh_button.clicked.connect(self.refresh)
         self._export_button = QPushButton(BUTTON_LABELS["export"])
@@ -761,6 +817,7 @@ class MainWindow(QMainWindow):
         section_row.addWidget(detail_title)
         section_row.addWidget(self._total_button)
         section_row.addStretch(1)
+        section_row.addWidget(self._account_combo)
         section_row.addWidget(self._dimension_combo)
         section_row.addWidget(self._refresh_button)
         section_row.addWidget(self._export_button)
@@ -777,6 +834,79 @@ class MainWindow(QMainWindow):
             if col_id in self._hidden_columns:
                 self._table.setColumnHidden(col, True)
         self._layout.addWidget(self._table, 1)
+
+    def _rebuild_account_combo(self) -> None:
+        # 重建账户时段下拉（PL001.5）："全部账户" + 各指纹区间项
+        # （标签 = workspace 前 8 位·首现日期，userData = 指纹）；启动恢复持久化选择
+        self._account_combo.blockSignals(True)
+        try:
+            self._account_combo.clear()
+            self._account_combo.addItem(ACCOUNT_ALL_LABEL, "")
+            log = load_switch_log(SWITCH_LOG_FILE)
+            for item in log["switches"]:
+                fingerprint = str(item.get("fingerprint", ""))
+                workspace_id = str(item.get("workspace_id", ""))[:8]
+                intervals = item.get("intervals") or []
+                first_since = intervals[0].get("since") if intervals else None
+                date_text = (
+                    datetime.fromtimestamp(int(first_since) / 1000).strftime(
+                        ACCOUNT_DATE_FORMAT
+                    )
+                    if isinstance(first_since, (int, float))
+                    else ""
+                )
+                label = ACCOUNT_COMBO_TEMPLATE.format(
+                    workspace=workspace_id, date=date_text
+                )
+                self._account_combo.addItem(label, fingerprint)
+            # 启动恢复：持久化的 account_filter 匹配则选中，否则回落"全部账户"
+            target = self._config.account_filter
+            pos = self._account_combo.findData(target)
+            self._account_combo.setCurrentIndex(pos if pos >= 0 else 0)
+        finally:
+            self._account_combo.blockSignals(False)
+        self._sync_account_intervals()
+
+    def _sync_account_intervals(self) -> None:
+        # 依据下拉当前选择同步账户时段区间列表（空/全部 → None 不过滤）
+        fingerprint = self._account_combo.currentData()
+        if not fingerprint:
+            self._account_intervals = None
+            return
+        log = load_switch_log(SWITCH_LOG_FILE)
+        item = next(
+            (
+                s
+                for s in log["switches"]
+                if str(s.get("fingerprint", "")) == fingerprint
+            ),
+            None,
+        )
+        raw_intervals = (item or {}).get("intervals") or []
+        parsed: list[tuple[int | None, int | None]] = []
+        for interval in raw_intervals:
+            if not isinstance(interval, dict):
+                continue
+            since = interval.get("since")
+            until = interval.get("until")
+            parsed.append(
+                (
+                    int(since) if isinstance(since, (int, float)) else None,
+                    int(until) if isinstance(until, (int, float)) else None,
+                )
+            )
+        self._account_intervals = parsed or None
+
+    def _on_account_changed(self, index: int) -> None:
+        # 账户时段切换（PL001.5）：同步过滤区间 → 立即持久化 → 触发重查
+        self._sync_account_intervals()
+        config = load_config()
+        config.account_filter = str(self._account_combo.itemData(index) or "")
+        try:
+            save_config(config)
+        except Exception as exc:
+            logger.warning("保存账户过滤配置失败：%s", exc)
+        self.refresh()
 
     def _trigger_auto_load(self) -> None:
         # 执行启动延迟加载（标志位确认未被手动刷新取消）
@@ -798,7 +928,9 @@ class MainWindow(QMainWindow):
                     _QuotaTask(self._signals, self.quota_fetcher, self._refresh_seq)
                 )
                 return
-            self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
+            task = _UsageTask(self.db_path, self._signals, self._refresh_seq)
+            task.intervals = self._account_intervals
+            self._pool.start(task)
         else:
             self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
         self._pool.start(
@@ -876,23 +1008,24 @@ class MainWindow(QMainWindow):
         ]
         QMessageBox.information(self, DIALOG_TITLES["total_detail"], "\n".join(lines))
 
-    def _on_quota_ready(self, seq: int, info: GoQuotaInfo) -> None:
-        # 配额加载完成：渲染进度条与状态；凭据类错误时显示引导卡片；发射更新信号
-        # （C0.5：旧任务乱序晚完成直接丢弃，与 usage 同机制）
+    def _on_quota_ready(self, seq: int, infos: list[GoQuotaInfo]) -> None:
+        # 配额加载完成（PL001.8 多账户列表）：渲染进度条与状态；凭据类错误时显示
+        # 引导卡片；发射更新信号（C0.5：旧任务乱序晚完成直接丢弃，与 usage 同机制）
         if seq != self._refresh_seq:
             return
-        self._render_quota(info)
-        self.quota_updated.emit(info)
-        # 引导卡片显示条件：CDP 可解决的凭据类错误（无 dashboard 凭据/cookie 失效），
-        # 且无缓存（历史成功过则不打扰）；其他阶段 CDP 解决不了，不显示
+        self._render_quota(infos)
+        self.quota_updated.emit(infos)
+        # 引导卡片显示条件：全部账户均为 CDP 可解决的凭据类错误（无 dashboard 凭据/
+        # cookie 失效），且无缓存（历史成功过则不打扰）；其他阶段 CDP 解决不了，不显示
         # （E8：remaining==0/five_hour is None 在错误非缓存路径恒真，精简；
         #   A0.6：引导进行中不重现引导卡，防界面状态混乱）
-        show_guide = (
+        show_guide = bool(infos) and all(
             info.error is not None
             and not info.is_cached
-            and not self._guide_active
             and info.error_stage in (ERROR_STAGE_NO_CREDS, ERROR_STAGE_AUTH)
+            for info in infos
         )
+        show_guide = show_guide and not self._guide_active
         self._guide_frame.setVisible(show_guide)
 
     def _on_load_error(self, seq: int, message: str) -> None:
@@ -967,7 +1100,12 @@ class MainWindow(QMainWindow):
         if not out_dir:
             return
         self._status_bar.showMessage(STATUS_MESSAGES["exporting"])
-        self._pool.start(_ExportTask(self.db_path, Path(out_dir), self._export_signals))
+        task = _ExportTask(self.db_path, Path(out_dir), self._export_signals)
+        # PL001.6：导出跟随当前账户时段过滤并附标注列
+        task.account_intervals = self._account_intervals
+        if self._account_intervals:
+            task.account_label = self._account_combo.currentText()
+        self._pool.start(task)
 
     def _render_cards(self, summary: UsageSummary) -> None:
         # 渲染用量总览卡片值（P17 新顺序）
@@ -977,20 +1115,32 @@ class MainWindow(QMainWindow):
         self._cards["cache_rate"].setText(_format_cache_rate_of(summary.tokens))
         self._cards["cost"].setText(_format_cost(summary.recorded_cost))
 
-    def _set_status_style(self, object_name: str) -> None:
-        # 设置配额状态标签样式名并强制 QSS 重算（setObjectName 后不重算颜色不生效）
-        self._quota_status.setObjectName(object_name)
-        style = self._quota_status.style()
-        if style is not None:
-            style.unpolish(self._quota_status)
-            style.polish(self._quota_status)
+    def _render_quota(self, infos: list[GoQuotaInfo]) -> None:
+        # 渲染 Go 配额（PL001.9 并列账户卡）：主卡渲染首个有效项，附加账户动态
+        # 建卡并列渲染其余（错误项显示错误文字）；空列表不动作
+        if not infos:
+            return
+        primary = next(
+            (item for item in infos if item.error is None),
+            infos[0],
+        )
+        self._render_quota_card(self._quota_cards[0], primary)
+        for index, info in enumerate(infos[1:], start=1):
+            if index >= len(self._quota_cards):
+                self._build_quota_card(
+                    QUOTA_ACCOUNT_TITLE_TEMPLATE.format(workspace=info.workspace_id[:8])
+                )
+            self._quota_cards[index]["frame"].show()
+            self._render_quota_card(self._quota_cards[index], info)
+        for index in range(len(infos), len(self._quota_cards)):
+            self._quota_cards[index]["frame"].hide()
 
-    def _render_quota(self, info: GoQuotaInfo) -> None:
-        # 渲染 Go 配额进度条与状态信息（颜色分级）
+    def _render_quota_card(self, card: dict[str, Any], info: GoQuotaInfo) -> None:
+        # 渲染单张配额卡：三窗口进度条 + 重置时间 + 状态文字/饼图（颜色分级）
         windows = {field: getattr(info, field) for field in QUOTA_WINDOW_KEYS}
         for key, window in windows.items():
-            bar = self._quota_bars[key]
-            reset_label = self._quota_reset[key]
+            bar = card["bars"][key]
+            reset_label = card["resets"][key]
             if window is None:
                 # A0.5：重置格式与 chunk 样式（防窗口值→None 过渡残留旧百分比）
                 bar.setValue(0)
@@ -1012,22 +1162,29 @@ class MainWindow(QMainWindow):
                 if window.reset_date
                 else "-"
             )
+        status_label = card["status"]
+        pie = card["pie"]
         if info.is_cached:
-            self._set_status_style("status_warn")
-            self._quota_pie.hide()
-            self._quota_status.setText(
+            status_label.setObjectName("status_warn")
+            pie.hide()
+            status_label.setText(
                 f"{STATUS_MESSAGES['cached_prefix']}{info.error or ''}"
             )
         elif info.error:
-            self._set_status_style("status_warn")
-            self._quota_pie.hide()
-            self._quota_status.setText(f"{STATUS_MESSAGES['warn_prefix']}{info.error}")
+            status_label.setObjectName("status_warn")
+            pie.hide()
+            status_label.setText(f"{STATUS_MESSAGES['warn_prefix']}{info.error}")
         else:
             # P16：正常时剩余量饼图（最紧窗口文字已删除；overall 内部保留供托盘预警）
-            self._set_status_style("status_ok")
-            self._quota_pie.show()
-            self._quota_pie.set_used_percent(info.overall_used_percent)
-            self._quota_status.clear()
+            status_label.setObjectName("status_ok")
+            pie.show()
+            pie.set_used_percent(info.overall_used_percent)
+            status_label.clear()
+        # 强制 QSS 重算（setObjectName 后不重算颜色不生效）
+        style = status_label.style()
+        if style is not None:
+            style.unpolish(status_label)
+            style.polish(status_label)
 
     def _show_columns_menu(self) -> None:
         # 弹出列显示开关菜单（P13：勾选 = 显示，取消 = 隐藏）
@@ -1136,7 +1293,7 @@ class MainWindow(QMainWindow):
 #   dimension_labels/detail_line_templates/status_messages 显式 18 键/guide_messages/
 #   tooltips/button_labels/menu_labels/go_quota_error_messages（F0.1 补列）等，
 #   B0.6/C0.8/D0.2）+ notify_title 标量键（D0.7）+
-#   notify_message_template/notify_message_fallback（H0.8，I3.5 补列）+
+#   notify_message_template（H0.8，I3.5 补列；P24 定案后仅主模板键）+
 #   table_headers 长度严格相等（C0.7）——删键/改键导入期抛错，防运行时 KeyError/IndexError
 # 类型：
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
@@ -1179,10 +1336,9 @@ class MainWindow(QMainWindow):
 #       setColumnHidden + hidden_columns 持久化，P13；E0.3：持久化失败仅
 #       warning 降级，与 D0.10 同式）
 #     _export_data：QFileDialog 选目录 → 后台 _ExportTask（状态栏提示导出中）
-#     _render_cards/_render_quota/_render_table：卡片（P17 新顺序 + 缓存率）/进度条（颜色
-#       分级，使用 themes.quota_chunk_color）与剩余量饼图（P16，正常显示/异常隐藏）/
-#       表格渲染（内存数据，维度切换不查库；P13 新列顺序）
-#     _set_status_style：配额状态标签样式名强制 QSS 重算（unpolish/polish）
+#     _render_cards/_render_quota/_render_quota_card/_render_table：卡片（P17 新顺序 +
+#       缓存率）/多账户并列配额卡（PL001.9：主卡 + 动态账户卡）/表格渲染
+#       （内存数据，维度切换不查库；P13 新列顺序）
 #     _start_cdp_guide：后台启动 CDP 一键获取（按钮禁用防重复，状态栏提示）
 #     _manual_guide：QInputDialog 输入 workspaceId + authCookie → save_dashboard_credentials
 #       加密写入（P4：不再直接编辑明文文件）→ 自动刷新

@@ -37,6 +37,7 @@ class AppConfig:
     theme: str = DEFAULT_THEME
     refresh_interval_ms: int = DEFAULT_REFRESH_INTERVAL_MS
     hidden_columns: tuple[str, ...] = ()  # 明细表格隐藏列 id（P13 列开关持久化）
+    account_filter: str = ""  # 账户时段过滤指纹（空 = 全部账户，PL001.5）
 
     def to_dict(self) -> dict[str, Any]:
         # 转为可 JSON 序列化的 dict
@@ -45,6 +46,7 @@ class AppConfig:
             "theme": self.theme,
             "refresh_interval_ms": self.refresh_interval_ms,
             "hidden_columns": list(self.hidden_columns),
+            "account_filter": self.account_filter,
         }
 
     @classmethod
@@ -72,6 +74,9 @@ class AppConfig:
             config.hidden_columns = tuple(
                 str(item).strip() for item in hidden if str(item).strip()
             )
+        account = raw.get("account_filter")
+        if isinstance(account, str):
+            config.account_filter = account.strip()
         return config
 
 

@@ -12,7 +12,7 @@ if "--version" in sys.argv or "-V" in sys.argv:
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from config.static.static_config import get_static_config
-from modules.go_quota import GoQuotaInfo
+from modules.go_quota import GoQuotaInfo, record_credential_switch
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
 from ui.themes import QUOTA_DANGER_PERCENT
@@ -34,6 +34,8 @@ def main() -> None:
 
 def run_gui() -> None:
     # 启动 GUI：创建应用/主窗口/托盘，连接托盘信号，进入事件循环
+    # PL001.3：启动时检测一次账户切换（程序未运行期间的切换在此补记）
+    record_credential_switch()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     window = MainWindow()
@@ -48,10 +50,17 @@ def run_gui() -> None:
     sys.exit(app.exec())
 
 
-def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
-    # 配额加载完成：更新托盘图标状态色；≥80% 时气泡预警（错误时图标置灰；
-    # 6A.3 O4：去重——持续超限不重复弹，回落后再次超限才重新通知）
+def _on_quota_updated(tray: SystemTray, infos: list[GoQuotaInfo]) -> None:
+    # 配额加载完成（PL001.8 多账户列表）：取最紧的有效账户驱动托盘图标/预警；
+    # 全部无效才置灰图标；≥80% 时气泡预警（6A.3 O4 去重语义不变）
     global _notified_danger
+    valid = [item for item in infos if item.error is None or item.is_cached]
+    if not valid:
+        # 全部账户失败：图标置灰 + 复位去重标志（下次成功重新可弹）
+        _notified_danger = False
+        tray.update_quota_status(None)
+        return
+    info = max(valid, key=lambda item: item.overall_used_percent)
     if info.error is None:
         tray.update_quota_status(info.overall_used_percent)
         if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
@@ -64,20 +73,13 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
                         remaining=info.remaining_percent,
                     )
                 except (KeyError, ValueError, IndexError):
-                    # B0.7：模板被手改引入未知占位符/坏格式时回退固定文案（不逃逸）
-                    # （H0.8：键存在性已由契约保证——此处 KeyError 是模板内未知
-                    # 占位符 {unknown}，非缺键；链职责收窄为"只兜坏模板"）
-                    try:
-                        message = str(_SC.ui["notify_message_fallback"]).format(
-                            used=info.overall_used_percent,
-                            remaining=info.remaining_percent,
-                        )
-                    except (KeyError, ValueError, IndexError):
-                        # fallback 模板本身损坏时纯静态拼接兜底
-                        message = (
-                            f"配额已使用 {info.overall_used_percent}%"
-                            f"，剩余 {info.remaining_percent}%"
-                        )
+                    # P24 定案（选项 X'）：坏模板兜底单层化——fallback 模板与主模板
+                    # 同质（同被占位符校验覆盖），双层冗余无增量；静态拼接为最终
+                    # 防线（不依赖配置，任何损坏都兜得住，信息不丢）
+                    message = (
+                        f"配额已使用 {info.overall_used_percent}%"
+                        f"，剩余 {info.remaining_percent}%"
+                    )
                 # notify_quota 在 try/except 链之外（模板正常与回退路径都执行）；
                 # D0.7：notify_title 访问并入防护（契约校验已兜底，双保险）
                 try:
@@ -91,11 +93,7 @@ def _on_quota_updated(tray: SystemTray, info: GoQuotaInfo) -> None:
     else:
         # D0.3：错误/缓存兜底（is_cached）不是失败——托盘按真实数据更新、
         # 不复位去重标志（否则 60s 窗口内手动刷新即复位，超限重复弹气泡）
-        if info.is_cached:
-            tray.update_quota_status(info.overall_used_percent)
-        else:
-            _notified_danger = False
-            tray.update_quota_status(None)
+        tray.update_quota_status(info.overall_used_percent)
 
 
 def _quit_app(app: QApplication, window: MainWindow, tray: SystemTray) -> None:
@@ -137,5 +135,5 @@ if __name__ == "__main__":
 #     逻辑步骤：window.save_state() → tray.hide() → app.quit()
 #     设计理由：任何退出路径都先保存状态（对齐 AccelWorld B2 修复经验）
 # 异常处理：GUI 异常由 Qt 事件循环处理；本模块无网络/文件操作
-# 关联配置：config/static/base.json（version）；ui.json（notify_title/notify_message_template/
-#   notify_message_fallback，F3.2 补列）；ui/themes.py（quota_danger_percent）
+# 关联配置：config/static/base.json（version）；ui.json（notify_title/notify_message_template，
+#   P24 定案后 fallback 键已移除）；ui/themes.py（quota_danger_percent）

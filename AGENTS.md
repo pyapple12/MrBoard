@@ -21,6 +21,7 @@
   - **静态配置**（`config/static/`，只读，json 驱动）：`static_config.py` 加载器 + `config.json` 引导映射表 + `base.json`（应用参数：版本/间隔/端口/上限等）+ `ui.json`（UI 参数：颜色/阈值/表头）；模块顶层 `_SC = get_static_config()` 一次性解包，运行时零 IO
   - **用户配置**（`config/settings.py`，可读写）：AppConfig dataclass，存项目内 `config/user_config.json`（路径由 base.json `user_config_path` 指定）
 - **参数约定**：可调参数一律走 `config/static/*.json`，禁止代码硬编码；版本号唯一来源为 `base.json` 的 `version` 字段；所有配置与数据目录集中在项目内——凭据（opencode-go.json）、日志、价格缓存路径由 base.json 的 `credentials_dir` / `logs_dir` / `prices_dir` 指定（相对项目根，运行时生成、已 gitignore），**不使用用户目录**
+- **契约层定案（P23，2026-08-13）**：结构键名（COLUMN_IDS/DIMENSIONS/_UI_STRUCT_KEYS/字段键集等）以**代码内显式声明 + 导入期校验**为健康标准，**不外置**——三重约束：①校验悖论（期望标准须独立于实际，外置后失去比对基准）②语义绑定（键名对应渲染/格式化分支，外置后分支仍在代码）③信息论（接口标识符必须双方声明）；AST 生成器方案为负收益（派生物非独立标准 + 引入构建链）不采用；其展示元数据（列宽/默认可见性等纯数据）随 P25 view 配置层外置。审计遇契约层问题直接引用本条，不再重开讨论
 - `main.py` 收编 GUI 分发；模块间顶层 import，不要使用函数内延迟 import
 - 提交信息按 Git 注意章节的 Commit 提交规范（V2）书写，如 `feat: V0.09，UI 改版与维护...`
 - 项目规划与方案文档在 `z.plan.md`

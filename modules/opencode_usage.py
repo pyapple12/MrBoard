@@ -15,6 +15,8 @@ from typing import Any
 
 from config.static.static_config import get_static_config
 from modules import pricing
+from modules.credential_store import load_switch_log
+from modules.go_quota import SWITCH_LOG_FILE
 from utils.convert import round_cost, to_int
 from utils.logger import get_logger
 from utils.sqlite_utils import open_readonly
@@ -225,10 +227,12 @@ class OpenCodeDB:
         until: int | None = None,
         estimate: bool = False,
         price_map: dict[str, Any] | None = None,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> UsageSummary:
-        # 全量聚合：会话数/消息数/活动跨度天数 + token/费用；estimate=True 时对库 cost 缺失的消息做定价估算
+        # 全量聚合：会话数/消息数/活动跨度天数 + token/费用；estimate=True 时对库 cost 缺失的消息做定价估算；
+        # intervals 为账户时段过滤（PL001.4，多区间 OR）
         summary = UsageSummary(since=since, until=until)
-        time_clause, time_params = self._time_clause(since, until)
+        time_clause, time_params = self._time_clause(since, until, intervals)
         row = self._fetch_one(
             f"SELECT COUNT(DISTINCT session_id) AS sessions,"
             f" MIN(json_extract(data, '$.time.created')) AS min_ts,"
@@ -265,7 +269,7 @@ class OpenCodeDB:
         summary.tokens = self._row_to_tokens(agg)
         summary.recorded_cost = round_cost(agg["recorded_cost"])
         if estimate:
-            estimates = self._estimate_missing_costs(price_map, since, until)
+            estimates = self._estimate_missing_costs(price_map, since, until, intervals)
             summary.estimated_cost_totals, summary.estimated_cost_total = (
                 pricing.aggregate_estimated_costs(estimates)
             )
@@ -290,10 +294,16 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_DAY,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按日期分组聚合（日期降序，最近日期在前，本地时区；P7 由近到远）
         return self._query_grouped(
-            self._day_expr(), since, until, order="label DESC", limit=limit
+            self._day_expr(),
+            since,
+            until,
+            order="label DESC",
+            limit=limit,
+            intervals=intervals,
         )
 
     def by_month(
@@ -301,10 +311,16 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按月份分组聚合（%Y-%m 降序，最新月在前；P8 月度统计）
         return self._query_grouped(
-            self._month_expr(), since, until, order="label DESC", limit=limit
+            self._month_expr(),
+            since,
+            until,
+            order="label DESC",
+            limit=limit,
+            intervals=intervals,
         )
 
     def by_session(
@@ -312,6 +328,7 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按会话分组聚合：会话标题｜项目目录（P19，LEFT JOIN session 表；
         # session 表缺 id/title/directory 列时降级仅显示 session_id，兼容旧库/测试库）
@@ -323,7 +340,7 @@ class OpenCodeDB:
             label_expr = "m.session_id"
             dir_expr = "''"
             join_clause = ""
-        time_clause, params = self._time_clause(since, until)
+        time_clause, params = self._time_clause(since, until, intervals)
         sql = (
             f"SELECT {label_expr} AS label, {dir_expr} AS directory,"
             " COUNT(*) AS calls,"
@@ -365,6 +382,7 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按模型分组聚合（按总 token 降序）
         return self._by_field(
@@ -372,6 +390,7 @@ class OpenCodeDB:
             since,
             until,
             limit,
+            intervals,
         )
 
     def by_provider(
@@ -379,6 +398,7 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按 provider 分组聚合（按总 token 降序）
         return self._by_field(
@@ -386,6 +406,7 @@ class OpenCodeDB:
             since,
             until,
             limit,
+            intervals,
         )
 
     def by_agent(
@@ -393,6 +414,7 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按 agent 分组聚合（含子 agent；缺失显示未知，按总 token 降序）
         return self._by_field(
@@ -400,6 +422,7 @@ class OpenCodeDB:
             since,
             until,
             limit,
+            intervals,
         )
 
     def _by_field(
@@ -408,10 +431,16 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 按 JSON 字段分组聚合（按总 token 降序；by_model/by_provider/by_agent 共用，R15）
         return self._query_grouped(
-            json_expr, since, until, order="total DESC", limit=limit
+            json_expr,
+            since,
+            until,
+            order="total DESC",
+            limit=limit,
+            intervals=intervals,
         )
 
     def _base_sql(self, time_clause: str = "") -> str:
@@ -425,9 +454,14 @@ class OpenCodeDB:
         )
 
     def _time_clause(
-        self, since: int | None = None, until: int | None = None
+        self,
+        since: int | None = None,
+        until: int | None = None,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> tuple[str, list[int]]:
-        # 构造时间过滤 SQL 片段与参数（毫秒 epoch，半开区间 [since, until)）
+        # 构造时间过滤 SQL 片段与参数（毫秒 epoch，半开区间 [since, until)）；
+        # intervals 为账户时段多区间 OR 合并（PL001.4），与 since/unil 叠加生效，
+        # 参数按 SQL 中 ? 出现顺序追加（先 since/until 后 intervals）
         parts: list[str] = []
         params: list[int] = []
         if since is not None:
@@ -436,6 +470,20 @@ class OpenCodeDB:
         if until is not None:
             parts.append(" AND json_extract(data, '$.time.created') < ?")
             params.append(until)
+        if intervals:
+            or_parts: list[str] = []
+            for iv_since, iv_until in intervals:
+                conds: list[str] = []
+                if iv_since is not None:
+                    conds.append("json_extract(data, '$.time.created') >= ?")
+                    params.append(iv_since)
+                if iv_until is not None:
+                    conds.append("json_extract(data, '$.time.created') < ?")
+                    params.append(iv_until)
+                if conds:
+                    or_parts.append(f"({' AND '.join(conds)})")
+            if or_parts:
+                parts.append(f" AND ({' OR '.join(or_parts)})")
         return ("".join(parts), params)
 
     def _day_expr(self) -> str:
@@ -459,9 +507,10 @@ class OpenCodeDB:
         until: int | None = None,
         order: str = "total DESC",
         limit: int = TABLE_LIMIT_GROUP,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[UsageRow]:
         # 通用分组查询：按 group_expr 分组聚合，返回 UsageRow 列表（order 用 SELECT 别名）
-        time_clause, params = self._time_clause(since, until)
+        time_clause, params = self._time_clause(since, until, intervals)
         sql = (
             f"SELECT {group_expr} AS label, COUNT(*) AS calls,"
             + _TOKEN_SUM_SELECT
@@ -502,11 +551,13 @@ class OpenCodeDB:
         price_map: dict[str, Any] | None,
         since: int | None = None,
         until: int | None = None,
+        intervals: list[tuple[int | None, int | None]] | None = None,
     ) -> list[pricing.CostEstimate]:
-        # 对库 cost 为 0/缺失且 token 非零的消息做定价估算（时间范围与 totals 一致）
+        # 对库 cost 为 0/缺失且 token 非零的消息做定价估算（时间范围与 totals 一致，
+        # 含账户时段过滤 PL001.4）
         if price_map is None:
             price_map = pricing.load_price_map()
-        time_clause, time_params = self._time_clause(since, until)
+        time_clause, time_params = self._time_clause(since, until, intervals)
         rows = self.conn.execute(
             "SELECT json_extract(data, '$.providerID') AS provider,"
             " json_extract(data, '$.modelID') AS model,"
@@ -596,9 +647,40 @@ def main() -> None:
     parser.add_argument(
         "--estimate", action="store_true", help="对库 cost 缺失的消息做定价估算"
     )
+    parser.add_argument(
+        "--account",
+        default="",
+        help="账户时段过滤（指纹或 workspace 前缀，来自凭据切换日志）",
+    )
     args = parser.parse_args()
     # H0.5：CLI --limit 钳制（负值会致 SQLite 报错、超大值全表驻留——开发自测路径）
     args.limit = max(1, min(args.limit, 10000))
+
+    # PL001.6：--account 解析——匹配切换日志（指纹精确 / workspace 前缀）取区间
+    intervals: list[tuple[int | None, int | None]] | None = None
+    if args.account:
+        identifier = args.account.strip()
+        log = load_switch_log(SWITCH_LOG_FILE)
+        matched = next(
+            (
+                item
+                for item in log["switches"]
+                if str(item.get("fingerprint", "")) == identifier
+                or str(item.get("workspace_id", "")).startswith(identifier)
+            ),
+            None,
+        )
+        if matched is None:
+            print(f"错误：切换日志中未找到账户 {identifier}", file=sys.stderr)
+            sys.exit(1)
+        intervals = []
+        for iv in matched.get("intervals") or []:
+            if not isinstance(iv, dict) or iv.get("since") is None:
+                continue
+            until = iv.get("until")
+            intervals.append(
+                (int(iv["since"]), int(until) if until is not None else None)
+            )
 
     since_ms = None
     since_label = "全部"
@@ -629,7 +711,9 @@ def main() -> None:
 
     try:
         if args.by == "total":
-            summary = db.totals(since=since_ms, estimate=args.estimate)
+            summary = db.totals(
+                since=since_ms, estimate=args.estimate, intervals=intervals
+            )
             data = {
                 "period": since_label,
                 "sessions": summary.sessions,
@@ -653,6 +737,7 @@ def main() -> None:
             rows = methods[args.by](
                 since=since_ms,
                 limit=max(1, args.limit),  # B0.10：limit 下界
+                intervals=intervals,
             )
             data = {
                 "period": since_label,
