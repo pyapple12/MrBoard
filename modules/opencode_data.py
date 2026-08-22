@@ -22,8 +22,9 @@ GH_RELEASES_RSS_URL = str(_SC.base["gh_releases_rss_url"])
 # 节流间隔与缓存 TTL（base.json 驱动，PL002.2；对齐 go_quota.MIN_FETCH_INTERVAL 模式）
 FETCH_INTERVAL = int(_SC.base["data_fetch_interval_sec"])
 CACHE_TTL = int(_SC.base["data_cache_ttl_sec"])
-# GitHub API 需要浏览器 UA（匿名限速 60 次/小时）
-_GITHUB_UA = (
+# 浏览器 UA（数据页与 GitHub API 共用：无浏览器 UA 会被 opencode.ai 403 拦截，
+# 实测 Python-urllib 默认 UA 被拒）
+_BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     " (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
@@ -230,7 +231,9 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
     now = datetime.now(timezone.utc)
     snapshot = ModelDataSnapshot(fetched_at=now)
     try:
-        body = http_get(DATA_URL, timeout=15).decode("utf-8", errors="replace")
+        body = http_get(DATA_URL, headers=_GH_API_HEADERS, timeout=15).decode(
+            "utf-8", errors="replace"
+        )
         snapshot.model_blocks = fetch_model_data(body)
         snapshot.daily_usage = parse_daily_usage(body)
         # 缺块容忍：四块键全集缺失时补 decoding 警告（不抛中断）
@@ -313,7 +316,7 @@ def parse_daily_usage(body: str) -> list[dict[str, Any]]:
 
 
 # GitHub Releases：JSON 快照键与 RSS 命名空间
-_GH_API_HEADERS = {"User-Agent": _GITHUB_UA}
+_GH_API_HEADERS = {"User-Agent": _BROWSER_UA}
 _RSS_NS = {"atom": "http://www.w3.org/2005/Atom"}
 _RELEASE_LIMIT = 3  # 最新 N 条（展示范围收敛，z.plan PL002）
 
@@ -398,7 +401,8 @@ if __name__ == "__main__":
 # 模块级常量：
 #   DATA_URL / GH_RELEASES_API_URL / GH_RELEASES_RSS_URL：数据源 URL（base.json 驱动）
 #   FETCH_INTERVAL / CACHE_TTL：节流间隔与缓存 TTL（base.json 驱动，PL002.2）
-#   _GITHUB_UA：GitHub API 请求浏览器 UA（匿名限速 60 次/小时）
+#   _BROWSER_UA：浏览器 UA（数据页与 GitHub 共用；无浏览器 UA 会被 opencode.ai
+#     403 拦截，实测 Python-urllib 默认 UA 被拒）
 # 模块级变量：_last_snapshot / _last_success_at——成功快照缓存与时间戳（缓存兜底）
 # 类型：
 #   DataPageError：分类业务错误（network/decoding），UI 只认 category
