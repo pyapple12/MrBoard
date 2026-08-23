@@ -453,10 +453,10 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 ### PL004.2 删 B：时段截取链（intervals 参数 + 账户下拉 + 导出标注列）
 
-- [x] PL004.2.a opencode_usage.py：删 intervals 形参全链——totals（:230/:235/:272）/各 by_* 约 8 处签名与透传（:297-443）/_time_clause 区间分支仅 intervals 部分（:460-489）/其余查询（:510/:554）；**严禁动 since/until**（--since 时间过滤）
+- [x] PL004.2.a opencode*usage.py：删 intervals 形参全链——totals（:230/:235/:272）/各 by*\* 约 8 处签名与透传（:297-443）/\_time_clause 区间分支仅 intervals 部分（:460-489）/其余查询（:510/:554）；**严禁动 since/until**（--since 时间过滤）
 - [x] PL004.2.b opencode_usage.py：删 CLI `--account` 参数（:650-654）与切换日志解析块（:659-683）+ import L18-19；CLI 调用点 intervals=intervals 清理（:715/:740）
 - [x] PL004.2.c exporter.py：删 `account_intervals`/`account_label` 形参（:34-35）+ 六处查询传参（:40-65）+ 标注列写入块（:69-77 row["account"] 与 CSV_COLUMNS + ("account",)）+ 说明区条目（:132/:135）
-- [x] PL004.2.d ui/main_window.py：删账户下拉三常量（:98-100）+ `_UsageTask.intervals` 字段与传参（:363/:380/:386）+ `_ExportTask.account_*`（:474-475/:487-488）+ `self._account_intervals` 初始化（:737）
+- [x] PL004.2.d ui/main*window.py：删账户下拉三常量（:98-100）+ `_UsageTask.intervals` 字段与传参（:363/:380/:386）+ `\_ExportTask.account*\*`（:474-475/:487-488）+ `self.\_account_intervals` 初始化（:737）
 - [x] PL004.2.e ui/main_window.py：删下拉构建与装配（:898-901/:930）+ 三方法整体 `_rebuild_account_combo`/`_sync_account_intervals`/`_on_account_changed`（:948-1019）+ 任务赋值点（:1042/:1274-1277）
 - [x] PL004.2.f config/settings.py：删 `account_filter` 字段（:40）+ to_dict 输出（:49）+ from_raw 解析块（:77-79）
 - [x] PL004.2.g config/static/ui.json：删 `account_filter_all_label`/`account_combo_template`/`account_label_date_format` 三键
@@ -495,3 +495,31 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 - [x] PL004.6.c x.progress.md 本清单逐项勾选附日期与验证结果
 - [x] PL004.6.d 版本推进 ver 0.240 三处同步：base.json version 字段 + README 徽章 + x.progress 当前版本行
 - [x] PL004.6.e commit 草稿按 V2 规范给出（git add 清单 + message），由用户审阅执行
+
+## PL005 配额区"添加账户"常驻入口（依据 z.plan.md PL005 方案，2026-08-23 规划）
+
+> 目标：已有有效凭据时提供随时可点的"添加账户"入口（现状引导卡仅在凭据全失效时显示，引入新账户无 UI 途径）
+> 已拍板：入口放配额区选择器旁常驻按钮 + QMenu 两路径复用既有引导流程；托盘零改动；添加后自动选中新账户
+> 硬限制：引导流程三件套（CDP 任务/手动对话框/并发防护）全部复用不建平行流程；\_on_guide_failed 显示条件修正必须与 show_guide 同源逻辑防双路径漂移
+> 版本归属：独立 **ver 0.241**（2026-08-23 用户定版，不并入 ver 0.240）
+> 完成情况：✅ 全部实施完成（2026-08-23）——probe_pl005_entry 10/10 PASS（幂等自清理）、全量回归 0 异常、IMPORT OK、凭据文件测后还原
+
+### PL005.1 入口按钮与菜单
+
+- [x] PL005.1.a config/static/ui.json 新键 `quota_add_account_button`（"添加账户"）；ui/main_window.py 常量解包（QUOTA_ADD_ACCOUNT_BUTTON）（2026-08-23 完成）
+- [x] PL005.1.b `_build_quota_section` 选择器行尾加 QPushButton；点击弹 QMenu 两项（文案复用 GUIDE_AUTO_BUTTON/GUIDE_MANUAL_BUTTON 不新增重复键）；动作分别路由 `_start_cdp_guide`/`_manual_guide`（2026-08-23 完成）
+- [x] PL005.1.c 复用确认：A0.6/A0.7 引导并发防护标志与按钮禁用逻辑对配额区入口同样生效（同一 `_guide_active` 状态）（2026-08-23 完成）
+
+### PL005.2 复用适配与添加后闭环
+
+- [x] PL005.2.a **关键修复**：`_on_guide_failed` 无条件 `self._guide_frame.show()`——已有有效凭据时从配额区触发失败会把引导卡弹出（语义混乱）；提取 `_should_show_guide()` 私有方法（与 `_on_quota_ready.show_guide` 同源单点维护），failed 回调改按条件显示（2026-08-23 完成）
+- [x] PL005.2.b `_start_cdp_guide` 从非引导卡上下文触发适配确认（`_guide_frame.hide()` 幂等无害；定时刷新暂停/恢复不变）（2026-08-23 完成）
+- [x] PL005.2.c 手动填写路径确认保存后已调 refresh（现实现 L1149 ✅ 原样复用）（2026-08-23 完成）
+- [x] PL005.2.d 添加后自动选中：一次性 pending 标志 `_pending_quota_account`；手动路径直接携带 workspace_id；CDP 路径改 `_CdpGuideSignals.success` 信号签名携带 workspace_id（带默认值向后兼容）；`_render_quota` 重建选项后优先匹配 pending 选中并清除（失配静默丢弃回落既有逻辑）（2026-08-23 完成）
+
+### PL005.3 验证与收尾
+
+- [x] PL005.3.a 探针 probe_pl005_entry.py：按钮存在 + QMenu 两动作路由正确（offscreen 触发不崩）；手动路径 mock QInputDialog → 凭据数组追加（真实 save_dashboard_credentials 落盘验证）+ refresh 触发 + pending 自动选中生效（2026-08-23 完成：10/10 PASS，唯一 ID 幂等 + 测后自清理还原凭据文件）
+- [x] PL005.3.b 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源（2026-08-23 完成）
+- [x] PL005.3.c README 配额账户章节补"添加账户入口"说明；x.progress.md 本清单勾选附验证结果（2026-08-23 完成）
+- [x] PL005.3.d 版本归属定案 ver 0.241 三处同步（base.json/README 徽章/x.progress 版本行）+ V2 规范 commit 草稿给出（2026-08-23 完成）

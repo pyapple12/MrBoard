@@ -67,6 +67,7 @@
   "quota_section_title": "OpenCode Go 配额",
   "quota_account_label": "配额账户",
   "quota_account_unknown": "未知账户",
+  "quota_add_account_button": "添加账户",
   "detail_section_title": "用量明细",
   "usage_tab_title": "用量监控",
   "data_page_tab_title": "数据与动态",

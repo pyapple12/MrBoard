@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.240-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.241-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -107,7 +107,7 @@ python -m venv .venv
 - **配额剩余量**：配额区右侧饼图直观显示最紧窗口剩余量（缓存/错误时显示警告文字）
 - **导出数据**：点击"导出"选择目录，生成 CSV + JSON（全量数据）
 - **切换主题**：明细区"主题"下拉选择 浅色/深色/终端/面板 四主题（切换即保存；终端=深色磷光屏气质、面板=浅色工业线框）
-- **配额账户切换**：配额区顶部下拉选择要监控的账户（选谁显示谁的配额，选择自动记忆）；用量统计始终为全量整体视图
+- **配额账户切换**：配额区顶部下拉选择要监控的账户（选谁显示谁的配额，选择自动记忆）；"添加账户"按钮随时引入新账户（一键自动获取或手动填写，添加后自动选中）；用量统计始终为全量整体视图
 - **数据与动态页**：第二个页签展示官方动态（GitHub Releases 版本/公告）与数据页统计（热门模型每日用量/Token 成本/缓存比/会话成本/国家分布），首次切换到该页时自动拉取
 - **配置凭据**：凭据缺失时配额区显示引导卡片——"一键自动获取"或"手动填写"
 - **托盘操作**：单击/双击图标显示窗口；托盘菜单"刷新/退出"；关闭窗口最小化到托盘

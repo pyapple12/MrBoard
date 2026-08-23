@@ -95,6 +95,8 @@ PIE_COLOR_TEXT_DEFAULT = str(_DEFAULT_PALETTE["pie_text"])
 # PL004.3：配额账户选择器文案（ui.json 驱动）
 QUOTA_ACCOUNT_LABEL = str(_SC.ui["quota_account_label"])
 QUOTA_ACCOUNT_UNKNOWN = str(_SC.ui["quota_account_unknown"])
+# PL005.1：添加账户常驻入口按钮文案（ui.json 驱动）
+QUOTA_ADD_ACCOUNT_BUTTON = str(_SC.ui["quota_add_account_button"])
 # PL002.11：页签名（ui.json 驱动）
 USAGE_TAB_TITLE = str(_SC.ui["usage_tab_title"])
 DATA_PAGE_ERROR_TEMPLATE = str(_SC.ui["data_page_error_template"])
@@ -541,9 +543,10 @@ class _RemainingPieChart(QWidget):
 
 
 class _CdpGuideSignals(QObject):
-    # CDP 凭据引导任务信号载体：成功/失败回传主线程
+    # CDP 凭据引导任务信号载体：成功/失败回传主线程；
+    # success 附带 workspace_id（PL005.2：添加账户后自动选中，默认空向后兼容）
 
-    success = pyqtSignal(str)
+    success = pyqtSignal(str, str)
     failed = pyqtSignal(str)
 
 
@@ -615,7 +618,8 @@ class _CdpGuideTask(QRunnable):
             self.signals.success.emit(
                 GUIDE_MESSAGES["creds_saved_template"].format(
                     workspace_id=workspace_id[:16]
-                )
+                ),
+                workspace_id,
             )
         except Exception as exc:
             self.signals.failed.emit(
@@ -723,6 +727,8 @@ class MainWindow(QMainWindow):
         self._hidden_columns: set[str] = set(self._config.hidden_columns)
         # 最近一次配额 infos 缓存（PL004.3：切换选择时免网络重渲染）
         self._last_infos: list[GoQuotaInfo] = []
+        # 待自动选中的新添加账户（PL005.2：一次性标志，匹配成功后清除）
+        self._pending_quota_account = ""
         if self._config.window_geometry:
             self.restoreGeometry(
                 QByteArray.fromHex(self._config.window_geometry.encode())
@@ -786,7 +792,8 @@ class MainWindow(QMainWindow):
 
     def _build_quota_section(self) -> None:
         # 构建 Go 配额区（PL004.3 单卡）：账户选择器行 + 单张配额卡；
-        # 选择器选项由 _render_quota 按每次刷新的 infos 重建
+        # 选择器选项由 _render_quota 按每次刷新的 infos 重建；
+        # PL005.1：行尾常驻"添加账户"按钮（已有凭据时引入新账户的唯一入口）
         selector_row = QHBoxLayout()
         selector_label = QLabel(QUOTA_ACCOUNT_LABEL)
         selector_label.setObjectName("section_title")
@@ -794,8 +801,19 @@ class MainWindow(QMainWindow):
         self._quota_account_combo.currentIndexChanged.connect(
             self._on_quota_account_changed
         )
+        # PL005.1：点击弹菜单两条添加路径（复用既有引导流程文案与逻辑）
+        self._add_account_button = QPushButton(QUOTA_ADD_ACCOUNT_BUTTON)
+        self._add_account_menu = QMenu(self._add_account_button)
+        auto_action = QAction(GUIDE_AUTO_BUTTON, self._add_account_menu)
+        manual_action = QAction(GUIDE_MANUAL_BUTTON, self._add_account_menu)
+        auto_action.triggered.connect(self._start_cdp_guide)
+        manual_action.triggered.connect(self._manual_guide)
+        self._add_account_menu.addAction(auto_action)
+        self._add_account_menu.addAction(manual_action)
+        self._add_account_button.setMenu(self._add_account_menu)
         selector_row.addWidget(selector_label)
         selector_row.addWidget(self._quota_account_combo, 1)
+        selector_row.addWidget(self._add_account_button)
         self._layout.addLayout(selector_row)
         container = QWidget()
         self._quota_cards_layout = QHBoxLayout(container)
@@ -1073,18 +1091,24 @@ class MainWindow(QMainWindow):
             return
         self._render_quota(infos)
         self.quota_updated.emit(infos)
+        # 引导卡片显示条件单点维护于 _should_show_guide（PL005.2：failed 回调同源
+        # 复用，防双路径漂移）
+        self._guide_frame.setVisible(self._should_show_guide(infos))
+
+    def _should_show_guide(self, infos: list[GoQuotaInfo]) -> bool:
         # 引导卡片显示条件：全部账户均为 CDP 可解决的凭据类错误（无 dashboard 凭据/
         # cookie 失效），且无缓存（历史成功过则不打扰）；其他阶段 CDP 解决不了，不显示
         # （E8：remaining==0/five_hour is None 在错误非缓存路径恒真，精简；
-        #   A0.6：引导进行中不重现引导卡，防界面状态混乱）
-        show_guide = bool(infos) and all(
+        #   A0.6：引导进行中不重现引导卡，防界面状态混乱；
+        #   PL005.2：配额区添加账户失败回调复用本方法——已有有效凭据时不弹引导卡）
+        if not infos or self._guide_active:
+            return False
+        return all(
             info.error is not None
             and not info.is_cached
             and info.error_stage in (ERROR_STAGE_NO_CREDS, ERROR_STAGE_AUTH)
             for info in infos
         )
-        show_guide = show_guide and not self._guide_active
-        self._guide_frame.setVisible(show_guide)
 
     def _on_load_error(self, seq: int, message: str) -> None:
         # 加载失败：仅状态栏提示（保留旧 view，z.plan 第四章保留旧数据策略；
@@ -1145,6 +1169,8 @@ class MainWindow(QMainWindow):
             return
         try:
             save_dashboard_credentials(workspace_id.strip(), auth_cookie.strip())
+            # PL005.2：记录 pending，刷新回来后选择器自动选中新添加的账户
+            self._pending_quota_account = workspace_id.strip()
             self._status_bar.showMessage(STATUS_MESSAGES["creds_saved"])
             self.refresh()
         except Exception as exc:
@@ -1152,11 +1178,14 @@ class MainWindow(QMainWindow):
                 STATUS_MESSAGES["creds_save_failed"].format(error=exc)
             )
 
-    def _on_guide_success(self, message: str) -> None:
-        # 引导成功：提示并立即刷新配额（凭据已落盘，凭据链可读到）
+    def _on_guide_success(self, message: str, workspace_id: str = "") -> None:
+        # 引导成功：提示并立即刷新配额（凭据已落盘，凭据链可读到）；
+        # PL005.2：记录 pending workspace_id，刷新回来后选择器自动选中新账户
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
+        if workspace_id:
+            self._pending_quota_account = workspace_id
         self._refresh_timer.start(
             self._config.refresh_interval_ms
         )  # B0.8：恢复定时刷新
@@ -1164,14 +1193,15 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def _on_guide_failed(self, message: str) -> None:
-        # 引导失败：状态栏提示，保留引导卡片供重试/手动填写
+        # 引导失败：状态栏提示；引导卡按条件显示（PL005.2：已有有效凭据时从配额区
+        # 添加账户失败不弹引导卡——与 _on_quota_ready 同源判断，防界面语义混乱）
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
         self._refresh_timer.start(
             self._config.refresh_interval_ms
         )  # B0.8：恢复定时刷新
-        self._guide_frame.show()
+        self._guide_frame.setVisible(self._should_show_guide(self._last_infos))
         self._status_bar.showMessage(message)
 
     def _export_data(self) -> None:
@@ -1196,11 +1226,17 @@ class MainWindow(QMainWindow):
 
     def _render_quota(self, infos: list[GoQuotaInfo]) -> None:
         # 渲染 Go 配额（PL004.3 单卡）：选择器按 infos 重建后，渲染当前选中账户项；
-        # 选中失配（凭据已删/尚未刷出）回落首个有效项，全无效渲染首项错误态
+        # 选中失配（凭据已删/尚未刷出）回落首个有效项，全无效渲染首项错误态；
+        # PL005.2：新添加账户的 pending 标志优先匹配选中（一次性，失配静默清除）
         if not infos:
             return
         self._last_infos = infos
         self._rebuild_quota_account_combo(infos)
+        if self._pending_quota_account:
+            pos = self._quota_account_combo.findData(self._pending_quota_account)
+            self._pending_quota_account = ""
+            if pos >= 0:
+                self._quota_account_combo.setCurrentIndex(pos)
         selected = str(self._quota_account_combo.currentData() or "")
         target = next(
             (item for item in infos if item.workspace_id == selected),
