@@ -37,7 +37,7 @@ class AppConfig:
     theme: str = DEFAULT_THEME
     refresh_interval_ms: int = DEFAULT_REFRESH_INTERVAL_MS
     hidden_columns: tuple[str, ...] = ()  # 明细表格隐藏列 id（P13 列开关持久化）
-    account_filter: str = ""  # 账户时段过滤指纹（空 = 全部账户，PL001.5）
+    quota_account: str = ""  # 配额区选中账户 workspace_id（空 = 首个有效项，PL004.3）
 
     def to_dict(self) -> dict[str, Any]:
         # 转为可 JSON 序列化的 dict
@@ -46,7 +46,7 @@ class AppConfig:
             "theme": self.theme,
             "refresh_interval_ms": self.refresh_interval_ms,
             "hidden_columns": list(self.hidden_columns),
-            "account_filter": self.account_filter,
+            "quota_account": self.quota_account,
         }
 
     @classmethod
@@ -74,9 +74,9 @@ class AppConfig:
             config.hidden_columns = tuple(
                 str(item).strip() for item in hidden if str(item).strip()
             )
-        account = raw.get("account_filter")
-        if isinstance(account, str):
-            config.account_filter = account.strip()
+        quota_account = raw.get("quota_account")
+        if isinstance(quota_account, str):
+            config.quota_account = quota_account.strip()
         return config
 
 
@@ -103,10 +103,12 @@ def save_config(config: AppConfig) -> None:
 #     DEFAULT_THEME：默认值与
 #     刷新间隔下限从静态配置现取（零硬编码；下限防手改 1ms 疯狂刷新，6A.2 D3）
 # 类型：
-#   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms/hidden_columns）
+#   AppConfig：配置聚合 dataclass（window_geometry/theme/refresh_interval_ms/
+#     hidden_columns/quota_account）
 #     ——window_geometry 存 QByteArray.toHex 字符串，避免 config 层依赖 PyQt
 #     （对齐 AccelWorld 修复 D3 的 base64 存储思路）；hidden_columns 为明细表格
-#     隐藏列 id 元组（P13 列开关持久化，宽容解析非法项跳过）
+#     隐藏列 id 元组（P13 列开关持久化，宽容解析非法项跳过）；quota_account 为
+#     配额区选中账户 workspace_id（PL004.3 单卡选择器记忆，空 = 首个有效项）
 # 函数：
 #   load_config()：read_json（use_cache=False 强制读最新，用户手改配置可生效）
 #     → 宽容解析（非 dict/坏数据返回默认 AppConfig）

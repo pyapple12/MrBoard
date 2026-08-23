@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from PyQt6.QtCore import (
     QByteArray,
@@ -47,7 +47,6 @@ from modules.go_quota import (
     ERROR_STAGE_AUTH,
     ERROR_STAGE_NO_CREDS,
     QUOTA_WINDOW_KEYS,
-    SWITCH_LOG_FILE,
     DashboardCredentials,
     GoQuotaError,
     GoQuotaInfo,
@@ -62,7 +61,6 @@ from modules.opencode_usage import (
     UsageSummary,
     find_db_path,
 )
-from modules.credential_store import load_switch_log
 from modules.opencode_data import ModelDataSnapshot, refresh_data_page
 from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
 from ui.themes import (
@@ -94,11 +92,9 @@ _DEFAULT_PALETTE = dict(_SC.ui["palettes"].get(DEFAULT_THEME_NAME, {}))
 # 默认主题饼图色（palette 必含 pie_bg/pie_text——themes 动态色契约校验兜底）
 PIE_COLOR_BG_DEFAULT = str(_DEFAULT_PALETTE["pie_bg"])
 PIE_COLOR_TEXT_DEFAULT = str(_DEFAULT_PALETTE["pie_text"])
-# PL001.5：账户时段选择器文案（ui.json 驱动）
-ACCOUNT_ALL_LABEL = str(_SC.ui["account_filter_all_label"])
-ACCOUNT_COMBO_TEMPLATE = str(_SC.ui["account_combo_template"])
-ACCOUNT_DATE_FORMAT = str(_SC.ui["account_label_date_format"])
-QUOTA_ACCOUNT_TITLE_TEMPLATE = str(_SC.ui["quota_account_title_template"])
+# PL004.3：配额账户选择器文案（ui.json 驱动）
+QUOTA_ACCOUNT_LABEL = str(_SC.ui["quota_account_label"])
+QUOTA_ACCOUNT_UNKNOWN = str(_SC.ui["quota_account_unknown"])
 # PL002.11：页签名（ui.json 驱动）
 USAGE_TAB_TITLE = str(_SC.ui["usage_tab_title"])
 DATA_PAGE_ERROR_TEMPLATE = str(_SC.ui["data_page_error_template"])
@@ -352,13 +348,14 @@ class _UsageTask(QRunnable):
     # F0.2：连点去重——run 入口检查模块级在途标志，已有任务执行时仅置 pending
     # 不叠加查询；当前任务结束后由 _on_usage_ready 补发最新一次
 
-    def __init__(self, db_path: Path, signals: _LoadSignals, seq: int = 0) -> None:
-        # 初始化任务：记录数据库路径、信号对象与刷新序号（B0.5 去重）
+    def __init__(
+        self, db_path: Path | None, signals: _LoadSignals, seq: int = 0
+    ) -> None:
+        # 初始化任务：记录数据库路径（探测失败可能为 None）、信号对象与刷新序号（B0.5 去重）
         super().__init__()
         self.db_path = db_path
         self.signals = signals
         self.seq = seq
-        self.intervals: list[tuple[int | None, int | None]] | None = None
 
     def run(self) -> None:
         # 后台执行：totals + 全部分组查询，失败发 error 信号
@@ -369,15 +366,18 @@ class _UsageTask(QRunnable):
             return
         _usage_task_in_flight = True
         try:
+            if self.db_path is None:
+                # 探测失败场景走既有 error 信号宽容路径（原 OpenCodeDB(None)
+                # 抛 TypeError 消息晦涩；Pyright 收窄需要显式判 None）
+                raise ValueError(STATUS_MESSAGES["no_db_found"])
             db = OpenCodeDB(self.db_path)
             try:
-                summary = db.totals(intervals=self.intervals)
+                summary = db.totals()
                 # C1：rows 不含 total 伪维度（从未消费；总量明细弹窗直接读 summary）
                 # R1：按 DIMENSIONS 推导构建（day 特例 TABLE_LIMIT_DAY），新增维度只改 DIMENSIONS
                 rows = {
                     dim: getattr(db, f"by_{dim}")(
                         limit=TABLE_LIMIT_DAY if dim == "day" else TABLE_LIMIT_GROUP,
-                        intervals=self.intervals,
                     )
                     for dim in DIMENSIONS
                 }
@@ -456,27 +456,23 @@ class _DataPageTask(QRunnable):
 class _ExportTask(QRunnable):
     # 导出后台任务：独立连接查询 + exporter 落盘，完成后发信号
 
-    def __init__(self, db_path: Path, out_dir: Path, signals: _ExportSignals) -> None:
+    def __init__(
+        self, db_path: Path | None, out_dir: Path, signals: _ExportSignals
+    ) -> None:
         # 初始化任务：记录数据库路径/输出目录/信号对象
         super().__init__()
         self.db_path = db_path
         self.out_dir = out_dir
         self.signals = signals
-        # PL001.6：账户时段过滤与标注（None/空 = 全量导出无标注列）
-        self.account_intervals: list[tuple[int | None, int | None]] | None = None
-        self.account_label = ""
 
     def run(self) -> None:
         # 后台执行：全量导出到 out_dir，成功发 done / 失败发 failed
         try:
+            if self.db_path is None:
+                raise ValueError(STATUS_MESSAGES["no_db_found"])
             db = OpenCodeDB(self.db_path)
             try:
-                export_all(
-                    db,
-                    self.out_dir,
-                    account_intervals=self.account_intervals,
-                    account_label=self.account_label,
-                )
+                export_all(db, self.out_dir)
             finally:
                 db.close()
             self.signals.done.emit(
@@ -723,10 +719,10 @@ class MainWindow(QMainWindow):
         self._config = load_config()
         # PL003.1.f：主题名字符串（settings 白名单已保证合法；N 主题支持）
         self._theme_name = self._config.theme or DEFAULT_THEME_NAME
-        # 账户时段过滤区间（PL001.5：None = 全部账户不过滤；由账户下拉同步）
-        self._account_intervals: list[tuple[int | None, int | None]] | None = None
         # 列开关状态（P13：持久化于用户配置 hidden_columns）
         self._hidden_columns: set[str] = set(self._config.hidden_columns)
+        # 最近一次配额 infos 缓存（PL004.3：切换选择时免网络重渲染）
+        self._last_infos: list[GoQuotaInfo] = []
         if self._config.window_geometry:
             self.restoreGeometry(
                 QByteArray.fromHex(self._config.window_geometry.encode())
@@ -789,19 +785,27 @@ class MainWindow(QMainWindow):
         self._layout.addLayout(cards_layout)
 
     def _build_quota_section(self) -> None:
-        # 构建 Go 配额区（PL001.9：主卡 + 动态账户卡并列容器；主卡保留兼容引用）
-        self._quota_cards: list[dict[str, Any]] = []
+        # 构建 Go 配额区（PL004.3 单卡）：账户选择器行 + 单张配额卡；
+        # 选择器选项由 _render_quota 按每次刷新的 infos 重建
+        selector_row = QHBoxLayout()
+        selector_label = QLabel(QUOTA_ACCOUNT_LABEL)
+        selector_label.setObjectName("section_title")
+        self._quota_account_combo = QComboBox()
+        self._quota_account_combo.currentIndexChanged.connect(
+            self._on_quota_account_changed
+        )
+        selector_row.addWidget(selector_label)
+        selector_row.addWidget(self._quota_account_combo, 1)
+        self._layout.addLayout(selector_row)
         container = QWidget()
         self._quota_cards_layout = QHBoxLayout(container)
         self._quota_cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._build_quota_card(QUOTA_SECTION_TITLE, primary=True)
+        self._build_quota_card(QUOTA_SECTION_TITLE)
         self._layout.addWidget(container)
 
-    def _build_quota_card(
-        self, title_text: str, primary: bool = False
-    ) -> dict[str, Any]:
+    def _build_quota_card(self, title_text: str) -> dict[str, Any]:
         # 构建单张配额卡（标题/状态 + 3 窗口进度条 + 重置时间 + 饼图）；
-        # primary=True 时组件引用保留到 self._quota_*（旧测试/托盘依赖兼容，PL001.9）
+        # 组件引用同时保留到 self._quota_* 实例属性与 self._quota_card dict
         frame = QFrame()
         frame.setObjectName("card")
         box = QVBoxLayout(frame)
@@ -844,14 +848,13 @@ class MainWindow(QMainWindow):
             "pie": pie,
         }
         self._quota_cards_layout.addWidget(frame)
-        self._quota_cards.append(card)
-        if primary:
-            # 兼容引用：主卡组件继续暴露为实例属性（旧测试/托盘消费不变）
-            self._quota_frame = frame
-            self._quota_status = status_label
-            self._quota_pie = pie
-            self._quota_bars = bars
-            self._quota_reset = resets
+        # 单卡引用（PL004.3）：dict 供渲染方法使用，实例属性保留旧消费兼容
+        self._quota_card = card
+        self._quota_frame = frame
+        self._quota_status = status_label
+        self._quota_pie = pie
+        self._quota_bars = bars
+        self._quota_reset = resets
         return card
 
     def _build_guide_card(self) -> None:
@@ -885,10 +888,6 @@ class MainWindow(QMainWindow):
         for dim in DIMENSIONS:
             self._dimension_combo.addItem(DIMENSION_LABELS[dim], dim)
         self._dimension_combo.currentIndexChanged.connect(self._render_table)
-        # PL001.5：账户时段过滤下拉（"全部账户" + 各指纹区间）
-        self._account_combo = QComboBox()
-        self._account_combo.currentIndexChanged.connect(self._on_account_changed)
-        self._rebuild_account_combo()
         self._refresh_button = QPushButton(BUTTON_LABELS["refresh"])
         self._refresh_button.clicked.connect(self.refresh)
         self._export_button = QPushButton(BUTTON_LABELS["export"])
@@ -917,7 +916,6 @@ class MainWindow(QMainWindow):
         section_row.addWidget(detail_title)
         section_row.addWidget(self._total_button)
         section_row.addStretch(1)
-        section_row.addWidget(self._account_combo)
         section_row.addWidget(self._dimension_combo)
         section_row.addWidget(self._refresh_button)
         section_row.addWidget(self._export_button)
@@ -934,79 +932,6 @@ class MainWindow(QMainWindow):
             if col_id in self._hidden_columns:
                 self._table.setColumnHidden(col, True)
         self._layout.addWidget(self._table, 1)
-
-    def _rebuild_account_combo(self) -> None:
-        # 重建账户时段下拉（PL001.5）："全部账户" + 各指纹区间项
-        # （标签 = workspace 前 8 位·首现日期，userData = 指纹）；启动恢复持久化选择
-        self._account_combo.blockSignals(True)
-        try:
-            self._account_combo.clear()
-            self._account_combo.addItem(ACCOUNT_ALL_LABEL, "")
-            log = load_switch_log(SWITCH_LOG_FILE)
-            for item in log["switches"]:
-                fingerprint = str(item.get("fingerprint", ""))
-                workspace_id = str(item.get("workspace_id", ""))[:8]
-                intervals = item.get("intervals") or []
-                first_since = intervals[0].get("since") if intervals else None
-                date_text = (
-                    datetime.fromtimestamp(int(first_since) / 1000).strftime(
-                        ACCOUNT_DATE_FORMAT
-                    )
-                    if isinstance(first_since, (int, float))
-                    else ""
-                )
-                label = ACCOUNT_COMBO_TEMPLATE.format(
-                    workspace=workspace_id, date=date_text
-                )
-                self._account_combo.addItem(label, fingerprint)
-            # 启动恢复：持久化的 account_filter 匹配则选中，否则回落"全部账户"
-            target = self._config.account_filter
-            pos = self._account_combo.findData(target)
-            self._account_combo.setCurrentIndex(pos if pos >= 0 else 0)
-        finally:
-            self._account_combo.blockSignals(False)
-        self._sync_account_intervals()
-
-    def _sync_account_intervals(self) -> None:
-        # 依据下拉当前选择同步账户时段区间列表（空/全部 → None 不过滤）
-        fingerprint = self._account_combo.currentData()
-        if not fingerprint:
-            self._account_intervals = None
-            return
-        log = load_switch_log(SWITCH_LOG_FILE)
-        item = next(
-            (
-                s
-                for s in log["switches"]
-                if str(s.get("fingerprint", "")) == fingerprint
-            ),
-            None,
-        )
-        raw_intervals = (item or {}).get("intervals") or []
-        parsed: list[tuple[int | None, int | None]] = []
-        for interval in raw_intervals:
-            if not isinstance(interval, dict):
-                continue
-            since = interval.get("since")
-            until = interval.get("until")
-            parsed.append(
-                (
-                    int(since) if isinstance(since, (int, float)) else None,
-                    int(until) if isinstance(until, (int, float)) else None,
-                )
-            )
-        self._account_intervals = parsed or None
-
-    def _on_account_changed(self, index: int) -> None:
-        # 账户时段切换（PL001.5）：同步过滤区间 → 立即持久化 → 触发重查
-        self._sync_account_intervals()
-        config = load_config()
-        config.account_filter = str(self._account_combo.itemData(index) or "")
-        try:
-            save_config(config)
-        except Exception as exc:
-            logger.warning("保存账户过滤配置失败：%s", exc)
-        self.refresh()
 
     def _trigger_auto_load(self) -> None:
         # 执行启动延迟加载（标志位确认未被手动刷新取消）
@@ -1029,7 +954,6 @@ class MainWindow(QMainWindow):
                 )
                 return
             task = _UsageTask(self.db_path, self._signals, self._refresh_seq)
-            task.intervals = self._account_intervals
             self._pool.start(task)
         else:
             self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
@@ -1059,21 +983,20 @@ class MainWindow(QMainWindow):
         if isinstance(app, QApplication):
             app.setStyleSheet(get_theme(self._theme_name))
         # PL003.2.d 连带：进度条 chunk 动态色统一重着色（防残留旧主题色）
-        for card in self._quota_cards:
-            for key in QUOTA_WINDOW_KEYS:
-                bar = card["bars"][key]
-                if bar.value() > 0:
-                    bar.setStyleSheet(
-                        f"QProgressBar::chunk {{ background-color: "
-                        f"{quota_chunk_color(bar.value(), self._theme_name)}; }}"
-                    )
-            # 饼图背景/文字/圆弧色随主题（实例色，PL003.1.d）
-            palette = self._theme_palette()
-            card["pie"].set_colors(
-                QColor(palette["pie_bg"]),
-                QColor(palette["pie_text"]),
-                QColor(quota_chunk_color(0, self._theme_name)),
-            )
+        for key in QUOTA_WINDOW_KEYS:
+            bar = self._quota_bars[key]
+            if bar.value() > 0:
+                bar.setStyleSheet(
+                    f"QProgressBar::chunk {{ background-color: "
+                    f"{quota_chunk_color(bar.value(), self._theme_name)}; }}"
+                )
+        # 饼图背景/文字/圆弧色随主题（实例色，PL003.1.d）
+        palette = self._theme_palette()
+        self._quota_pie.set_colors(
+            QColor(palette["pie_bg"]),
+            QColor(palette["pie_text"]),
+            QColor(quota_chunk_color(0, self._theme_name)),
+        )
 
     def _theme_palette(self) -> dict[str, str]:
         # 当前主题调色板（quota 动态色/饼图色取色源；未知主题回退默认）
@@ -1261,10 +1184,6 @@ class MainWindow(QMainWindow):
             return
         self._status_bar.showMessage(STATUS_MESSAGES["exporting"])
         task = _ExportTask(self.db_path, Path(out_dir), self._export_signals)
-        # PL001.6：导出跟随当前账户时段过滤并附标注列
-        task.account_intervals = self._account_intervals
-        if self._account_intervals:
-            task.account_label = self._account_combo.currentText()
         self._pool.start(task)
 
     def _render_cards(self, summary: UsageSummary) -> None:
@@ -1276,24 +1195,64 @@ class MainWindow(QMainWindow):
         self._cards["cost"].setText(_format_cost(summary.recorded_cost))
 
     def _render_quota(self, infos: list[GoQuotaInfo]) -> None:
-        # 渲染 Go 配额（PL001.9 并列账户卡）：主卡渲染首个有效项，附加账户动态
-        # 建卡并列渲染其余（错误项显示错误文字）；空列表不动作
+        # 渲染 Go 配额（PL004.3 单卡）：选择器按 infos 重建后，渲染当前选中账户项；
+        # 选中失配（凭据已删/尚未刷出）回落首个有效项，全无效渲染首项错误态
         if not infos:
             return
-        primary = next(
-            (item for item in infos if item.error is None),
-            infos[0],
+        self._last_infos = infos
+        self._rebuild_quota_account_combo(infos)
+        selected = str(self._quota_account_combo.currentData() or "")
+        target = next(
+            (item for item in infos if item.workspace_id == selected),
+            None,
         )
-        self._render_quota_card(self._quota_cards[0], primary)
-        for index, info in enumerate(infos[1:], start=1):
-            if index >= len(self._quota_cards):
-                self._build_quota_card(
-                    QUOTA_ACCOUNT_TITLE_TEMPLATE.format(workspace=info.workspace_id[:8])
+        if target is None:
+            target = next(
+                (item for item in infos if item.error is None),
+                infos[0],
+            )
+        self._render_quota_card(self._quota_card, target)
+
+    def _rebuild_quota_account_combo(self, infos: list[GoQuotaInfo]) -> None:
+        # 按本次刷新的 infos 重建选择器选项（userData = workspace_id；解密失败的
+        # 凭据不会出现在 infos 中，自然不进下拉）；持久化 quota_account 匹配则选中，
+        # 失配保持当前有效选中（首次为 0）；blockSignals 防回环触发保存
+        self._quota_account_combo.blockSignals(True)
+        try:
+            self._quota_account_combo.clear()
+            for info in infos:
+                label = info.workspace_id[:8] or (
+                    info.credential_source or QUOTA_ACCOUNT_UNKNOWN
                 )
-            self._quota_cards[index]["frame"].show()
-            self._render_quota_card(self._quota_cards[index], info)
-        for index in range(len(infos), len(self._quota_cards)):
-            self._quota_cards[index]["frame"].hide()
+                self._quota_account_combo.addItem(label, info.workspace_id)
+            target = self._config.quota_account
+            pos = self._quota_account_combo.findData(target)
+            if pos >= 0:
+                self._quota_account_combo.setCurrentIndex(pos)
+        finally:
+            self._quota_account_combo.blockSignals(False)
+
+    def _on_quota_account_changed(self, index: int) -> None:
+        # 配额账户切换（PL004.3）：立即持久化 → 用最近一次 infos 重渲染单卡
+        # （数据已在缓存列表，不发网络请求）
+        config = load_config()
+        config.quota_account = str(self._quota_account_combo.itemData(index) or "")
+        try:
+            save_config(config)
+        except Exception as exc:
+            logger.warning("保存配额账户选择失败：%s", exc)
+        cached = self._last_infos
+        if cached:
+            selected = config.quota_account
+            target = next(
+                (item for item in cached if item.workspace_id == selected),
+                None,
+            )
+            if target is None:
+                target = next(
+                    (item for item in cached if item.error is None), cached[0]
+                )
+            self._render_quota_card(self._quota_card, target)
 
     def _render_quota_card(self, card: dict[str, Any], info: GoQuotaInfo) -> None:
         # 渲染单张配额卡：三窗口进度条 + 重置时间 + 状态文字/饼图（颜色分级）
@@ -1487,7 +1446,8 @@ class MainWindow(QMainWindow):
 #       主题按钮 + QTableWidget）；状态栏在 __init__ 信号连接区提前创建（M11）
 #     refresh：手动/定时入口——取消自动加载标志，QThreadPool 并行启动两个任务
 #       （F0.2/G3.4：usage 任务在途时仅置 pending 补发标志并只启动配额任务）
-#     toggle_theme/_apply_theme：亮暗主题切换（QApplication.setStyleSheet）
+#     _apply_theme：主题应用（QApplication.setStyleSheet + chunk/饼图动态色重着色）；
+#       _theme_combo/_on_theme_changed：主题下拉切换即存（PL003.2）
 #     _on_usage_ready/_on_quota_ready/_on_load_error：结果渲染；失败仅状态栏提示，
 #       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗；
 #       凭据缺失（错误且无缓存无来源）时显示引导卡片

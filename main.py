@@ -12,7 +12,7 @@ if "--version" in sys.argv or "-V" in sys.argv:
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from config.static.static_config import get_static_config
-from modules.go_quota import GoQuotaInfo, record_credential_switch
+from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
 from ui.themes import QUOTA_DANGER_PERCENT
@@ -34,8 +34,6 @@ def main() -> None:
 
 def run_gui() -> None:
     # 启动 GUI：创建应用/主窗口/托盘，连接托盘信号，进入事件循环
-    # PL001.3：启动时检测一次账户切换（程序未运行期间的切换在此补记）
-    record_credential_switch()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     window = MainWindow()

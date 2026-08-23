@@ -1,10 +1,7 @@
-# 凭据加密存储模块：DPAPI（CryptProtectData）加密凭据 JSON，绑定当前 Windows 用户；
-# 含凭据指纹与账户切换日志（PL001 多账户用量区分）
+# 凭据加密存储模块：DPAPI（CryptProtectData）加密凭据 JSON，绑定当前 Windows 用户
 
 import base64
-import hashlib
 import json
-import time
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +16,6 @@ ENCRYPTED_KEY = "encrypted_v1"
 # 凭据字段键（R9：go_quota 的兼容集合首键引用本常量，单点维护）
 WORKSPACE_ID_KEY = "workspaceId"
 AUTH_COOKIE_KEY = "authCookie"
-# 账户切换日志文件名（PL001：存 credentials_dir 下，与 opencode-go.json 同目录）
-SWITCH_LOG_FILENAME = "switch_log.json"
 
 
 class CredentialEncryptionError(Exception):
@@ -100,87 +95,6 @@ def _decrypt_entry(entry: dict[str, Any], path: Path) -> dict[str, Any] | None:
     return decrypt_credentials(encrypted_text)
 
 
-def credential_fingerprint(workspace_id: str, auth_cookie: str) -> str:
-    # 凭据指纹：sha256("ws::cookie") 前 12 位 hex（拼接格式对齐 browser_creds.
-    # credential_dedup_key，但做 hash 落盘——不存原始 key，P4 安全口径一致）
-    return hashlib.sha256(f"{workspace_id}::{auth_cookie}".encode("utf-8")).hexdigest()[
-        :12
-    ]
-
-
-def load_switch_log(path: Path) -> dict[str, Any]:
-    # 读取账户切换日志（宽容解析）：缺失/坏 JSON/结构不符返回空结构 {"switches": []}
-    raw = read_json(path, default=None, use_cache=False)
-    if not isinstance(raw, dict):
-        return {"switches": []}
-    switches = raw.get("switches")
-    if not isinstance(switches, list):
-        return {"switches": []}
-    valid = [s for s in switches if isinstance(s, dict)]
-    return {"switches": valid}
-
-
-def save_switch_log(path: Path, log: dict[str, Any]) -> None:
-    # 原子写切换日志（复用 write_json）；调用方保证 log 结构
-    write_json(path, log)
-
-
-def detect_credential_switch(
-    credentials_path: Path, log_path: Path, now_ms: int | None = None
-) -> bool:
-    # 检测账户切换并记录区间（PL001.2）：同指纹持续生效不记；切换/切回时闭合上一
-    # 开放区间 + 新增生效区间。返回是否发生了记录。
-    #   无凭据文件/解密失败 → False（不记不崩，错误策略：非核心子系统）
-    raw = read_credentials_file(credentials_path)
-    if not raw:
-        return False
-    # 当前生效账户 = 凭据文件第一条（多账户数组 PL001.7：首条为主用账户）
-    first = raw[0]
-    workspace_id = str(first.get(WORKSPACE_ID_KEY, "") or "")
-    auth_cookie = str(first.get(AUTH_COOKIE_KEY, "") or "")
-    if not workspace_id or not auth_cookie:
-        return False
-    if now_ms is None:
-        # 默认当前时间：毫秒 epoch（对齐 opencode.db time.created 口径）
-        now_ms = int(time.time() * 1000)
-    fingerprint = credential_fingerprint(workspace_id, auth_cookie)
-    log = load_switch_log(log_path)
-    switches: list[dict[str, Any]] = log["switches"]
-    record = next((s for s in switches if s.get("fingerprint") == fingerprint), None)
-    intervals = record.get("intervals") if record is not None else None
-    if (
-        record is not None
-        and isinstance(intervals, list)
-        and intervals
-        and intervals[-1].get("until") is None
-    ):
-        # 同一账户持续生效：去抖不重复记
-        return False
-    # 切换到新账户或切回旧账户：闭合所有生效中的末段（正常至多一条开放段，
-    # 防御性全量闭合——历史脏数据自愈）
-    for item in switches:
-        item_intervals = item.get("intervals")
-        if (
-            isinstance(item_intervals, list)
-            and item_intervals
-            and item_intervals[-1].get("until") is None
-        ):
-            item_intervals[-1]["until"] = now_ms
-    new_interval = {"since": now_ms, "until": None}
-    if record is not None and isinstance(intervals, list):
-        intervals.append(new_interval)
-    else:
-        switches.append(
-            {
-                "fingerprint": fingerprint,
-                "workspace_id": workspace_id,
-                "intervals": [new_interval],
-            }
-        )
-    save_switch_log(log_path, log)
-    return True
-
-
 # ===== modules/credential_store.py 模块说明 =====
 # 模块级常量：
 #   ENCRYPTED_KEY：加密格式标记（文件 dict 含该键 = DPAPI 加密 blob）
@@ -211,25 +125,7 @@ def detect_credential_switch(
 #       非加密条目 WARNING 拒绝（P11 明文口径不变）
 #     设计理由：PL001.7 多账户数组兼容；旧单对象文件零迁移照常读
 #   _decrypt_entry(entry, path)：单条加密条目解密（缺 ENCRYPTED_KEY 拒绝该条目）
-#   credential_fingerprint(workspace_id, auth_cookie)：
-#     输入：明文 workspaceId 与 authCookie
-#     输出：sha256("ws::cookie") 前 12 位 hex 字符串
-#     设计理由：PL001 切换日志只存指纹不存原始 key（P4 口径）；拼接格式对齐
-#       browser_creds.credential_dedup_key（同输入空间，语义可互查）
-#   load_switch_log(path) / save_switch_log(path, log)：
-#     输入/输出：switch_log.json 路径与 {"switches": [...]} 结构 dict
-#     逻辑步骤：读宽容（缺失/坏 JSON/结构不符返回空结构）；写走 write_json 原子写
-#     设计理由：日志是数据非配置（用户决策 2），独立文件存 credentials_dir 下；
-#       坏数据容忍符合 z.plan 第四章宽容解析策略
-#   detect_credential_switch(credentials_path, log_path, now_ms=None)：
-#     输入：凭据文件路径 + 日志路径 + 可选注入时间戳（毫秒 epoch，测试用）
-#     输出：bool 是否发生记录；异常由调用方捕获（本函数不抛）
-#     逻辑步骤：读当前凭据 → 指纹 → 比对日志：无凭据返回 False；同指纹末段生效中
-#       去抖返回 False；切换/切回时闭合所有开放区间 + 新增生效区间 → 原子保存 True
-#     设计理由：每指纹一条记录 + intervals 区间列表（PL001.2 定案），统计切片直接查
-#       intervals；程序未运行期间切换漏检属预期硬限制（下次启动才检测）
 # 异常处理：读取全路径宽容（返回 None）；加密路径 win32crypt 缺失抛
-#   CredentialEncryptionError（UI 状态栏提示，不弹窗）；detect 全路径宽容返回 False
-# 关联配置：SWITCH_LOG_FILENAME 存 base.json credentials_dir 同目录；被 modules/
-#   go_quota.py 集成（save_dashboard_credentials 加密写入 / read_credentials_file
-#   仅读加密格式 / fetch_go_quota 成功后调 detect_credential_switch）
+#   CredentialEncryptionError（UI 状态栏提示，不弹窗）
+# 关联配置：凭据文件存 base.json credentials_dir 下；被 modules/go_quota.py 集成
+#   （save_dashboard_credentials 加密写入 / read_credentials_file 仅读加密格式）

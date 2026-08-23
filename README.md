@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.231-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-ver%200.240-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -97,7 +97,6 @@ python -m venv .venv
 | `--by`            | 分组维度：`total`/`month`/`day`/`model`/`provider`/`agent`/`session` |
 | `--json`          | JSON 输出                                                            |
 | `--estimate`      | 对库 cost 缺失的消息做定价估算                                       |
-| `--account`       | 账户时段过滤：指纹或 workspace 前缀（来自凭据切换日志）              |
 
 ### GUI 操作说明
 
@@ -106,10 +105,9 @@ python -m venv .venv
 - **切换维度**：明细区下拉框切换 按月份/按日期/按模型/按 Provider/按 Agent/按会话（会话显示"标题｜项目目录"）
 - **列显示开关**：点击"设置"按钮勾选表格列（取消勾选 = 隐藏该列，状态自动保存）
 - **配额剩余量**：配额区右侧饼图直观显示最紧窗口剩余量（缓存/错误时显示警告文字）
-- **导出数据**：点击"导出"选择目录，生成 CSV + JSON（选定账户时段时导出附账户标注列）
+- **导出数据**：点击"导出"选择目录，生成 CSV + JSON（全量数据）
 - **切换主题**：明细区"主题"下拉选择 浅色/深色/终端/面板 四主题（切换即保存；终端=深色磷光屏气质、面板=浅色工业线框）
-- **账户时段过滤**：明细区"全部账户"下拉选择具体账户时段——用量统计按该账户的启用区间切片（切换日志自动记录，多账户凭据文件数组支持）
-- **多账户配额**：配置多个账户凭据时配额区并列展示各账户卡片（每卡独立进度条/饼图/状态）
+- **配额账户切换**：配额区顶部下拉选择要监控的账户（选谁显示谁的配额，选择自动记忆）；用量统计始终为全量整体视图
 - **数据与动态页**：第二个页签展示官方动态（GitHub Releases 版本/公告）与数据页统计（热门模型每日用量/Token 成本/缓存比/会话成本/国家分布），首次切换到该页时自动拉取
 - **配置凭据**：凭据缺失时配额区显示引导卡片——"一键自动获取"或"手动填写"
 - **托盘操作**：单击/双击图标显示窗口；托盘菜单"刷新/退出"；关闭窗口最小化到托盘
@@ -124,7 +122,7 @@ Go 配额用量需要浏览器登录凭据（workspaceId + authCookie）。首�
 
 凭据统一 **DPAPI 加密存储**（绑定当前 Windows 用户，绑定当前用户 SID，文件泄露后他人无法解密使用），保存在项目内 `data/credentials/opencode-go.json`。同 Windows 用户下的恶意软件仍可解密（DPAPI 本限），换机迁移需重新获取凭据。
 
-**多账户**：手动填写/一键获取新账户时自动追加（同 workspace 覆盖更新），文件为加密数组格式；程序自动记录账户切换时间点（`switch_log.json`），支持按账户时段切片统计与多账户配额并列展示。
+**多账户**：手动填写/一键获取新账户时自动追加（同 workspace 覆盖更新），文件为加密数组格式；配额区下拉可切换查看任一已存账户的配额（选择自动记忆）。
 
 环境变量方式（高级）：设置 `OPENCODE_GO_WORKSPACE_ID` + `OPENCODE_GO_AUTH_COOKIE` 同样有效（探测链优先级：环境变量 → 配置文件 → 浏览器）。
 

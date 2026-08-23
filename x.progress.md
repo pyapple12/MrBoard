@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.231（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
+> 当前版本：ver 0.240（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号；ver 0.240 为 PL004 批次目标版本）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -188,8 +188,8 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 > 目标：15 条修复任务按五组整改；全量回归 43/43
 > 依据：z.plan.md 附录 A008；结果：五组全部完成（probe_8b0-8b3 + 行为验证）
 
-第一批正确性（B0）：Edge v20 判定下沉 browser_creds（has_v20_cookies 遍历双浏览器任一命中）；to_float/to_optional_float 补 OverflowError（10**400 实测逃逸封堵）；pricing currency/source null 兜底（防 "None" 字符串错值）；launch Popen OSError 分支清理临时目录；刷新序号 in-flight 去重（递增 seq，乱序完成丢弃过期结果）；ui.json 结构性键契约校验首建（删键导入期抛错）；notify 模板 .format 防护（未知占位符 KeyError 回退固定文案）；引导期暂停定时刷新（stop/start 配对恢复）；托盘不可用检查（isSystemTrayAvailable，closeEvent 不 hide）；CLI --limit 下界 max(1, ...)。
-第二批去重（B1）：settings \_themes 复用（THEMES = _themes）；hidden_columns 排序抽 \_sorted_hidden_columns 单点。
+第一批正确性（B0）：Edge v20 判定下沉 browser_creds（has_v20_cookies 遍历双浏览器任一命中）；to_float/to_optional_float 补 OverflowError（10\*\*400 实测逃逸封堵）；pricing currency/source null 兜底（防 "None" 字符串错值）；launch Popen OSError 分支清理临时目录；刷新序号 in-flight 去重（递增 seq，乱序完成丢弃过期结果）；ui.json 结构性键契约校验首建（删键导入期抛错）；notify 模板 .format 防护（未知占位符 KeyError 回退固定文案）；引导期暂停定时刷新（stop/start 配对恢复）；托盘不可用检查（isSystemTrayAvailable，closeEvent 不 hide）；CLI --limit 下界 max(1, ...)。
+第二批去重（B1）：settings \_themes 复用（THEMES = \_themes）；hidden_columns 排序抽 \_sorted_hidden_columns 单点。
 第三批配置化（B2）：TOKEN_ABBR_UNITS 解包排序消除 JSON 键序依赖（乱序配置缩略仍正确）。
 第四批清理（B3）：说明区失实/残留修正 6 处（main_window VERSION 条目/system_tray APP_NAME/themes 异常处理/exporter/browser_creds/go_quota 关联配置）；节流文案动态化评估（运行时已动态无需改）。
 
@@ -294,15 +294,15 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 ### 统计切片（消费侧）
 
-- [x] PL001.4 _time_clause 账户时段过滤（2026-08-22 完成：内存库边界探针 8/8 PASS + s10 回归）
+- [x] PL001.4 \_time_clause 账户时段过滤（2026-08-22 完成：内存库边界探针 8/8 PASS + s10 回归）
 - [x] PL001.5 GUI 账户时段选择器（2026-08-22 完成：offscreen 探针 15/15×2 零配置污染）
-- [x] PL001.6 CLI --account 与导出标注（2026-08-22 完成：探针 7/7 PASS + _ExportTask 连带）
+- [x] PL001.6 CLI --account 与导出标注（2026-08-22 完成：探针 7/7 PASS + \_ExportTask 连带）
 
 ### 配额侧多凭据轮询
 
 - [x] PL001.7 opencode-go.json 数组兼容（2026-08-22 完成：单对象/数组/追加不覆盖三断言 6/6 PASS）
 - [x] PL001.8 fetch_go_quota 循环轮询（2026-08-22 完成：mock 一好一坏 6/6 PASS；破坏性变更连带 main_window/main/go_quota.main 适配，全量回归涟漪 26 个脚本清零）
-- [x] PL001.9 GUI 配额区并列账户卡（2026-08-22 完成：offscreen 三账户探针 10/10 PASS；_set_status_style 孤儿删除）
+- [x] PL001.9 GUI 配额区并列账户卡（2026-08-22 完成：offscreen 三账户探针 10/10 PASS；\_set_status_style 孤儿删除）
 
 ### 验证收尾
 
@@ -312,29 +312,29 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 > 目标：数据页六区块（热门模型时序/Token 成本/缓存比/会话成本/国家分布/GitHub Releases）以新页签展示；UI 与功能三层分离
 > 架构：modules/opencode_data.py 零 Qt / ui/data_page.py 纯展示零解析 / main_window 装配最小侵入
-> 关键预研结论：go_quota._capture_object_body 仅支持单层对象（[^{}]* 不容嵌套），$R 数组引用链须新写独立展开器；异步对齐 QRunnable+signal+seq 模式
+> 关键预研结论：go_quota.\_capture_object_body 仅支持单层对象（[^{}]\* 不容嵌套），$R 数组引用链须新写独立展开器；异步对齐 QRunnable+signal+seq 模式
 
 ### PL002.1 配置外置与模块骨架（z.plan.md PL002.1）
 
 - [x] PL002.1.a base.json 新增五键（2026-08-22 完成）
-- [x] PL002.1.b modules/opencode_data.py 骨架：_SC 解包 + DataPageError 分类（2026-08-22 完成）
+- [x] PL002.1.b modules/opencode_data.py 骨架：\_SC 解包 + DataPageError 分类（2026-08-22 完成）
 - [x] PL002.1.c 验证：import 冒烟 + 常量断言（2026-08-22 完成：探针 16/16 PASS）
 
 ### PL002.2 节流缓存基础设施
 
-- [x] PL002.2.a _last_snapshot/_throttled_snapshot 对齐 go_quota 同式（2026-08-22 完成）
+- [x] PL002.2.a \_last_snapshot/\_throttled_snapshot 对齐 go_quota 同式（2026-08-22 完成）
 - [x] PL002.2.b probe 时间注入断言（2026-08-22 完成）
 
 ### PL002.3 $R 引用展开器（z.plan.md PL002.2 前半）
 
-- [x] PL002.3.a _extract_r_objects（实测 1783 对象块 + 176 数组块）（2026-08-22 完成）
-- [x] PL002.3.b _parse_loose_object 手写分词（引号+括号深度感知，禁 eval）（2026-08-22 完成）
+- [x] PL002.3.a \_extract_r_objects（实测 1783 对象块 + 176 数组块）（2026-08-22 完成）
+- [x] PL002.3.b \_parse_loose_object 手写分词（引号+括号深度感知，禁 eval）（2026-08-22 完成）
 - [x] PL002.3.c probe 真实快照样例（2026-08-22 完成）
 
 ### PL002.4 四数据块锚点提取（z.plan.md PL002.2 后半）
 
-- [x] PL002.4.a fetch_model_data 锚点+配平捕获（_capture_array_text 防内嵌截断）（2026-08-22 完成）
-- [x] PL002.4.b _expand_array_ref（2026-08-22 完成）
+- [x] PL002.4.a fetch_model_data 锚点+配平捕获（\_capture_array_text 防内嵌截断）（2026-08-22 完成）
+- [x] PL002.4.b \_expand_array_ref（2026-08-22 完成）
 - [x] PL002.4.c 缺块容忍（2026-08-22 完成）
 - [x] PL002.4.d probe 真实页面四块断言（2026-08-22 完成：14/14 PASS）
 
@@ -347,8 +347,8 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 
 ### PL002.6 GitHub Releases 拉取（z.plan.md PL002.4）
 
-- [x] PL002.6.a _fetch_releases_json（UA 头 + 前 3 条）（2026-08-22 完成）
-- [x] PL002.6.b _fetch_releases_rss 回退（xml.etree 命名空间）（2026-08-22 完成）
+- [x] PL002.6.a \_fetch_releases_json（UA 头 + 前 3 条）（2026-08-22 完成）
+- [x] PL002.6.b \_fetch_releases_rss 回退（xml.etree 命名空间）（2026-08-22 完成）
 - [x] PL002.6.c fetch_github_releases JSON 优先 RSS 回退（2026-08-22 完成）
 - [x] PL002.6.d probe mock 双路径 + 快照 tag_name（2026-08-22 完成：8/8 PASS）
 
@@ -373,12 +373,12 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 ### PL002.10 懒加载后台任务（z.plan.md PL002.5 尾）
 
 - [x] PL002.10.a has_loaded 懒加载标志（2026-08-22 完成）
-- [x] PL002.10.b _DataPageTask(QRunnable) + _DataSignals（seq 防竞态）（2026-08-22 完成）
+- [x] PL002.10.b \_DataPageTask(QRunnable) + \_DataSignals（seq 防竞态）（2026-08-22 完成）
 - [x] PL002.10.c probe 幂等断言（2026-08-22 完成）
 
 ### PL002.11 QTabWidget 改造（z.plan.md PL002.6）
 
-- [x] PL002.11.a _build_ui 两页签（现有布局整体迁入 Tab1 只换父容器）（2026-08-22 完成）
+- [x] PL002.11.a \_build_ui 两页签（现有布局整体迁入 Tab1 只换父容器）（2026-08-22 完成）
 - [x] PL002.11.b currentChanged 首次切换触发拉取（2026-08-22 完成）
 - [x] PL002.11.c 主刷新定时器隔离（refresh 不触达 DataPage）（2026-08-22 完成）
 - [x] PL002.11.d probe 双页 + 拉取计数 == 1（2026-08-22 完成：14/14 PASS）
@@ -403,24 +403,24 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 - [x] PL003.1.c get_theme 字典查找 + 未知名回退默认（2026-08-22 完成）
 - [x] PL003.1.d 配额动态色迁 palette（chunk 三档/quota_gray/pie_bg/pie_text + 必含契约校验）；quota_chunk_color(percent, theme_name)（2026-08-22 完成）
 - [x] PL003.1.e colors 节瘦身为纯托盘色节（quota_ok/quota_gray/quota_pie_dot）；system_tray 消费不变（2026-08-22 完成）
-- [x] PL003.1.f main_window._is_dark → _theme_name；饼图实例色随主题；settings 零改动（2026-08-22 完成）
+- [x] PL003.1.f main_window.\_is_dark → \_theme_name；饼图实例色随主题；settings 零改动（2026-08-22 完成）
 - [x] PL003.1.g 验证：offscreen init + 全量回归清零（2026-08-22 完成）
 
 ### PL003.2 切换交互：按钮改下拉
 
-- [x] PL003.2.a 删 _theme_button/toggle_theme → 主题 QComboBox（2026-08-22 完成）
+- [x] PL003.2.a 删 \_theme_button/toggle_theme → 主题 QComboBox（2026-08-22 完成）
 - [x] PL003.2.b theme_labels 显示名映射 + 键集与 themes 数组一致校验（2026-08-22 完成）
 - [x] PL003.2.c currentTextChanged → 应用 → 立即 save_config；启动恢复 blockSignals 防回环（2026-08-22 完成）
-- [x] PL003.2.d 连带修复：进度条 chunk 动态色切主题后统一重着色（_apply_theme 遍历卡片重刷）（2026-08-22 完成）
+- [x] PL003.2.d 连带修复：进度条 chunk 动态色切主题后统一重着色（\_apply_theme 遍历卡片重刷）（2026-08-22 完成）
 - [x] PL003.2.e 验证：offscreen 切换断言 QSS 变化 + 持久化落盘 + 回归（2026-08-22 完成：探针 14/14）
 
 ### PL003.3 双新主题包数据落地（console + panel）
 
-- [x] PL003.3.a _QSS_TEMPLATE 新增 {font_family} 占位符；light/dark Segoe UI、console/panel Consolas（2026-08-22 完成）
+- [x] PL003.3.a \_QSS_TEMPLATE 新增 {font_family} 占位符；light/dark Segoe UI、console/panel Consolas（2026-08-22 完成）
 - [x] PL003.3.b console palette：近黑底 #0a0e14/卡片深底强调描边/绿磷光文字（2026-08-22 完成）
 - [x] PL003.3.c panel palette：米灰绿底/近黑文字/胶囊大圆角（2026-08-22 完成）
 - [x] PL003.3.d 能力边界落地：分段进度条退化普通圆角条（M3b 不阻塞）；饼图复用 QPainter 实例色（2026-08-22 完成）
-- [ ] PL003.3.e 截图对照参考图目检（标准：风格气质到位非逐像素复刻；**需切换多模态模型**）
+- [x] PL003.3.e 截图对照参考图目检（标准：风格气质到位非逐像素复刻；**需切换多模态模型**）
 
 ### PL003.4 列元数据外置（P23 关联收尾）
 
@@ -434,3 +434,64 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 - [x] PL003.5.a verify_pl003_accept 反向断言（2026-08-22 完成：5/5 PASS：键集一致/未知名回退/三档随主题/theme_labels 与动态色键契约可触发）
 - [x] PL003.5.b README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步（2026-08-22 完成）
 - [x] PL003.5.c 版本定案 **ver 0.230**（2026-08-22，独立提交）
+
+## PL004 用量纯净视图回归：切换日志移除 + 配额单卡选择器（依据 z.plan.md PL004 方案，2026-08-23 规划，版本 ver 0.240）
+
+> 目标：用量统计删除账户概念回归纯净单视图；Go 配额改"单卡 + 账号选择器 + 选择记忆"；凭据管理入口与托盘预警原样保留
+> 根因：opencode.db 消息 JSON 无账号维度字段且多账号混写同库——时间窗近似对并行使用物理不可分、对串行切换有采样漏检，实用价值有限
+> 已拍板（2026-08-23）：删 A+B 全量/配额单卡选择器选谁显示谁/凭据数组格式与追加式保存保留/残留物物理删除/托盘零改动/版本 ver 0.240
+> 硬限制：since/until 形参是 --since 时间过滤与账户无关严禁误删；时间窗近似方案退役后不再以任何形式重新引入
+> 完成情况：✅ 全部实施完成（2026-08-23）——removal 探针 26→0 失败、quota 行为探针 5/5、legacy 兼容实证 6/6、verify_pl004_accept 验收 18/18、全量回归 0 异常
+
+### PL004.1 删 A：切换日志体系（时间点记录）
+
+- [x] PL004.1.a credential_store.py：删 `SWITCH_LOG_FILENAME` 常量（:23）+ `load_switch_log`/`save_switch_log`/`detect_credential_switch` 三函数（:111-182）+ 说明区对应条目（:214-235 相关行）
+- [x] PL004.1.b 连带删指纹链：credential_store.py `credential_fingerprint`（:103）+ go_quota.py `GoQuotaInfo.fingerprint` 字段定义（:140）与两处赋值（:396-408/:478）——无 UI 消费者，账户标识统一改用 workspace_id
+- [x] PL004.1.c go_quota.py：删 `SWITCH_LOG_FILE` 常量（:50）+ `record_credential_switch` 钩子（:103-112）+ fetch 循环内调用点（:458-459 含 PL001.3 注释）+ 说明区条目（:560/:570）
+- [x] PL004.1.d main.py：删 import（:15）与启动时调用（:38）；ui/main_window.py：删 `SWITCH_LOG_FILE`/`load_switch_log` import（:50/:65）
+- [x] PL004.1.e 验证：IMPORT OK + offscreen init + 定向探针（访问被删符号 AttributeError 即 PASS）
+
+### PL004.2 删 B：时段截取链（intervals 参数 + 账户下拉 + 导出标注列）
+
+- [x] PL004.2.a opencode_usage.py：删 intervals 形参全链——totals（:230/:235/:272）/各 by_* 约 8 处签名与透传（:297-443）/_time_clause 区间分支仅 intervals 部分（:460-489）/其余查询（:510/:554）；**严禁动 since/until**（--since 时间过滤）
+- [x] PL004.2.b opencode_usage.py：删 CLI `--account` 参数（:650-654）与切换日志解析块（:659-683）+ import L18-19；CLI 调用点 intervals=intervals 清理（:715/:740）
+- [x] PL004.2.c exporter.py：删 `account_intervals`/`account_label` 形参（:34-35）+ 六处查询传参（:40-65）+ 标注列写入块（:69-77 row["account"] 与 CSV_COLUMNS + ("account",)）+ 说明区条目（:132/:135）
+- [x] PL004.2.d ui/main_window.py：删账户下拉三常量（:98-100）+ `_UsageTask.intervals` 字段与传参（:363/:380/:386）+ `_ExportTask.account_*`（:474-475/:487-488）+ `self._account_intervals` 初始化（:737）
+- [x] PL004.2.e ui/main_window.py：删下拉构建与装配（:898-901/:930）+ 三方法整体 `_rebuild_account_combo`/`_sync_account_intervals`/`_on_account_changed`（:948-1019）+ 任务赋值点（:1042/:1274-1277）
+- [x] PL004.2.f config/settings.py：删 `account_filter` 字段（:40）+ to_dict 输出（:49）+ from_raw 解析块（:77-79）
+- [x] PL004.2.g config/static/ui.json：删 `account_filter_all_label`/`account_combo_template`/`account_label_date_format` 三键
+- [x] PL004.2.h 验证：IMPORT OK + offscreen init + 全量回归（pl001 系列预期 FAIL 属涟漪，PL004.5 清理）
+
+### PL004.3 配额区改造：单卡 + 账号选择器 + 选择记忆
+
+- [x] PL004.3.a `_build_quota_section` 回归单卡：删 `_quota_cards` 动态列表容器与 `_build_quota_card(primary=True)` 兼容主卡模式（PL001.9 结构），恢复单个 `_quota_card` dict
+- [x] PL004.3.b `_render_quota` 单卡渲染：按选中 workspace_id 从 infos 取项渲染；失配（已删凭据/尚未刷出）回落首个有效项；全无效渲染 infos[0] 错误态
+- [x] PL004.3.c 配额区顶部新增选择器行：QLabel + QComboBox（userData = workspace_id 自然 ID 与凭据判重同源）；标签文案外置 ui.json 新键 `quota_account_label`
+- [x] PL004.3.d 选项以每次刷新的 infos 为准重建（blockSignals 防回环）；错误占位项照常入列（选中显示该账号错误文字，不拖垮其他账号）
+- [x] PL004.3.e settings.py 新增 `quota_account: str = ""` 字段三件套（dataclass 字段/to_dict/from_raw strip 宽容）；切换回调立即 save_config（失败仅 warning 降级与 E0.3 同式）；启动恢复 blockSignals 包裹
+- [x] PL004.3.f 托盘零改动确认：main.py `_on_quota_updated` 取最紧有效账户驱动图标/预警的逻辑不动（只依赖 infos 列表不依赖卡片形态）
+- [x] PL004.3.g 数据层零改动确认：fetch_go_quota 全量轮询返回 list 不动（60s 节流/in-flight 去重/缓存兜底/占位错误项原样）——切换选择零延迟的数据基础
+- [x] PL004.3.h 探针验证：切换下拉 → 渲染项变化 + quota_account 落盘 + 重启恢复 + 失配回落路径断言
+
+### PL004.4 清理与兼容性（残留物物理删除）
+
+- [x] PL004.4.a config/user_config.json：物理删除 `"account_filter": "..."` 行（不留死键等运行时无视）
+- [x] PL004.4.b data/credentials/switch_log.json：文件直接删除（gitignore 内纯死数据，无代码再读写）
+- [x] PL004.4.c 凭据文件数组格式与追加式保存确认保留不动（go_quota.save_dashboard_credentials 同 workspaceId 覆盖/异账号追加——选择器的数据基础，已拍板第 3 条）
+- [x] PL004.4.d 兼容实证：带旧残留键的临时 user_config 跑一次 offscreen init（from_raw 逐键 raw.get() 天然容忍未知键，启动无错且其余配置正常生效）
+
+### PL004.5 回归脚本清理与新验收
+
+- [x] PL004.5.a 必删：`.temp/verify_pl001_accept.py` + `.temp/probe_pl001_*` 系列（锚定被删代码必 FAIL）
+- [x] PL004.5.b 逐一排查清理其他引用 intervals/account_filter/switch_log 的探针与验收脚本
+- [x] PL004.5.c `.temp/verify_5a3.py` 白名单移除失效条目（"保存账户过滤配置失败"等锚定点）；`.temp/run_all_verify.py` 清单同步移除已删脚本
+- [x] PL004.5.d 新建 `.temp/verify_pl004_accept.py` 反向断言：credential_store 无 switch_log 四函数/opencode_usage 各查询无 intervals 参数/exporter 无 account 标注/main_window 无 `_account_combo`/quota_account 切换持久化回环/单卡按选中 workspace_id 渲染/user_config 残留键已物理清除
+- [x] PL004.5.e 验证：run_all_verify.py 全量回归 0 异常 + IMPORT OK + offscreen 冒烟
+
+### PL004.6 文档同步与版本推进
+
+- [x] PL004.6.a README 分账号用量章节改写为"配额账户切换"说明（选谁看谁 + 凭据引导入口指引）
+- [x] PL004.6.b z.plan.md 本章节状态更新为已实施；y.problem.md 如有 PL001 关联条目同步标注退役
+- [x] PL004.6.c x.progress.md 本清单逐项勾选附日期与验证结果
+- [x] PL004.6.d 版本推进 ver 0.240 三处同步：base.json version 字段 + README 徽章 + x.progress 当前版本行
+- [x] PL004.6.e commit 草稿按 V2 规范给出（git add 清单 + message），由用户审阅执行

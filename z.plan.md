@@ -594,16 +594,16 @@ ui.json：`"themes": ["light", "dark", "console", "panel"]`（数组顺序即下
 
 #### PL003.1 主题注册制泛化（先行，视觉零变化）
 
-- themes.py：删除硬编码双主题段（light/dark 循环校验 + _LIGHT/_DARK_PALETTE），泛化为遍历 palettes 全键导入期构建 `_THEME_QSS: dict[str, str]`；删除 LIGHT/DARK 四常量，新增 `DEFAULT_THEME_NAME = THEME_NAMES[0]`
+- themes.py：删除硬编码双主题段（light/dark 循环校验 + \_LIGHT/\_DARK_PALETTE），泛化为遍历 palettes 全键导入期构建 `_THEME_QSS: dict[str, str]`；删除 LIGHT/DARK 四常量，新增 `DEFAULT_THEME_NAME = THEME_NAMES[0]`
 - get_theme(name) 改字典查找 + 回退默认——顺带消除"第三主题静默错位"豁免项；A3.5（≥2 项）/C0.6（键序一致）校验原样保留（天然兼容 N 键）
 - 配额色族按渲染环境拆分：窗口内动态色（chunk 三档/quota_gray/pie_bg/pie_text）迁入各 palette 并加导入期必含校验（不走 QSS 占位符，残留检测兜不住，需显式契约）；quota_chunk_color(percent) → (percent, theme_name)；托盘图标色（QUOTA_OK/GRAY/pie_dot）渲染在系统任务栏与窗口主题无关——ui.json 顶层 colors 节瘦身为纯托盘色节，system_tray 消费方式基本不动
-- main_window.py：_is_dark 布尔 → _theme_name 字符串（settings 白名单回退已备）；_apply_theme/save_state 同步改造
+- main_window.py：\_is_dark 布尔 → \_theme_name 字符串（settings 白名单回退已备）；\_apply_theme/save_state 同步改造
 - settings.py 零改动（THEMES 白名单 + DEFAULT_THEME 回退天然支持 N 主题，外置红利兑现）
 - 验证：全量回归（43 个 verify）+ offscreen init，视觉零变化
 
 #### PL003.2 切换交互：按钮改下拉
 
-- 删 _theme_button/toggle_theme；明细区新增主题 QComboBox（维度下拉同款 combo_* 样式已备）
+- 删 _theme_button/toggle_theme；明细区新增主题 QComboBox（维度下拉同款 combo_\* 样式已备）
 - 显示名外置 ui.json theme_labels（浅色/深色/终端/面板），导入期校验键集与 themes 数组一致（C0.6 同机制防错位）
 - currentTextChanged → 更新 → 应用 → 立即 save_config（常驻托盘应用可能长期不关，切完即存防丢）；启动恢复 blockSignals 防回环
 - 连带修复：进度条 chunk 动态色切主题后统一重着色（现状 toggle 即有残留旧主题色问题）
@@ -626,7 +626,7 @@ ui.json：`"themes": ["light", "dark", "console", "panel"]`（数组顺序即下
 
 #### PL003.5 收尾
 
-- 新增 .temp/verify_pl003_theme.py：_THEME_QSS 键集==THEME_NAMES / get_theme 未知名回退 / quota 三档随主题取色 / theme_labels 与 table_columns 契约校验触发
+- 新增 .temp/verify_pl003_theme.py：\_THEME_QSS 键集==THEME_NAMES / get_theme 未知名回退 / quota 三档随主题取色 / theme_labels 与 table_columns 契约校验触发
 - README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步
 
 ### 技术要点与硬限制
@@ -651,3 +651,137 @@ ui.json：`"themes": ["light", "dark", "console", "panel"]`（数组顺序即下
 2. 主题命名按 AI 建议？ - 已定稿：console（深色终端控制台）/ panel（浅色工业面板）
 3. 主题切换交互？ - 下拉菜单选择（弃循环点击按钮），切换即持久化
 4. 配额三色阈值行为不变？ - 确认，仅颜色随主题走，阈值逻辑不动
+
+## PL004. 用量纯净视图回归：切换日志移除 + 配额单卡选择器实施方案（2026-08-23）
+
+> 来源：人测反馈"接下来做 UI 与内容呈现完善"的前置收敛 + 2026-08-23 多轮对齐拍板。
+> 背景根因：opencode.db 消息 JSON 无任何账号维度字段（实测顶层键仅 agent/cost/mode/
+> modelID/parentID/path/providerID/role/time/tokens/variant），且多账号消息混写同一本地库
+> ——PL001 时间窗近似方案对"并行使用"物理不可分、对"串行切换"存在采样漏检，实用价值
+> 有限；用户诉求回归"整体 tokens"纯净视图，配额侧改为"选谁看谁"的单卡交互。
+> 状态：✅ 已实施（2026-08-23，版本 ver 0.240）
+
+### 目标形态
+
+| 区域            | 现状                                               | 目标                                              |
+| --------------- | -------------------------------------------------- | ------------------------------------------------- |
+| tokens 用量统计 | 明细区账户时段下拉过滤 + 导出标注列 + 后台切换日志 | 纯净单视图（全量统计，无任何账户概念）            |
+| Go 配额展示     | 多卡并列（每凭据一张卡）                           | 单卡 + 账号选择器下拉（选谁显示谁），选择持久化   |
+| 凭据管理        | CDP 引导 / 手动填写；数组格式异账号追加            | **原样保留**（选择器的数据基础，不动）            |
+| 托盘预警        | 取所有有效账户中用量最高者驱动                     | **原样保留**（只依赖 infos 列表，不依赖卡片形态） |
+
+### 任务分解
+
+#### PL004.1 删 A：切换日志体系（时间点记录）
+
+- credential_store.py：删除 `SWITCH_LOG_FILENAME` 常量（:23）、`load_switch_log` /
+  `save_switch_log` / `detect_credential_switch` 三函数（:111-182）及说明区对应条目
+  （:214-235 相关行）；连带删除 `credential_fingerprint`（:103）——唯一消费者为切换日志
+  与无 UI 消费的 GoQuotaInfo.fingerprint 字段
+- go_quota.py：删除 `SWITCH_LOG_FILE` 常量（:50）、`record_credential_switch` 钩子
+  （:103-112）、fetch 循环内调用点（:458-459 含 PL001.3 注释）、`GoQuotaInfo.fingerprint`
+  字段定义（:140）与两处赋值（:396-408/:478）、说明区条目（:560/:570）
+- main.py：删除 import（:15）与启动时调用（:38）
+- ui/main_window.py：删除 `SWITCH_LOG_FILE` / `load_switch_log` import（:50/:65）
+- 验证：IMPORT OK + offscreen init + 定向探针（被删符号 AttributeError 即 PASS）
+
+#### PL004.2 删 B：时段截取链（intervals 参数 + 账户下拉 + 导出标注列）
+
+- opencode*usage.py：删除 `intervals` 形参全链——totals（:230/:235/:272）、各 by*\*
+  （:297-443 约 8 处签名与透传）、`_time_clause` 区间分支（:460-489 仅删 intervals 部分）、
+  其余查询（:510/:554）、CLI `--account` 参数（:650-654）与切换日志解析块（:659-683）；
+  import L18-19 一并删。**硬性注意**：since/until 形参是 `--since` 时间过滤，与账户无关，
+  **严禁误删**
+- exporter.py：删除 `account_intervals` / `account_label` 形参（:34-35）、六处查询传参
+  （:40-65）、标注列写入块（:69-77 row["account"] 与 CSV_COLUMNS + ("account",)）、
+  说明区条目（:132/:135）
+- ui/main*window.py：删除账户下拉三常量（:98-100 ACCOUNT_ALL_LABEL/COMBO_TEMPLATE/
+  DATE_FORMAT）、`_UsageTask.intervals` 字段与传参（:363/:380/:386）、
+  `\_ExportTask.account*\*`（:474-475/:487-488）、`self.\_account_intervals`初始化（:737）、
+  下拉构建与装配（:898-901/:930）、三方法整体`\_rebuild_account_combo`/`\_sync_account_intervals`/`\_on_account_changed`（:948-1019）、任务赋值点
+  （:1042/:1274-1277）
+- settings.py：删除 `account_filter` 字段（:40）、to_dict 输出（:49）、from_raw 解析块
+  （:77-79）
+- config/static/ui.json：删除 `account_filter_all_label` / `account_combo_template` /
+  `account_label_date_format` 三键
+- 验证：IMPORT OK + 全量回归（预期 pl001 系列脚本 FAIL，属预期涟漪，见 PL004.5）
+
+#### PL004.3 配额区改造：单卡 + 账号选择器 + 选择记忆
+
+- 数据层**零改动**：`fetch_go_quota` 保持全量轮询返回 `list[GoQuotaInfo]`——60s 节流、
+  in-flight 去重、缓存兜底、占位错误项机制原样；这是"切换选择零延迟"的数据基础
+  （选中项数据已在缓存列表，切下拉不发网络请求）
+- 卡片结构回归单张：`_build_quota_section` 删除 `_quota_cards` 动态列表容器与
+  `_build_quota_card(primary=True)` 兼容主卡模式（PL001.9 结构），恢复单个 `_quota_card`
+  dict；`_render_quota` 改为按选中 workspace_id 从 infos 取项渲染单卡，
+  失配（已删凭据/尚未刷出）回落首个有效项、全无效渲染 infos[0] 错误态
+- 新增账号选择器：配额区顶部加一行 QLabel + QComboBox（userData = workspace_id，
+  自然 ID 与凭据判重同源；标签文案外置 ui.json 新键 `quota_account_label`）；
+  选项以每次刷新的 infos 为准重建（blockSignals 防回环），错误占位项照常入列
+  （选中它显示该账号的错误文字，与其他账号互不影响）
+- 选择记忆：settings.py 新增 `quota_account: str = ""` 字段（空 = 首个有效项）+
+  to_dict 输出 + from_raw 解析（strip 宽容）；切换回调立即 save_config（失败仅 warning
+  降级，与 E0.3/D0.10 同式）；启动恢复 blockSignals 包裹 setCurrentIndex
+- 托盘零改动：main.py `_on_quota_updated` 取"所有有效账户中 overall_used_percent 最高者"
+  驱动图标/预警的逻辑不动（多账号时仍按最紧的预警，保守语义合理）
+- 验证：offscreen init + 探针断言（切换下拉 → 渲染项变化 + quota_account 落盘 +
+  重启恢复；infos 失配回落路径）
+
+#### PL004.4 清理与兼容性（残留物物理删除）
+
+- config/user_config.json：物理删除 `"account_filter": "..."` 行（不留死键等运行时无视）
+- data/credentials/switch_log.json：文件直接删除（gitignore 内纯死数据，无代码再读写）
+- 凭据文件数组格式与追加式保存（go_quota.save_dashboard_credentials 同 workspaceId
+  覆盖/异账号追加）**确认保留不动**——配额选择器的数据基础
+- 验证：带旧残留键的临时 user_config 跑一次 offscreen init（from_raw 逐键 raw.get()
+  天然容忍未知键，实证启动无错、其余配置正常生效）
+
+#### PL004.5 回归脚本清理与新验收
+
+- 必删（锚定被删代码必 FAIL）：`.temp/verify_pl001_accept.py`、`.temp/probe_pl001_*`
+  系列、其他引用 intervals/account_filter/switch_log 的探针逐一排查清理
+- 同步修：`.temp/verify_5a3.py` 白名单移除"保存账户过滤配置失败"条目及同类锚定点；
+  `.temp/run_all_verify.py` 清单移除已删脚本
+- 新建 `.temp/verify_pl004_accept.py` 反向断言：credential_store 无 switch_log 四函数 /
+  opencode_usage 各查询无 intervals 参数 / exporter 无 account 标注 / main_window 无
+  \_account_combo / quota_account 切换持久化回环 / 单卡按选中 workspace_id 渲染 /
+  user_config 残留键已物理清除
+- 验证：run_all_verify.py 全量回归 0 异常
+
+#### PL004.6 文档同步与版本推进
+
+- README：分账号用量章节改写为"配额账户切换"说明（选谁看谁 + 凭据引导入口指引）
+- z.plan.md：本章节状态更新为已实施；y.problem.md 如有 PL001 关联条目同步标注退役
+- x.progress.md：新增 PL004 任务清单（与本章任务分解一一对应，完成后勾选附验证结果）
+- 版本推进：base.json version → ver 0.240（已定版）+ README 徽章 +
+  x.progress 当前版本行三处同步；commit 草稿按 V2 规范给出
+
+### 技术要点与硬限制
+
+- 根因约束（不再回退）：opencode.db 消息无账号字段 + 多账号混写同库——时间窗近似方案
+  退役后**不再以任何形式重新引入**用量侧账户区分；若未来官方提供账号维度数据再立项
+- 账户标识统一用 workspace_id（自然 ID 可读、凭据判重同源）；指纹函数随切换日志退役，
+  不留兼容层
+- since/until 参数链与账户无关（--since 过滤），删除 intervals 时严禁连带误伤
+- 托盘预警语义（最紧有效账户）独立于卡片形态，本次零改动
+- 配额选择器选项来源 = infos（实际拉到的账户列表），不是凭据文件原文——解密失败的
+  条目自然不出现在下拉里，避免"选了却永远加载不出"
+
+### 工作量估算
+
+| 部分               | 内容      | 估算                                             |
+| ------------------ | --------- | ------------------------------------------------ |
+| 删 A + 删 B        | PL004.1-2 | 1~1.5 小时（intervals 链约 15 处签名，机械但深） |
+| 单卡化 + 选择器    | PL004.3   | 1~1.5 小时                                       |
+| 清理 + 脚本 + 收尾 | PL004.4-6 | 1 小时                                           |
+| 合计               |           | **半天以内**                                     |
+
+### 已拍板决策（2026-08-23 记录在案）
+
+1. 删除范围？ - A（切换日志）+ B（时段截取/账户下拉/导出标注列）全删，用量回归纯净单视图
+2. 配额区形态？ - 多卡并列改单卡 + 账号选择器下拉，"选谁显示谁"，选择持久化（quota_account）
+3. 凭据数组格式与追加式保存？ - 保留不动（选择器的数据基础；删则选择器退化为反复重抓凭据）
+4. 残留物处理？ - user_config.json 的 account_filter 行与 switch_log.json 文件均物理删除，
+   不留死键死文件
+5. 托盘预警？ - 零改动，维持"最紧有效账户"保守语义
+6. 版本号？ - 定版 **ver 0.240**（2026-08-23 用户指定）

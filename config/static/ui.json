@@ -65,7 +65,8 @@
     "cost": "总费用"
   },
   "quota_section_title": "OpenCode Go 配额",
-  "quota_account_title_template": "账户 {workspace}",
+  "quota_account_label": "配额账户",
+  "quota_account_unknown": "未知账户",
   "detail_section_title": "用量明细",
   "usage_tab_title": "用量监控",
   "data_page_tab_title": "数据与动态",
@@ -82,9 +83,6 @@
     "sessionCost": ["模型", "会话成本", "Tokens"],
     "country": ["国家", "大洲", "Tokens", "占比%"]
   },
-  "account_filter_all_label": "全部账户",
-  "account_combo_template": "{workspace}·{date}",
-  "account_label_date_format": "%m-%d",
   "button_labels": {
     "refresh": "刷新",
     "export": "导出",

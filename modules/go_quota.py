@@ -46,8 +46,6 @@ AUTH_COOKIE_FIELDS = (
 OAUTH_REDIRECT_MARKER = "<title>OpenAuth"
 # dashboard 凭据文件（P2：集中项目内 data/credentials，不使用用户目录）
 CREDENTIALS_FILE = get_project_root() / _SC.base["credentials_dir"] / "opencode-go.json"
-# 账户切换日志文件（PL001：与凭据文件同目录，credentials_dir 驱动）
-SWITCH_LOG_FILE = CREDENTIALS_FILE.parent / credential_store.SWITCH_LOG_FILENAME
 # 窗口键映射：GoQuotaInfo 字段名 → dashboard HTML 窗口键（解析与组装共用；
 # 字段名与 ui.json quota_window_labels 的 key 对齐，CLI 文案直接复用，5A.2 R2）
 QUOTA_WINDOW_KEYS = {
@@ -100,18 +98,6 @@ def save_dashboard_credentials(workspace_id: str, auth_cookie: str) -> None:
     write_json(CREDENTIALS_FILE, entries)
 
 
-def record_credential_switch() -> bool:
-    # 账户切换检测钩子（PL001.3）：fetch 刷新成功后与程序启动时各调一次；
-    # 任何失败仅 debug 日志不影响主流程（非核心子系统错误策略）
-    try:
-        return credential_store.detect_credential_switch(
-            CREDENTIALS_FILE, SWITCH_LOG_FILE
-        )
-    except Exception as exc:
-        logger.debug("账户切换检测失败（不影响主流程）：%s", exc)
-        return False
-
-
 @dataclass
 class GoQuotaWindow:
     # 单个配额窗口：已用百分比 + 重置时间（now + resetInSec）
@@ -136,8 +122,7 @@ class GoQuotaInfo:
     overall_used_percent: int = 0
     remaining_percent: int = 0
     credential_source: str = ""
-    # PL001.8：多账户轮询标注（指纹与 workspace 标识，UI 卡片标题/切换日志匹配用）
-    fingerprint: str = ""
+    # 多账户轮询标注（workspace 标识，配额选择器/卡片标题用）
     workspace_id: str = ""
     fetched_at: datetime | None = None
     is_cached: bool = False
@@ -393,19 +378,12 @@ def _build_info(
     overall = max((w.usage_percent for w in windows), default=0.0)
     # D0.6：overall 钳制 0-100（与 remaining 对称，异常数据不外显负数/超百）
     clamped_overall = max(0, min(100, int(round(overall))))
-    fingerprint = ""
-    workspace_id = ""
-    if credential is not None:
-        workspace_id = credential.workspace_id
-        fingerprint = credential_store.credential_fingerprint(
-            credential.workspace_id, credential.auth_cookie
-        )
+    workspace_id = credential.workspace_id if credential is not None else ""
     info = GoQuotaInfo(
         **{field: usage.get(key) for field, key in QUOTA_WINDOW_KEYS.items()},
         overall_used_percent=clamped_overall,
         remaining_percent=max(0, 100 - clamped_overall),
         credential_source=used_source,
-        fingerprint=fingerprint,
         workspace_id=workspace_id,
         fetched_at=now,
     )
@@ -455,8 +433,6 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
         for credentials_item in credentials:
             try:
                 usage = fetch_dashboard_usage(credentials_item)
-                # PL001.3：配额刷新成功（凭据确认有效）后检测账户切换
-                record_credential_switch()
                 results.append(
                     _build_info(now, usage, credentials_item.source, credentials_item)
                 )
@@ -475,10 +451,6 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
                     GoQuotaInfo(
                         credential_source=credentials_item.source,
                         workspace_id=credentials_item.workspace_id,
-                        fingerprint=credential_store.credential_fingerprint(
-                            credentials_item.workspace_id,
-                            credentials_item.auth_cookie,
-                        ),
                         fetched_at=now,
                         error=exc.message,
                         error_stage=stage,
@@ -557,7 +529,6 @@ if __name__ == "__main__":
 #   OAUTH_REDIRECT_MARKER：OpenAuth 登录页特征标记（凭据失效判定）
 #   CREDENTIALS_FILE：dashboard 凭据文件（项目内 data/credentials/opencode-go.json，
 #     P2 定案集中项目内；含凭据严禁入库）
-#   SWITCH_LOG_FILE：账户切换日志文件（PL001，同目录 switch_log.json）
 # 模块级变量：_last_quota / _last_success_at——成功结果缓存与时间戳（缓存兜底）
 # 类型：
 #   GoQuotaWindow：单窗口（usage_percent/reset_in_sec/reset_date）
@@ -567,8 +538,6 @@ if __name__ == "__main__":
 # 函数：
 #   save_dashboard_credentials()：DPAPI 加密写入凭据（P4：经 credential_store，
 #     win32crypt 缺失拒绝明文落盘）
-#   record_credential_switch()：账户切换检测钩子（PL001.3）——fetch 刷新成功后与
-#     程序启动时各调一次；失败仅 debug 日志不影响主流程
 #   _add_credential()：凭据候选去重追加（E3.2 由闭包提为模块级，可单测）
 #   find_dashboard_credentials()：环境变量 → 配置文件多路径收集候选，
 #     去重键 workspace_id::auth_cookie；key 名兼容集合（workspaceId/workspaceID/
