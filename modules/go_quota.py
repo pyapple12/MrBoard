@@ -367,7 +367,7 @@ def _build_info(
     used_source: str,
     credential: DashboardCredentials | None = None,
 ) -> GoQuotaInfo:
-    # 组装单账户成功配额信息（PL001.8：附指纹/账户标注并写入多账户缓存；
+    # 组装单账户成功配额信息（PL001.8：附账户标注并写入多账户缓存；
     # overall = max 三窗口，D0.6 钳制 0-100）
     global _last_success_at
     windows = [
@@ -407,12 +407,21 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
         return cached
     if _fetch_in_flight:
         # E3.1：已有请求在途——入口 _throttled_cache(force) 已返回 None 才进入
-        # 此分支，直返 _fallback（进行中提示），删重复节流查询
+        # 此分支，直返缓存全集标注（进行中提示），删重复节流查询；
+        # A0.16/K1.2：返回全部缓存副本对齐节流分支行为（单条缩水致选择器闪缩丢项）
+        message = str(_SC.ui["go_quota_error_messages"]["in_flight"])
+        if _last_quotas:
+            marked_list = []
+            for cached_info in _last_quotas:
+                marked = _mark_cached(cached_info, message)
+                marked.error_stage = ERROR_STAGE_NETWORK
+                marked_list.append(marked)
+            return marked_list
         return [
             _fallback(
                 now,
                 # E2.1：in-flight 提示文案外置 ui.json（与 no_credentials 同组，6A.3 H3）
-                str(_SC.ui["go_quota_error_messages"]["in_flight"]),
+                message,
                 stage=ERROR_STAGE_NETWORK,
             )
         ]
@@ -529,7 +538,7 @@ if __name__ == "__main__":
 #   OAUTH_REDIRECT_MARKER：OpenAuth 登录页特征标记（凭据失效判定）
 #   CREDENTIALS_FILE：dashboard 凭据文件（项目内 data/credentials/opencode-go.json，
 #     P2 定案集中项目内；含凭据严禁入库）
-# 模块级变量：_last_quota / _last_success_at——成功结果缓存与时间戳（缓存兜底）
+# 模块级变量：_last_quotas / _last_success_at——成功结果缓存与时间戳（缓存兜底）
 # 类型：
 #   GoQuotaWindow：单窗口（usage_percent/reset_in_sec/reset_date）
 #   DashboardCredentials：dashboard 凭据候选（含来源标注）
@@ -560,10 +569,9 @@ if __name__ == "__main__":
 #   _throttled_cache(force)：节流检查——非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒返回缓存
 #   _build_info()：组装成功配额信息并更新缓存（overall = max 三窗口）
 #   _mark_cached()：缓存兜底标注（浅拷贝防污染）
-#   fetch_go_quota(force)：主流程——节流检查 → 凭据候选逐个尝试（首成功返回）→
-#     组装 GoQuotaInfo；任一步失败走 _fallback 缓存兜底（P3：无 API key 链路，
-#     程序不接触任何 key）；in-flight 在途去重直返 _fallback（E3.1，提示文案
-#     外置 ui.json go_quota_error_messages.in_flight，E2.1）
+#   fetch_go_quota(force)：主流程——节流检查 → in-flight 去重（缓存全集标注副本）
+#     → 凭据候选逐个拉取（单凭据失败降级为占位错误项不拖垮其他）→ 返回
+#     list[GoQuotaInfo]；A0.16/K1.2 起 in-flight 与节流分支均返回全集
 #   _fallback()：失败返回缓存（标注 is_cached + error）或空白信息（带提示）
 #   main()：CLI 自测，仅打印展示数据，绝不打印凭据
 # 设计理由：错误分类统一（z.plan 第四章）；窗口缺失容忍（dashboard 非公开 API，

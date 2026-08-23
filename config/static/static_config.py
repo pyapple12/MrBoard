@@ -68,6 +68,7 @@ def _load_static_config() -> StaticConfig:
         "export_limit",
         "price_cache_ttl",
         "credentials_ttl",
+        "data_fetch_interval_sec",
         "window_width",
         "window_height",
     )
@@ -98,7 +99,8 @@ def get_static_config() -> StaticConfig:
 #   逻辑：读 config.json 映射表 → 遍历读取各分类 json → 聚合
 #   异常：映射/文件缺失或损坏抛 RuntimeError（开发期快速暴露，不静默兜底，
 #     对齐 AccelWorld static_config.py 的失败策略）；H0.4 数值键类型契约——
-#     _NUMERIC_BASE_KEYS 白名单校验（25 键，字符串/bool 伪装导入期抛错）
+#     _NUMERIC_BASE_KEYS 白名单校验（26 键，字符串/bool 伪装导入期抛错；
+#     A0.16/K2.1 补 data_fetch_interval_sec——PL002 新增数值键漏网第二例）
 # get_static_config() -> StaticConfig: 公开单例访问（缓存懒加载，首次调用后
 #   不再读文件；模块顶层 import 时调用一次，运行时零 IO）
 #   设计理由：静态配置只读、json 驱动、代码零硬编码（S8 定案）；

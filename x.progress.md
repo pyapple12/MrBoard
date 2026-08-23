@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.240（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号；ver 0.240 为 PL004 批次目标版本）
+> 当前版本：ver 0.242（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -523,3 +523,45 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 - [x] PL005.3.b 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源（2026-08-23 完成）
 - [x] PL005.3.c README 配额账户章节补"添加账户入口"说明；x.progress.md 本清单勾选附验证结果（2026-08-23 完成）
 - [x] PL005.3.d 版本归属定案 ver 0.241 三处同步（base.json/README 徽章/x.progress 版本行）+ V2 规范 commit 草稿给出（2026-08-23 完成）
+
+## K. 第16轮审计修复任务清单（依据 z.plan.md 附录 A016，2026-08-23 规划）
+
+> 范围：P 级 19 条（高 3/中 8/低 8）；观察项 26 条经用户复核全部维持豁免
+> 硬限制：只修 A016 清单条目；高严重度三条先行；每批完成后跑反向验收再全量回归
+
+### K0 P0 正确性（高严重度 3 条）
+
+- [x] K0.1 main_window.py:1310-1312 `_render_quota_card` 的 `quota_chunk_color(percent)` 补第二参 `self._theme_name`（2026-08-23 完成：探针 console 主题断言样式随主题）
+- [x] K0.2 main_window.py:807-813 添加账户菜单重入防护——`_start_cdp_guide` 与 `_manual_guide` 入口均加 `if self._guide_active: return` 早退（2026-08-23 完成：假池断言零任务提交+定时器不停）
+- [x] K0.3 main_window.py:1264 `_rebuild_quota_account_combo` 改为当前选中在 infos 则保持不动、失配才回落持久化值/首项；连带修正 clear 前读 currentData 顺序（2026-08-23 完成：模拟"持久化 A→会话内切 B→重建"断言不被打回）
+
+### K1 P1 数据与防御一致性（中 5 条）
+
+- [x] K1.1 opencode_data.py:249-250 失败快照不覆盖成功缓存——has_data 实质数据守卫（model_blocks/daily_usage/releases 任一非空才写缓存），失败且有旧缓存时返回 `_mark_cached` 标注副本；同步修正 :226 注释（2026-08-23 完成：探针断言旧快照保留+is_cached）
+- [x] K1.2 go_quota.py:408-418 in-flight 分支返回全集——遍历 `_last_quotas` 逐条 `_mark_cached` 标注副本（空列表维持单占位），与节流分支行为对齐（2026-08-23 完成：预置两条缓存断言返回 2 条均 is_cached）
+- [x] K1.3 browser_creds.py:509,518 CDP 响应 isinstance 校验——cookie_response/url_response 非 dict 时 warning+宽容返回 (None, None)，校验先于 .get() 消费（2026-08-23 完成：mock list 响应断言不抛 AttributeError）
+- [x] K1.4 opencode_data.py:361 RSS `published_at` 补 `or ""` 兜底（对齐 title/content 同函数内写法）（2026-08-23 完成：空 updated 元素探针断言为空串）
+- [x] K1.5 选择器 userData 错位修复：渲染目标改按 combo 当前索引取（_render_quota 用 infos[idx]、切换回调用 cached[index]，combo 顺序==infos 顺序），同 workspace 双 cookie 按索引区分不再恒匹配首项；持久化语义不变（2026-08-23 完成：双 cookie 探针断言切到失效项渲染其错误态且选择保持 index1）
+
+### K2 P2 配置化（中 3 条）
+
+- [x] K2.1 static_config.py `_NUMERIC_BASE_KEYS` 补 `data_fetch_interval_sec`（data_cache_ttl_sec 随 K2.3 删键不入白名单）；说明区计数 25→26 键——验证：verify 反向断言 base.json 数值键集与白名单差集为空 + bool 伪装导入抛 RuntimeError（2026-08-23 完成）
+- [x] K2.2 opencode_data.py 三处删 `timeout=15` 实参走 network 层 http_timeout 配置回退——验证：grep timeout=数字零残留 + mock 断言 http_get 实收 timeout=None 走默认（2026-08-23 完成）
+- [x] K2.3 CACHE_TTL 死键采纳删除路线：删 opencode_data 常量 + base.json `data_cache_ttl_sec` 键 + 说明区两处条目（当前无陈旧度需求，KISS）——验证：定义零残留 + 配置加载正常无副作用（2026-08-23 完成）
+
+### K3 P3 清理与文档（低 8 条）
+
+- [x] K3.1 main_window.py 删 `_quota_frame`/`_quota_status`/`_quota_reset` 三孤儿属性；注释改如实描述；`_build_quota_card` 去返回值——验证：grep 零引用 + IMPORT OK；连带更新 .temp 五个历史 verify 脚本的属性访问为 dict 式（2026-08-23 完成）
+- [x] K3.2 opencode_data.py 删 DataPageError 死类——验证：AST 类名零残留 + IMPORT OK（2026-08-23 完成）
+- [x] K3.3 opencode_data.py 两处函数内 import（json/xml.etree）提到模块顶部——验证：AST 扫描 FunctionDef 子节点零 Import（2026-08-23 完成）
+- [x] K3.4 PL004 死注释清理：go_quota "附指纹"→"附账户标注"；opencode_usage 删"，含账户时段过滤 PL001.4"——验证：grep 两短语零残留（2026-08-23 完成）
+- [x] K3.5 说明区四处同步：opencode_data 重写（函数名修正+九缺列函数补齐+DataPageError 条目移除+悬空括号修复）；go_quota `_last_quotas` 复数+fetch 多账户描述；pricing 补 PRICE_KEY_MAP 条目；main.py `_on_quota_updated` 多账户口径——验证：verify_k3_accept 说明区符号名真实性断言（2026-08-23 完成）
+- [x] K3.6 main_window.py 说明区重写：PIE_COLOR_*_DEFAULT 改名同步；_build_ui 页签装配现状；单卡渲染/选择器/添加账户/guide 条件五处失实更新；补 13 个缺失函数条目（2026-08-23 完成）
+- [x] K3.7 x.progress.md:4 版本行 ver 0.240 → ver 0.241——验证：三处字面值一致断言 PASS（2026-08-23 完成）
+- [x] K3.8 MW-6 连带确认：K1.5 索引化渲染已覆盖错位场景；ui.json/base.json 键集契约由 _UI_STRUCT_KEYS 与 K2.1 白名单机械比对兜底（2026-08-23 完成）
+
+### K4 验证与收尾
+
+- [x] K4.1 新建 .temp/verify_k_accept.py 汇总反向验收：串联 K0-K3 七个子脚本（探针+验收成对）统一出口——验证：7/7 PASS（2026-08-23 完成）
+- [x] K4.2 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源 ver 0.242（2026-08-23 完成）
+- [x] K4.3 版本推进 ver 0.242 三处同步（base.json/README 徽章/x.progress 版本行，按审计修复第三位数字惯例）+ V2 规范 commit 草稿给出（2026-08-23 完成）

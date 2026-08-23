@@ -821,9 +821,9 @@ class MainWindow(QMainWindow):
         self._build_quota_card(QUOTA_SECTION_TITLE)
         self._layout.addWidget(container)
 
-    def _build_quota_card(self, title_text: str) -> dict[str, Any]:
+    def _build_quota_card(self, title_text: str) -> None:
         # 构建单张配额卡（标题/状态 + 3 窗口进度条 + 重置时间 + 饼图）；
-        # 组件引用同时保留到 self._quota_* 实例属性与 self._quota_card dict
+        # 组件经 self._quota_card dict 与 _quota_bars/_quota_pie 实例属性暴露
         frame = QFrame()
         frame.setObjectName("card")
         box = QVBoxLayout(frame)
@@ -866,14 +866,12 @@ class MainWindow(QMainWindow):
             "pie": pie,
         }
         self._quota_cards_layout.addWidget(frame)
-        # 单卡引用（PL004.3）：dict 供渲染方法使用，实例属性保留旧消费兼容
+        # 单卡引用（PL004.3/A0.16-K3.1）：仅保留有消费的实例属性
+        # （_quota_bars/_quota_pie 用于 _apply_theme 重着色；frame/status/reset
+        # 经 dict 访问，无独立消费者不再暴露）
         self._quota_card = card
-        self._quota_frame = frame
-        self._quota_status = status_label
         self._quota_pie = pie
         self._quota_bars = bars
-        self._quota_reset = resets
-        return card
 
     def _build_guide_card(self) -> None:
         # 构建凭据配置引导卡片（凭据缺失时显示，S6.2；文案外置 ui.json，D5）
@@ -1143,7 +1141,11 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage(DATA_PAGE_ERROR_TEMPLATE.format(message=message))
 
     def _start_cdp_guide(self) -> None:
-        # 一键自动获取：后台执行 CDP 引导流程（独立临时 Chrome，不影响用户浏览器）
+        # 一键自动获取：后台执行 CDP 引导流程（独立临时 Chrome，不影响用户浏览器）；
+        # A0.16/K0.2：引导进行中早退——配额区添加账户菜单与引导卡共用本入口，
+        # 防双 CDP 任务并发（双临时 Chrome/端口冲突/凭据并发写）
+        if self._guide_active:
+            return
         self._guide_frame.hide()
         self._auto_guide_button.setEnabled(False)
         # A0.6/A0.7：引导期间禁用手动填写（防与 worker 并发写凭据）+ 抑制引导卡重现
@@ -1156,7 +1158,10 @@ class MainWindow(QMainWindow):
 
     def _manual_guide(self) -> None:
         # 手动填写入口：弹对话框输入 workspaceId + authCookie，程序加密写入
-        # （P4：不再直接编辑明文文件，所有写入路径统一 DPAPI 加密）
+        # （P4：不再直接编辑明文文件，所有写入路径统一 DPAPI 加密）；
+        # A0.16/K0.2：引导进行中早退——防与 CDP worker 并发写凭据
+        if self._guide_active:
+            return
         workspace_id, ok1 = QInputDialog.getText(
             self, DIALOG_TITLES["manual_creds"], DIALOG_PROMPTS["workspace_id"]
         )
@@ -1227,7 +1232,9 @@ class MainWindow(QMainWindow):
     def _render_quota(self, infos: list[GoQuotaInfo]) -> None:
         # 渲染 Go 配额（PL004.3 单卡）：选择器按 infos 重建后，渲染当前选中账户项；
         # 选中失配（凭据已删/尚未刷出）回落首个有效项，全无效渲染首项错误态；
-        # PL005.2：新添加账户的 pending 标志优先匹配选中（一次性，失配静默清除）
+        # PL005.2：新添加账户的 pending 标志优先匹配选中（一次性，失配静默清除）；
+        # A0.16/K1.5：渲染目标按选择器当前索引取（combo 顺序 == infos 顺序）——
+        # 同 workspace 双 cookie 时按索引区分，不再按 workspace_id 恒匹配首项
         if not infos:
             return
         self._last_infos = infos
@@ -1237,11 +1244,8 @@ class MainWindow(QMainWindow):
             self._pending_quota_account = ""
             if pos >= 0:
                 self._quota_account_combo.setCurrentIndex(pos)
-        selected = str(self._quota_account_combo.currentData() or "")
-        target = next(
-            (item for item in infos if item.workspace_id == selected),
-            None,
-        )
+        idx = self._quota_account_combo.currentIndex()
+        target = infos[idx] if 0 <= idx < len(infos) else None
         if target is None:
             target = next(
                 (item for item in infos if item.error is None),
@@ -1251,16 +1255,25 @@ class MainWindow(QMainWindow):
 
     def _rebuild_quota_account_combo(self, infos: list[GoQuotaInfo]) -> None:
         # 按本次刷新的 infos 重建选择器选项（userData = workspace_id；解密失败的
-        # 凭据不会出现在 infos 中，自然不进下拉）；持久化 quota_account 匹配则选中，
-        # 失配保持当前有效选中（首次为 0）；blockSignals 防回环触发保存
+        # 凭据不会出现在 infos 中，自然不进下拉）；选中策略（A0.16/K0.3）：
+        # 当前会话选中仍在 infos 则保持不动（防启动快照打回会话内选择）；
+        # 失配才回落持久化值；仍失配保持 index 0——blockSignals 防回环触发保存
         self._quota_account_combo.blockSignals(True)
         try:
+            # 先取当前选中再 clear（clear 后 currentData 归空无法回读）
+            current = str(self._quota_account_combo.currentData() or "")
             self._quota_account_combo.clear()
             for info in infos:
                 label = info.workspace_id[:8] or (
                     info.credential_source or QUOTA_ACCOUNT_UNKNOWN
                 )
                 self._quota_account_combo.addItem(label, info.workspace_id)
+            if current and any(i.workspace_id == current for i in infos):
+                # 会话内选中仍有效：恢复到原位置（A0.16/K0.3 防快照打回）
+                pos = self._quota_account_combo.findData(current)
+                if pos >= 0:
+                    self._quota_account_combo.setCurrentIndex(pos)
+                return
             target = self._config.quota_account
             pos = self._quota_account_combo.findData(target)
             if pos >= 0:
@@ -1279,15 +1292,13 @@ class MainWindow(QMainWindow):
             logger.warning("保存配额账户选择失败：%s", exc)
         cached = self._last_infos
         if cached:
-            selected = config.quota_account
-            target = next(
-                (item for item in cached if item.workspace_id == selected),
-                None,
+            # A0.16/K1.5：按切换后的索引取渲染目标（与 _render_quota 同语义，
+            # 同 workspace 双 cookie 时按索引区分不回落首项）
+            target = (
+                cached[index]
+                if 0 <= index < len(cached)
+                else next((item for item in cached if item.error is None), cached[0])
             )
-            if target is None:
-                target = next(
-                    (item for item in cached if item.error is None), cached[0]
-                )
             self._render_quota_card(self._quota_card, target)
 
     def _render_quota_card(self, card: dict[str, Any], info: GoQuotaInfo) -> None:
@@ -1308,7 +1319,8 @@ class MainWindow(QMainWindow):
             bar.setValue(percent)
             bar.setFormat(f"{percent}%")
             bar.setStyleSheet(
-                f"QProgressBar::chunk {{ background-color: {quota_chunk_color(percent)}; }}"
+                f"QProgressBar::chunk {{ background-color: "
+                f"{quota_chunk_color(percent, self._theme_name)}; }}"
             )
             reset_label.setText(
                 STATUS_MESSAGES["reset_template"].format(
@@ -1431,7 +1443,8 @@ class MainWindow(QMainWindow):
 #   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：表格行数上限（base.json）
 #   CDP_FETCH_TIMEOUT / CDP_WAIT_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：
 #     CDP 引导参数（base.json）
-#   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG / PIE_COLOR_TEXT：剩余量饼图参数（ui.json）
+#   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG_DEFAULT / PIE_COLOR_TEXT_DEFAULT：
+#     剩余量饼图参数与默认主题色（ui.json + 默认 palette 派生，A0.16/K3.6 改名同步）
 #   PIE_START_ANGLE / FULL_CIRCLE_16：饼图绘制角度常量（Qt 角度单位，代码内，C11）
 #   LAYOUT_MARGINS / LAYOUT_SPACING / QUOTA_NAME_WIDTH / CARDS_SPACING：
 #     布局参数（ui.json）；RESET_TIME_FORMAT：重置时间显示格式（ui.json）
@@ -1477,29 +1490,40 @@ class MainWindow(QMainWindow):
 #       （QTimer.singleShot(AUTO_LOAD_DELAY_MS) + _pending_auto_load 标志，手动刷新
 #       取消防双加载，参考 OpenCode-Token 的 after(10)+after_cancel 模式）；QTimer 定时刷新
 #     quota_updated 信号：配额加载完成发射（main.py 接线托盘图标/预警）
-#     _build_ui：卡片区（P17：总 tokens/输入/输出/缓存率/总费用）+ Go 配额区（3 进度条 +
-#       状态 + 剩余量饼图[P16]）+ 明细区（总览按钮[P15]/维度下拉/刷新/导出/设置[P13]/
-#       主题按钮 + QTableWidget）；状态栏在 __init__ 信号连接区提前创建（M11）
+#     _build_ui：QTabWidget 两页装配（PL002.11）——用量监控页（卡片区[P17] +
+#       Go 配额区[选择器行 PL004.3 + 添加账户按钮 PL005.1 + 单卡三进度条 +
+#       状态 + 饼图 P16] + 明细区[总览按钮 P15/维度下拉/刷新/导出/设置 P13/
+#       主题下拉 PL003.2 + QTableWidget]）+ 数据与动态页；状态栏在 __init__
+#       信号连接区提前创建（M11）
+#     _trigger_auto_load：启动延迟加载执行（_pending_auto_load 标志确认）
 #     refresh：手动/定时入口——取消自动加载标志，QThreadPool 并行启动两个任务
 #       （F0.2/G3.4：usage 任务在途时仅置 pending 补发标志并只启动配额任务）
 #     _apply_theme：主题应用（QApplication.setStyleSheet + chunk/饼图动态色重着色）；
 #       _theme_combo/_on_theme_changed：主题下拉切换即存（PL003.2）
 #     _on_usage_ready/_on_quota_ready/_on_load_error：结果渲染；失败仅状态栏提示，
 #       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗；
-#       凭据缺失（错误且无缓存无来源）时显示引导卡片
+#       引导卡显示条件单点维护于 _should_show_guide（全部账户凭据类错误且无缓存
+#       且非引导进行中，A0.16/K3.6 口径同步）
 #     _show_total_detail：点击总览按钮弹出总量明细（QMessageBox，P15）
+#     _on_tab_changed/_on_data_ready/_on_data_error：数据页懒加载（首次切换触发，
+#       PL002.10）与结果回传
+#     _theme_palette：当前主题 palette 取用（饼图/动态色消费）
 #     _show_columns_menu/_on_column_toggle：列显示开关（QMenu 勾选，
 #       setColumnHidden + hidden_columns 持久化，P13；E0.3：持久化失败仅
 #       warning 降级，与 D0.10 同式）
 #     _export_data：QFileDialog 选目录 → 后台 _ExportTask（状态栏提示导出中）
 #     _render_cards/_render_quota/_render_quota_card/_render_table：卡片（P17 新顺序 +
-#       缓存率）/多账户并列配额卡（PL001.9：主卡 + 动态账户卡）/表格渲染
+#       缓存率）/配额单卡渲染（PL004.3：选择器按 infos 重建 + 按索引取渲染目标
+#       [A0.16/K1.5] + pending 自动选中新账户 PL005.2）/表格渲染
 #       （内存数据，维度切换不查库；P13 新列顺序）
-#     _start_cdp_guide：后台启动 CDP 一键获取（按钮禁用防重复，状态栏提示）
-#     _manual_guide：QInputDialog 输入 workspaceId + authCookie → save_dashboard_credentials
-#       加密写入（P4：不再直接编辑明文文件）→ 自动刷新
-#     _on_guide_success/_on_guide_failed：引导结果回传（成功自动刷新配额，
-#       失败保留引导卡片供重试/手动填写）
+#     _build_quota_section/_build_quota_card：Go 配额区装配（选择器行 + 添加账户
+#       按钮[PL005.1 QMenu 两路径] + 单张配额卡）
+#     _rebuild_quota_account_combo/_on_quota_account_changed：账户选择器重建
+#       （会话选中保持防快照打回 A0.16/K0.3）与切换即存即渲染
+#     _start_cdp_guide/_manual_guide/_on_guide_success/_on_guide_failed：凭据引导
+#       双路径（A0.16/K0.2 引导互斥早退防并发；成功 pending 记录+自动刷新；
+#       失败按 _should_show_guide 条件显示引导卡）
+#     _should_show_guide：引导卡显示条件单点维护（_on_quota_ready 与 failed 回调共用）
 #     save_state：窗口几何（QByteArray hex）/主题/刷新间隔/隐藏列 → config 持久化
 #     closeEvent：保存状态并隐藏到托盘（常驻模式，真退出走托盘菜单）
 # 设计理由：数据加载全后台（QThreadPool）+ 信号回传（线程安全）；worker 自建

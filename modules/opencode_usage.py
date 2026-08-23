@@ -518,8 +518,7 @@ class OpenCodeDB:
         since: int | None = None,
         until: int | None = None,
     ) -> list[pricing.CostEstimate]:
-        # 对库 cost 为 0/缺失且 token 非零的消息做定价估算（时间范围与 totals 一致，
-        # 含账户时段过滤 PL001.4）
+        # 对库 cost 为 0/缺失且 token 非零的消息做定价估算（时间范围与 totals 一致）
         if price_map is None:
             price_map = pricing.load_price_map()
         time_clause, time_params = self._time_clause(since, until)

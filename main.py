@@ -126,9 +126,11 @@ if __name__ == "__main__":
 #     逻辑步骤：QApplication → MainWindow → SystemTray（信号连接：刷新→window.refresh，
 #       退出→_quit_app，配额→_on_quota_updated 托盘图标/预警）→ 显示 → app.exec()
 #     设计理由：顶层 import（循环依赖已根治，审计 M2）；托盘/窗口装配集中在入口
-#   _on_quota_updated(tray, info)：
-#     逻辑步骤：错误置灰图标；正常更新状态色；overall ≥80% 时气泡预警
-#     设计理由：审计 B2 修复——托盘预警功能接线
+#   _on_quota_updated(tray, infos)：
+#     逻辑步骤：多账户列表取"最紧有效账户"（error 为空或 is_cached 中 overall
+#       最高者，A0.16/K3.5 口径同步）驱动托盘图标/状态色；全部无效才置灰；
+#       overall ≥80% 时气泡预警（O4 去重：持续超限仅首次弹）
+#     设计理由：审计 B2 修复——托盘预警功能接线；PL001.8 起多账户语义
 #   _quit_app(app, window, tray)：
 #     逻辑步骤：window.save_state() → tray.hide() → app.quit()
 #     设计理由：任何退出路径都先保存状态（对齐 AccelWorld B2 修复经验）

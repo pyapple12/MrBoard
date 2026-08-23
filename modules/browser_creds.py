@@ -505,6 +505,11 @@ def fetch_login_state_via_cdp(
     except Exception as exc:
         logger.warning("CDP 会话失败：%s", exc)
         return None, None
+    # A0.16/K1.3：响应体 isinstance 校验（合法 JSON 非 dict 时 .get() 会抛
+    # AttributeError 逃逸本层——与 E11 targets 非列表同型，宽容返回不外溢）
+    if not isinstance(cookie_response, dict) or not isinstance(url_response, dict):
+        logger.warning("CDP 响应结构异常（非 dict），放弃本轮解析")
+        return None, None
     auth_cookie = None
     for cookie in cookie_response.get("result", {}).get("cookies", []):
         if cookie.get("name") in COOKIE_NAMES and OPENCODE_HOST in cookie.get(

@@ -1,5 +1,5 @@
 {
-  "version": "ver 0.241",
+  "version": "ver 0.242",
   "window_width": 760,
   "window_height": 640,
   "refresh_interval_ms": 300000,
@@ -33,7 +33,6 @@
   "gh_releases_api_url": "https://api.github.com/repos/anomalyco/opencode/releases?per_page=5",
   "gh_releases_rss_url": "https://github.com/anomalyco/opencode/releases.atom",
   "data_fetch_interval_sec": 60,
-  "data_cache_ttl_sec": 300,
   "user_config_path": "config/user_config.json",
   "credentials_dir": "data/credentials",
   "logs_dir": "data/logs",

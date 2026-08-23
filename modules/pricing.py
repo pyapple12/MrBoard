@@ -314,6 +314,7 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
 #   PRICE_CACHE_DIR / PRICE_CACHE_FILE / PRICE_LOCAL_FILE：缓存与本地覆盖文件
 #     （项目内 data/prices/，P2：集中项目内，不使用用户目录）
 #   PRICE_CACHE_TTL：远程缓存有效期 1 天
+#   PRICE_KEY_MAP：字段键映射（5A.2 R3/B3：外部命名与内部字段单一来源）
 #   RETRY_COUNT / RETRY_DELAY：网络重试参数（base.json 驱动）
 #   COST_COMPARE_DIGITS：估算成本舍入位数（浮点容差，6A.3 H1）
 #   BUNDLED_PRICES：内置常见模型价格（无网络回退，仅机制兜底）

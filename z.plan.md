@@ -858,3 +858,67 @@ ui.json：`"themes": ["light", "dark", "console", "panel"]`（数组顺序即下
 1. 入口位置？ - 配额区选择器旁常驻"添加账户"按钮 + QMenu 两路径；托盘零改动
 2. 添加后体验？ - 自动刷新并自动选中新账户（pending 标志机制）
 3. 版本号？ - 独立 **ver 0.241**（2026-08-23 用户指定，不并入 ver 0.240）
+
+## 附录 A016：全量代码审计报告（第16轮，2026-08-23）
+
+> 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读；重点覆盖 PL001-PL005 五个版本新增/删除代码
+> 结果：**P 级 19 条（高 3 / 中 8 / 低 8）/ 参考级观察项 26 条（用户复核全部维持豁免）**
+> 状态：✅ 已修复（2026-08-23，K 系列 22 条全部完成，版本 ver 0.242；汇总反向验收 verify_k_accept 7/7 + 全量回归 0 异常）
+
+### 零、上轮修复复核清单
+
+| 上轮条目                               | 现状   | 证据                  |
+| -------------------------------------- | ------ | --------------------- |
+| J0.a parse_time_arg 相对时长上界       | ✅仍在 | opencode_usage.py:571 |
+| J0.b pricing local key 小写归一        | ✅仍在 | pricing.py:258-259    |
+| J3 main.py 说明区 QUOTA_DANGER_PERCENT | ✅仍在 | main.py:116-117       |
+| J3 file_utils 说明区 get_project_root  | ✅仍在 | file_utils.py:77-81   |
+
+零回退零漏改；PL001-PL005 新演进产生新问题见下。
+
+### 一、P0-P3 修复清单
+
+**高（确定性复现）：**
+
+| 文件:行号                           | 类型 | 描述                                                                                                                  | 建议                                                                    | 性质               | 影响面           |
+| ----------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------ | ---------------- |
+| ui/main_window.py:1310-1312         | ①⑬   | `_render_quota_card` 调 `quota_chunk_color(percent)` 未传 theme_name——非 light 主题下每次配额刷新进度条色重置回 light | 补第二参 `self._theme_name`                                             | 新增（PL003 遗漏） | UI 交互          |
+| ui/main_window.py:807-813,1145-1155 | ②⑬   | 添加账户菜单绕过引导互斥：无 `_guide_active` 重入防护、按钮不禁用——可双 CDP 并发、手动填写与 worker 并发写凭据        | 入口重入早退；菜单动作随 `_guide_active` 禁用                           | 新增（PL005）      | UI 交互/凭据安全 |
+| ui/main_window.py:1264（根因:723）  | ①    | `_rebuild_quota_account_combo` 用 `self._config` 一次性快照——会话内切换账户被下次刷新静默打回启动快照账户             | `_rebuild` 优先保持当前选中（在 infos 则不动），失配才回落持久化值/首项 | 新增（PL004）      | UI 交互          |
+
+**中：**
+
+| 文件:行号                                  | 类型 | 描述                                                                                                                | 建议                                       | 性质               | 影响面          |
+| ------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------ | --------------- |
+| modules/opencode_data.py:249-250           | ①⑬   | 失败快照无条件替换上次成功缓存并续期时间戳（断网刷新丢旧数据），与 ：226 注释"保留上次快照"不符                     | 仅含实质数据才写缓存，否则保留旧快照标错误 | 新增（PL002）      | 显示层/数据管线 |
+| config/static/static_config.py:47-73       | ③⑫   | 数值白名单缺 `data_fetch_interval_sec`/`data_cache_ttl_sec` 两键（27 键实收 25，H0.4 契约第二次漏网）               | 白名单补两键+说明区计数同步                | 新增（PL002）      | 配置体系        |
+| modules/opencode_data.py:234,327,349       | ③⑫   | 三处 `http_get(timeout=15)` 硬编码绕过 network 层 http_timeout 配置回退                                             | 删实参走配置回退                           | 新增（PL002）      | 配置体系        |
+| modules/opencode_data.py:24 + base.json:36 | ⑤⑫   | CACHE_TTL 定义后零引用，"缓存 TTL"语义未实现，base.json 键无效                                                      | 实现 TTL 或删常量删键                      | 新增（PL002）      | 配置体系        |
+| modules/go_quota.py:408-418                | ⑬    | in-flight 分支经 _fallback 只返回单条首条副本——多账户 infos 缩水为 1 条选择器闪缩丢项；节流分支却返回全集行为不一致 | in-flight 分支返回全集标注副本对齐节流分支 | 新增（PL001.8 起） | UI 交互         |
+| ui/main_window.py:1434,1480-1502           | ⑥    | 说明区 5 处失实 + 13 个新函数缺条目（_should_show_guide/_rebuild_quota_account_combo 等）                           | 按 PL004/PL005 后现状重写                  | 新增               | 文档            |
+| x.progress.md:4                            | ⑥    | 版本行仍 ver 0.240 与 :525"三处同步完成"勾选矛盾（实际 0.241）                                                      | 改 ver 0.241                               | 新增               | 文档            |
+
+**低：**
+
+| 文件:行号                                                             | 类型    | 描述                                                                                            | 建议                                  | 性质                 | 影响面   |
+| --------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- | ------------------------------------- | -------------------- | -------- |
+| ui/main_window.py:871-875                                             | ⑤       | `_quota_frame`/`_quota_status`/`_quota_reset` 三属性零消费孤儿；:869 注释失实；:821 返回值冗余  | 删三属性修注释                        | 新增（PL004 残留）   | 清理     |
+| modules/opencode_data.py:43-51                                        | ⑤       | DataPageError 类零引用空壳                                                                      | 删除                                  | 新增（PL002）        | 清理     |
+| modules/opencode_data.py:328,347                                      | ④⑥      | 两处函数内 import 标准库（json/xml.etree）非重依赖豁免口径                                      | 提到模块顶部                          | 新增（PL002）        | 规范     |
+| modules/go_quota.py:370; opencode_usage.py:522                        | ⑥       | PL004 死注释："附指纹"/"含账户时段过滤 PL001.4"（所指代码已删）                                 | 改文案                                | 新增（PL004 漏网）   | 文档     |
+| modules/opencode_data.py:415; go_quota.py:532,563; pricing.py:312-319 | ⑥       | 说明区四处失实/缺列（函数名错+九函数缺列/_last_quotas 单数/fetch 描述旧/缺 PRICE_KEY_MAP 条目） | 同步现状                              | 新增                 | 文档     |
+| modules/browser_creds.py:509,518                                      | ②       | CDP 响应 JSON 合法非 dict 时 .get() AttributeError 逃逸 modules 层（ui 兜底防崩但英文报错）     | isinstance 校验并入宽容路径           | 遗留（E11 同型漏网） | 引导流程 |
+| main.py:129-131                                                       | ⑥       | 说明区 _on_quota_updated 仍单账户时代口径                                                       | 补多账户口径一句                      | 新增                 | 文档     |
+| modules/opencode_data.py:361                                          | ②       | RSS published_at 无 or "" 兜底（title/content 均有），None 显示字面量 "None"                    | 补兜底                                | 新增（PL002）        | 显示层   |
+| ui/main_window.py:1240-1263                                           | ②需验证 | 同 workspace 双 cookie 凭据时 combo userData 重复选中错位                                       | userData 用索引或按 workspace_id 去重 | 新增，需验证         | UI 交互  |
+
+### 二、参考级观察项（26 条，用户复核全部维持豁免）
+
+并发类：模块级缓存无锁纯理论竞态（需验证定时/手动叠加）；_manual_guide 模态期间定时刷新未暂停；_json_cache 无锁（现调用方均 use_cache=False）；写缓存路径 GUI 线程假设。
+展示类：选择器 workspace_id[:8] 截断；懒加载空 rows 占位消失；dark 主题托盘色固定 light palette（PL003.1.e 明示豁免）；pending 双渲染幂等微瑕；combo 失配脏值残留。
+解析类：zip 数量不齐静默截断；时序排序无年份跨年理论错序（需验证）；_time_clause 无前缀列名依赖 session 表结构；themes 残留检测正则花括号误报。
+其他：logger 非法 level 静默回退 INFO；retry 计数口径歧义；settings themes 空数组三级回落不可达；ui.json 数值键无 H0.4 式契约（可选增强）；subprocess_timeout 一 float 一 int；CHROME_UA/_BROWSER_UA 同串双定义；CDP 端口 TOCTOU；Edge-only 用户 CDP 前置体验；CLI --estimate 仅 total 生效 help 未声明。
+
+### 三、亮点
+
+A015 四条修复历经五个功能版本零回退；PL004 大删除结构性清零（约 15 处签名/四函数/字段级删除无一漏网）；ui.json 56 键/base.json 39 键双向零死键（data_cache_ttl_sec 一键例外已列 P 级）；themes 注册制契约校验顺序正确；_should_show_guide 提取语义等价（布尔吸收律验证）。

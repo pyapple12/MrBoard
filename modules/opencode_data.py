@@ -1,9 +1,11 @@
 # OpenCode 数据页与官方动态模块（PL002）：数据页 $R 块解析 / 热门模型时序 /
 # GitHub Releases 拉取——纯数据层，零 Qt 依赖
 
+import json
 import re
 import time
 import urllib.error
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
@@ -19,9 +21,9 @@ _SC = get_static_config()
 DATA_URL = str(_SC.base["data_url"])
 GH_RELEASES_API_URL = str(_SC.base["gh_releases_api_url"])
 GH_RELEASES_RSS_URL = str(_SC.base["gh_releases_rss_url"])
-# 节流间隔与缓存 TTL（base.json 驱动，PL002.2；对齐 go_quota.MIN_FETCH_INTERVAL 模式）
+# 节流间隔（base.json 驱动，PL002.2；对齐 go_quota.MIN_FETCH_INTERVAL 模式；
+# A0.16/K2.3：原"缓存 TTL"从未实现语义，无效配置键已一并删除）
 FETCH_INTERVAL = int(_SC.base["data_fetch_interval_sec"])
-CACHE_TTL = int(_SC.base["data_cache_ttl_sec"])
 # 浏览器 UA（数据页与 GitHub API 共用：无浏览器 UA 会被 opencode.ai 403 拦截，
 # 实测 Python-urllib 默认 UA 被拒）
 _BROWSER_UA = (
@@ -38,17 +40,6 @@ _last_success_at: float = 0.0
 
 # $R 单对象正则：$R[N]={...}（无嵌套大括号；数据页 $R 块均为简单对象）
 _R_OBJECT_PATTERN = re.compile(r"\$R\[(\d+)\]=(\{[^{}]*\})")
-
-
-class DataPageError(Exception):
-    # 数据页业务错误：category 分类（network/decoding），message 为中文提示
-    # （对齐 go_quota.GoQuotaError 模式，UI 只认分类不认细节）
-
-    def __init__(self, category: str, message: str) -> None:
-        # 初始化错误分类与提示
-        super().__init__(message)
-        self.category = category
-        self.message = message
 
 
 @dataclass
@@ -231,7 +222,7 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
     now = datetime.now(timezone.utc)
     snapshot = ModelDataSnapshot(fetched_at=now)
     try:
-        body = http_get(DATA_URL, headers=_GH_API_HEADERS, timeout=15).decode(
+        body = http_get(DATA_URL, headers=_GH_API_HEADERS).decode(
             "utf-8", errors="replace"
         )
         snapshot.model_blocks = fetch_model_data(body)
@@ -246,6 +237,12 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
         snapshot.releases = fetch_github_releases(force=True)
     except Exception as exc:
         snapshot.errors.append(f"官方动态拉取失败：{exc}")
+    # A0.16/K1.1：三源全空且已有历史缓存时保留旧快照标注返回（失败不覆盖成功
+    # 数据，对齐 go_quota 只缓存成功项的模式）；首刷无缓存时照常返回空快照+错误
+    has_data = bool(snapshot.model_blocks or snapshot.daily_usage or snapshot.releases)
+    if not has_data and _last_snapshot is not None:
+        message = "；".join(snapshot.errors) if snapshot.errors else "数据页拉取失败"
+        return _mark_cached(_last_snapshot, f"{message}（显示缓存数据）")
     _last_snapshot = snapshot
     _last_success_at = time.time()
     return snapshot
@@ -324,9 +321,7 @@ _RELEASE_LIMIT = 3  # 最新 N 条（展示范围收敛，z.plan PL002）
 def _fetch_releases_json() -> list[dict[str, Any]]:
     # GitHub Releases API 拉取（匿名限速 60 次/小时够用；浏览器 UA 头必须）；
     # 解析 tag_name/published_at/body，取最新 3 条
-    raw = http_get(GH_RELEASES_API_URL, headers=_GH_API_HEADERS, timeout=15)
-    import json
-
+    raw = http_get(GH_RELEASES_API_URL, headers=_GH_API_HEADERS)
     data = json.loads(raw.decode("utf-8", errors="replace"))
     items: list[dict[str, Any]] = []
     for release in data[:_RELEASE_LIMIT]:
@@ -344,9 +339,7 @@ def _fetch_releases_json() -> list[dict[str, Any]]:
 
 def _fetch_releases_rss() -> list[dict[str, Any]]:
     # RSS 回退路径（JSON API 不可用时）：releases.atom entry 解析 title/updated/content
-    import xml.etree.ElementTree as ET
-
-    raw = http_get(GH_RELEASES_RSS_URL, headers=_GH_API_HEADERS, timeout=15)
+    raw = http_get(GH_RELEASES_RSS_URL, headers=_GH_API_HEADERS)
     root = ET.fromstring(raw.decode("utf-8", errors="replace"))
     items: list[dict[str, Any]] = []
     for entry in root.findall("atom:entry", _RSS_NS)[:_RELEASE_LIMIT]:
@@ -358,7 +351,9 @@ def _fetch_releases_rss() -> list[dict[str, Any]]:
                 "tag_name": (title_el.text or "").strip()
                 if title_el is not None
                 else "",
-                "published_at": updated_el.text if updated_el is not None else "",
+                "published_at": (updated_el.text or "")
+                if updated_el is not None
+                else "",
                 "body": (content_el.text or "").strip()
                 if content_el is not None
                 else "",
@@ -400,20 +395,32 @@ if __name__ == "__main__":
 # ===== modules/opencode_data.py 模块说明 =====
 # 模块级常量：
 #   DATA_URL / GH_RELEASES_API_URL / GH_RELEASES_RSS_URL：数据源 URL（base.json 驱动）
-#   FETCH_INTERVAL / CACHE_TTL：节流间隔与缓存 TTL（base.json 驱动，PL002.2）
+#   FETCH_INTERVAL：数据页刷新节流间隔（base.json 驱动，PL002.2）
 #   _BROWSER_UA：浏览器 UA（数据页与 GitHub 共用；无浏览器 UA 会被 opencode.ai
 #     403 拦截，实测 Python-urllib 默认 UA 被拒）
-# 模块级变量：_last_snapshot / _last_success_at——成功快照缓存与时间戳（缓存兜底）
+#   _GH_API_HEADERS / _RSS_NS / _RELEASE_LIMIT：GitHub 请求头/RSS 命名空间/条数上限
+#   _R_BLOCK_PATTERN 等 $R/时序正则族：页面结构锚点（markup 变更时集中调整）
+# 模块级变量：_last_snapshot / _last_success_at——成功快照缓存与时间戳（缓存兜底；
+#   A0.16/K1.1 起仅含实质数据的快照才写入，失败保留旧数据）
 # 类型：
-#   DataPageError：分类业务错误（network/decoding），UI 只认 category
 #   ModelDataSnapshot：快照聚合（model_blocks/daily_usage/releases/is_cached/
 #     fetched_at/errors）
 # 函数：
+#   _extract_r_objects(body)：提取全部 $R[N]={...} 单对象文本（嵌套大括号跳过）
+#   _split_top_level(text)：顶层逗号切分（嵌套感知）
+#   _parse_loose_value/_parse_loose_object：宽松 JSON 解析（键无引号容忍）
+#   _capture_array_text/_expand_array_ref：数组捕获与 $R 引用展开（配平括号）
+#   fetch_model_data(body)：四数据块锚点解析（PL002.4）
+#   parse_daily_usage(body)：热门模型时序解析（data-slot 正则，PL002.5）
+#   _fetch_releases_json()：Releases API 路径（PL002.6）
+#   _fetch_releases_rss()：Releases RSS 回退路径（JSON 不可用时）
+#   fetch_github_releases(force)：JSON→RSS 回退链聚合
 #   _throttled_snapshot(force)：节流检查——窗口内返回标注缓存（对齐 go_quota 同式）
 #   _mark_cached(snapshot, message)：缓存兜底标注（replace 浅拷贝防污染）
 #   refresh_data_page(force)：聚合入口——节流 → 三源独立拉取（互不拖垮）→
-#     缓存兜底；_parse_model_blocks/_parse_daily_usage/_fetch_github_releases
-#     分别在 PL002.4/PL002.5/PL002.6 完整实现
-# 异常处理：三源独立 try 隔离（任一失败仅 errors 追加，不影响其他源）
-# 关联配置：config/static/base.json（data_url/gh_releases_*/data_fetch_interval_sec/
-#   data_cache_ttl_sec）
+#     A0.16/K1.1 失败且有旧缓存时保留旧快照标注返回（不覆盖成功数据）
+#   main()：CLI 自测入口
+# 异常处理：三源独立 try 隔离（任一失败仅 errors 追加，不影响其他源）；
+#   A0.16/K3.2 删除从未抛出的 DataPageError 空壳类（宽容降级走 errors 列表）
+# 关联配置：config/static/base.json（data_url/gh_releases_api_url/
+#   gh_releases_rss_url/data_fetch_interval_sec）
