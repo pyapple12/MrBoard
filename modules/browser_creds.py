@@ -511,7 +511,13 @@ def fetch_login_state_via_cdp(
         logger.warning("CDP 响应结构异常（非 dict），放弃本轮解析")
         return None, None
     auth_cookie = None
-    for cookie in cookie_response.get("result", {}).get("cookies", []):
+    # A017/L1.5：链式取值深度防御——result 键值为 null 时默认 {} 不生效，
+    # (x or {}) 取值式 + 元素 isinstance 过滤杜绝 AttributeError/TypeError
+    result_obj = cookie_response.get("result") or {}
+    cookies = result_obj.get("cookies") or []
+    for cookie in cookies:
+        if not isinstance(cookie, dict):
+            continue
         if cookie.get("name") in COOKIE_NAMES and OPENCODE_HOST in cookie.get(
             "domain", ""
         ):
@@ -520,7 +526,9 @@ def fetch_login_state_via_cdp(
                 auth_cookie = value
                 break
     workspace_id = None
-    page_url = url_response.get("result", {}).get("result", {}).get("value")
+    url_result = url_response.get("result") or {}
+    inner_result = url_result.get("result") or {}
+    page_url = inner_result.get("value")
     if isinstance(page_url, str):
         match = WORKSPACE_ID_RE.search(page_url)
         if match:

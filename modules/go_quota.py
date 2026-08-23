@@ -3,6 +3,7 @@
 import html
 import os
 import re
+import threading
 import time
 import urllib.error
 from dataclasses import dataclass, replace
@@ -394,6 +395,10 @@ def _build_info(
 
 # D0.4：in-flight 去重标志（连点/定时叠加时并发请求只放行一个，防打爆 dashboard）
 _fetch_in_flight = False
+# A017/L1.7：in-flight 标志与缓存读写的状态锁——check-then-set 与清空/复位
+# 在 QThreadPool 池线程发生，手动+定时叠加可真并发（偶发重复拉取一轮）；
+# 网络 IO 不持锁（并发第二个调用方在锁外等待标志位，即时返回标注缓存）
+_FETCH_STATE_LOCK = threading.Lock()
 
 
 def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
@@ -405,27 +410,26 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
     cached = _throttled_cache(force)
     if cached is not None:
         return cached
-    if _fetch_in_flight:
-        # E3.1：已有请求在途——入口 _throttled_cache(force) 已返回 None 才进入
-        # 此分支，直返缓存全集标注（进行中提示），删重复节流查询；
-        # A0.16/K1.2：返回全部缓存副本对齐节流分支行为（单条缩水致选择器闪缩丢项）
-        message = str(_SC.ui["go_quota_error_messages"]["in_flight"])
-        if _last_quotas:
-            marked_list = []
-            for cached_info in _last_quotas:
-                marked = _mark_cached(cached_info, message)
-                marked.error_stage = ERROR_STAGE_NETWORK
-                marked_list.append(marked)
-            return marked_list
-        return [
-            _fallback(
-                now,
-                # E2.1：in-flight 提示文案外置 ui.json（与 no_credentials 同组，6A.3 H3）
-                message,
-                stage=ERROR_STAGE_NETWORK,
-            )
-        ]
-    _fetch_in_flight = True
+    with _FETCH_STATE_LOCK:
+        if _fetch_in_flight:
+            # E3.1：已有请求在途——入口 _throttled_cache(force) 已返回 None 才进入
+            # 此分支，直返缓存全集标注（进行中提示），删重复节流查询；
+            # A0.16/K1.2：返回全部缓存副本对齐节流分支行为（单条缩水致选择器闪缩丢项）
+            message = str(_SC.ui["go_quota_error_messages"]["in_flight"])
+            if _last_quotas:
+                marked_list = []
+                for cached_info in _last_quotas:
+                    marked_list.append(_mark_cached(cached_info, message))
+                return marked_list
+            return [
+                _fallback(
+                    now,
+                    # E2.1：in-flight 提示文案外置 ui.json（与 no_credentials 同组，6A.3 H3）
+                    message,
+                    stage=ERROR_STAGE_NETWORK,
+                )
+            ]
+        _fetch_in_flight = True
     try:
         credentials = find_dashboard_credentials()
         if not credentials:
@@ -456,18 +460,22 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
                     in (ERROR_STAGE_AUTH, ERROR_STAGE_NETWORK, ERROR_STAGE_PROVIDER)
                     else ERROR_STAGE_PROVIDER
                 )
-                results.append(
-                    GoQuotaInfo(
-                        credential_source=credentials_item.source,
-                        workspace_id=credentials_item.workspace_id,
-                        fetched_at=now,
-                        error=exc.message,
-                        error_stage=stage,
-                    )
+                placeholder = GoQuotaInfo(
+                    credential_source=credentials_item.source,
+                    workspace_id=credentials_item.workspace_id,
+                    fetched_at=now,
+                    error=exc.message,
+                    error_stage=stage,
                 )
+                results.append(placeholder)
+                # A017/L1.3：失败占位项同步入缓存——in-flight/节流期"全集"标注
+                # 副本不再丢失败项（选择器闪缩残余场景终结）
+                _last_quotas.append(placeholder)
         return results
     finally:
-        _fetch_in_flight = False
+        # A017/L1.7：复位在途标志持锁（与入口 check-set 同锁互斥）
+        with _FETCH_STATE_LOCK:
+            _fetch_in_flight = False
 
 
 def _mark_cached(info: GoQuotaInfo, message: str) -> GoQuotaInfo:

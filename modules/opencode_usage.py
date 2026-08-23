@@ -741,4 +741,6 @@ if __name__ == "__main__":
 #   费用两层口径：recorded（库值，权威）与 estimated（估算，仅缺失回退）
 # 异常处理：连接只读不会写坏库；探测失败抛 FileNotFoundError 带提示；
 #   子进程不可用/超时静默降级；CLI 解析错误打印用法退出码 1
-# 关联配置：OPENCODE_DB 环境变量可覆盖数据库路径
+# 关联配置：OPENCODE_DB 环境变量可覆盖数据库路径；config/static/base.json
+#   （db_default_path/table_limit_group/table_limit_day/subprocess_timeout/
+#   retry_count/retry_delay）；ui.json（unknown_label 未知模型/Provider 标签）

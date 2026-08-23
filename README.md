@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-ver%200.242-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-V0.2.4.3-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -169,22 +169,23 @@ mrboard/
 | 文件                        | 参数                                                                                                                                                        | 说明                                                |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `config/static/config.json` | 引导映射表                                                                                                                                                  | `base.json` / `ui.json` 分类对应关系                |
-| `config/static/base.json`   | `version`                                                                                                                                                   | 版本号唯一来源（ver 0.203）                         |
+| `config/static/base.json`   | `version`                                                                                                                                                   | 版本号唯一来源                                      |
 |                             | `window_width/height`、`refresh_interval_ms`、`min_refresh_interval_ms`、`max_refresh_interval_ms`、`auto_load_delay_ms`                                    | 窗口尺寸与刷新调度（含上下限防护，H0.1 补列）       |
 |                             | `min_fetch_interval`、`retry_count`、`retry_delay`、`credentials_ttl`                                                                                       | 配额接口节流与重试、凭据探测缓存时长                |
 |                             | `cdp_port`、`history_limit`、`esentutl_timeout`、`cdp_login_wait_seconds`、`cdp_poll_interval`、`cdp_fetch_timeout`、`cdp_wait_timeout`                     | 浏览器/CDP 引导参数与超时                           |
 |                             | `export_limit`、`price_cache_ttl`、`models_dev_url`、`http_timeout`、`subprocess_timeout`                                                                   | 导出、定价与网络/子进程超时                         |
+|                             | `data_url`、`gh_releases_api_url`、`gh_releases_rss_url`、`data_fetch_interval_sec`                                                                         | 数据页抓取源与刷新节流（PL002）                     |
 |                             | `credentials_dir`、`logs_dir`、`prices_dir`                                                                                                                 | 运行数据目录（项目内，相对路径）                    |
 |                             | `table_limit_group`、`table_limit_day`                                                                                                                      | 明细表格行数上限                                    |
 |                             | `app_name`、`log_level`、`log_max_bytes`、`log_backup_count`、`db_default_path`                                                                             | 应用名、日志级别/轮转与默认库路径                   |
 |                             | `user_config_path`、`default_theme`                                                                                                                         | 用户配置路径与默认值                                |
 | `config/static/ui.json`     | `colors.quota_*`（含饼图/托盘色）、`quota_warn_percent`、`quota_danger_percent`                                                                             | 配额颜色与阈值                                      |
-|                             | `icon_size`、`notify_duration_ms`、`table_headers`、`pie_size`、`pie_font_size`                                                                             | 托盘图标/通知、表格表头与剩余量饼图                 |
+|                             | `icon_size`、`notify_duration_ms`、`data_table_headers`、`pie_size`、`pie_font_size`                                                                        | 托盘图标/通知、数据页表格表头与剩余量饼图           |
 |                             | `layout_*`、`cards_spacing`、`quota_name_width`、`reset_time_format`                                                                                        | 布局与重置时间显示格式                              |
-|                             | `themes`、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`、`notify_message_fallback`、`app_subtitle`        | 主题枚举与 UI 文案                                  |
+|                             | `themes`、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`、`app_subtitle`                                   | 主题枚举与 UI 文案                                  |
 |                             | `unknown_label`、`cost_zero_epsilon`、`total_tokens_unit`、`total_tokens_unit_threshold`、`status_time_format`、`token_abbr_units`、`cli_reset_time_format` | 分组缺失标签、费用容差、单位/K/M/B/G 缩写与时间格式 |
 |                             | `status_messages`（含任务错误模板）、`go_quota_error_messages`、`menu_labels`、`tooltips`、`dialog_titles`、`dialog_prompts`                                | 状态栏/错误/菜单/对话框文案                         |
-|                             | `palettes.light/dark`                                                                                                                                       | 浅/深主题调色板（含 chunk_ok，25 色）               |
+|                             | `palettes.light/dark/console/panel`（四主题，每主题约 30 色）、`theme_labels`、`table_columns`                                                              | 四主题调色板/显示名映射/明细表格列元数据            |
 
 修改 json 后重启应用生效（`get_static_config()` 缓存单例，进程内只读一次）。
 

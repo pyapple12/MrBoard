@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：ver 0.242（VERSION 单一来源在 config/static/base.json 的 version 字段；2026-08-13 起审计修复只提升第三位数字，功能批次按用户指定编号）
+> 当前版本：V0.2.4.3（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -280,160 +280,39 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 清理（J3×2）：main.py 说明区常量段补 QUOTA_DANGER_PERCENT（同文件漏改模式第三次终结）；file_utils 补 get_project_root 函数条目；QSystemTrayIcon 导入条目补列。
 15 轮审计全部闭环。
 
-## PL001 凭据指纹切换日志——多账户用量区分（依据 z.plan.md PL001 方案，2026-08-13 规划）
+## PL001 凭据指纹切换日志——多账户用量区分（依据 z.plan.md PL001 方案，2026-08-22 已实施，版本 ver 0.213）
 
 > 目标：账户切换自动记录时间点，启用后用量按账户时段切片统计；配额侧多凭据轮询看各账户余量
-> 决策（用户已确认）：全量实施（一二三）；日志存独立 data/credentials/switch_log.json；多凭据需要（今后两三个账号同时用）
-> 硬限制（文档明示）：启用前历史不可划分；程序未运行期间切换漏检（下次启动才检测）；新账户从首个检测点起算
+> 决策：全量实施（一二三）；日志存独立 data/credentials/switch_log.json；多凭据需要
+> 依据：z.plan.md PL001 方案；结果：三部分全部完成（各子项探针全 PASS + verify_pl001_accept 六项 11/11 + 全量回归清零）；⚠ 统计侧与切换日志已随 PL004 退役（ver 0.240），配额侧保留并演进为单卡选择器
 
-### 统计侧核心——凭据指纹切换日志
+统计侧核心（PL001.1-3）：指纹计算与 switch_log.json 读写（探针 16/16）+ 切换检测去抖（A→B→A 两记录三区间断言）+ 双时机钩子接入（fetch 成功处+启动时，5/5）——**已随 PL004 整体退役删除**。
+统计切片（PL001.4-6）：_time_clause 时段过滤（内存库边界 8/8）+ GUI 账户下拉（offscreen 15/15×2 零配置污染）+ CLI --account 与导出标注列（7/7 + _ExportTask 连带）——**已随 PL004 整体退役删除**。
+配额侧多凭据轮询（PL001.7-9）：opencode-go.json 数组兼容（单对象/数组/追加不覆盖 6/6）+ fetch_go_quota 循环轮询（mock 一好一坏 6/6；破坏性变更涟漪 26 个脚本清零）+ 并列账户卡（三账户探针 10/10）——**保留**，UI 演进为单卡选择器+quota_account 记忆（PL004/PL005）。
+验证收尾（PL001.10）：verify_pl001_accept 六项 11/11 + README 同步 + 版本定案 ver 0.213（该验收脚本随退役一并清理）。
 
-- [x] PL001.1 指纹计算与 switch_log.json 读写（2026-08-22 完成：探针 16/16 PASS）
-- [x] PL001.2 切换检测与去抖（2026-08-22 完成：A→B→A 两记录三区间断言 PASS）
-- [x] PL001.3 检测钩子接入（2026-08-22 完成：fetch 成功处 + 启动时，探针 5/5 PASS）
-
-### 统计切片（消费侧）
-
-- [x] PL001.4 \_time_clause 账户时段过滤（2026-08-22 完成：内存库边界探针 8/8 PASS + s10 回归）
-- [x] PL001.5 GUI 账户时段选择器（2026-08-22 完成：offscreen 探针 15/15×2 零配置污染）
-- [x] PL001.6 CLI --account 与导出标注（2026-08-22 完成：探针 7/7 PASS + \_ExportTask 连带）
-
-### 配额侧多凭据轮询
-
-- [x] PL001.7 opencode-go.json 数组兼容（2026-08-22 完成：单对象/数组/追加不覆盖三断言 6/6 PASS）
-- [x] PL001.8 fetch_go_quota 循环轮询（2026-08-22 完成：mock 一好一坏 6/6 PASS；破坏性变更连带 main_window/main/go_quota.main 适配，全量回归涟漪 26 个脚本清零）
-- [x] PL001.9 GUI 配额区并列账户卡（2026-08-22 完成：offscreen 三账户探针 10/10 PASS；\_set_status_style 孤儿删除）
-
-### 验证收尾
-
-- [x] PL001.10 verify_pl001_accept 反向断言（2026-08-22 完成：六项 11/11 PASS）+ README 同步 + 版本定案 **ver 0.213**
-
-## PL002 模型数据页 + 官方动态页签（依据 z.plan.md PL002 方案，2026-08-13 规划）
+## PL002 模型数据页 + 官方动态页签（依据 z.plan.md PL002 方案，2026-08-22 已实施，版本 ver 0.220）
 
 > 目标：数据页六区块（热门模型时序/Token 成本/缓存比/会话成本/国家分布/GitHub Releases）以新页签展示；UI 与功能三层分离
-> 架构：modules/opencode_data.py 零 Qt / ui/data_page.py 纯展示零解析 / main_window 装配最小侵入
-> 关键预研结论：go_quota.\_capture_object_body 仅支持单层对象（[^{}]\* 不容嵌套），$R 数组引用链须新写独立展开器；异步对齐 QRunnable+signal+seq 模式
+> 架构：modules/opencode_data.py 零 Qt 纯数据层 / ui/data_page.py 纯展示零解析 / main_window 装配最小侵入
+> 关键预研结论：go_quota._capture_object_body 仅支持单层对象不容嵌套，$R 数组引用链须新写独立展开器
 
-### PL002.1 配置外置与模块骨架（z.plan.md PL002.1）
+数据层解析链（PL002.1-7）：base.json 五键外置与模块骨架（探针 16/16）+ 节流缓存对齐 go_quota 同式 + $R 引用展开器（_extract_r_objects 实测 1783 对象块/176 数组块 + _parse_loose_object 手写分词禁 eval）+ 四数据块锚点配平捕获（14/14）+ 时序正则 aria-label/stack/data-model（6/6）+ Releases JSON→RSS 双路径回退（8/8）+ refresh_data_page 三源独立聚合缺块容忍（6/6）——**保留**。
+UI 与装配（PL002.8-11）：DataPage widget 骨架（objectName 系列 P25 取舍点 + Releases 卡片 + 五表格列头契约）+ set_* 三纯渲染入口空态占位（14/14）+ has_loaded 懒加载幂等 + QTabWidget 两页装配主定时器隔离（拉取计数==1 断言 14/14）——**保留**。
+验证收尾（PL002.12）：verify_pl002_accept 反向五项 7/7 + 全量回归 0 异常 + README 同步 + 版本定案 ver 0.220。
+A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 死键删除 / K3.2-K3.5 清理与说明区同步。
 
-- [x] PL002.1.a base.json 新增五键（2026-08-22 完成）
-- [x] PL002.1.b modules/opencode_data.py 骨架：\_SC 解包 + DataPageError 分类（2026-08-22 完成）
-- [x] PL002.1.c 验证：import 冒烟 + 常量断言（2026-08-22 完成：探针 16/16 PASS）
-
-### PL002.2 节流缓存基础设施
-
-- [x] PL002.2.a \_last_snapshot/\_throttled_snapshot 对齐 go_quota 同式（2026-08-22 完成）
-- [x] PL002.2.b probe 时间注入断言（2026-08-22 完成）
-
-### PL002.3 $R 引用展开器（z.plan.md PL002.2 前半）
-
-- [x] PL002.3.a \_extract_r_objects（实测 1783 对象块 + 176 数组块）（2026-08-22 完成）
-- [x] PL002.3.b \_parse_loose_object 手写分词（引号+括号深度感知，禁 eval）（2026-08-22 完成）
-- [x] PL002.3.c probe 真实快照样例（2026-08-22 完成）
-
-### PL002.4 四数据块锚点提取（z.plan.md PL002.2 后半）
-
-- [x] PL002.4.a fetch_model_data 锚点+配平捕获（\_capture_array_text 防内嵌截断）（2026-08-22 完成）
-- [x] PL002.4.b \_expand_array_ref（2026-08-22 完成）
-- [x] PL002.4.c 缺块容忍（2026-08-22 完成）
-- [x] PL002.4.d probe 真实页面四块断言（2026-08-22 完成：14/14 PASS）
-
-### PL002.5 热门模型时序解析（z.plan.md PL002.3）
-
-- [x] PL002.5.a aria-label 日期+总量（2026-08-22 完成）
-- [x] PL002.5.b stack 百分比×data-model 按序 zip（stack 容器内提取）（2026-08-22 完成）
-- [x] PL002.5.c 月份缩写排序（2026-08-22 完成）
-- [x] PL002.5.d probe 条数≥7/升序/占比和≈100%（2026-08-22 完成：6/6 PASS）
-
-### PL002.6 GitHub Releases 拉取（z.plan.md PL002.4）
-
-- [x] PL002.6.a \_fetch_releases_json（UA 头 + 前 3 条）（2026-08-22 完成）
-- [x] PL002.6.b \_fetch_releases_rss 回退（xml.etree 命名空间）（2026-08-22 完成）
-- [x] PL002.6.c fetch_github_releases JSON 优先 RSS 回退（2026-08-22 完成）
-- [x] PL002.6.d probe mock 双路径 + 快照 tag_name（2026-08-22 完成：8/8 PASS）
-
-### PL002.7 快照聚合入口（数据层收口）
-
-- [x] PL002.7.a ModelDataSnapshot dataclass（2026-08-22 完成）
-- [x] PL002.7.b refresh_data_page 三源独立 + 缺块 decoding 警告（2026-08-22 完成）
-- [x] PL002.7.c probe mock 部分成功（2026-08-22 完成：6/6 PASS）
-
-### PL002.8 DataPage widget 骨架（z.plan.md PL002.5 前半）
-
-- [x] PL002.8.a ui/data_page.py：滚动区 + objectName 系列（P25 取舍点）（2026-08-22 完成）
-- [x] PL002.8.b Releases 卡片区（版本/日期/正文只读）（2026-08-22 完成）
-- [x] PL002.8.c 五表格列头常量 + 导入期契约校验（P23 对齐）（2026-08-22 完成）
-
-### PL002.9 渲染入口与占位（z.plan.md PL002.5 后半）
-
-- [x] PL002.9.a set_releases/set_daily_usage/set_model_data 三纯渲染入口（2026-08-22 完成）
-- [x] PL002.9.b 空数据占位文案（2026-08-22 完成）
-- [x] PL002.9.c probe offscreen 零网络 + 快照灌入（2026-08-22 完成：14/14 PASS）
-
-### PL002.10 懒加载后台任务（z.plan.md PL002.5 尾）
-
-- [x] PL002.10.a has_loaded 懒加载标志（2026-08-22 完成）
-- [x] PL002.10.b \_DataPageTask(QRunnable) + \_DataSignals（seq 防竞态）（2026-08-22 完成）
-- [x] PL002.10.c probe 幂等断言（2026-08-22 完成）
-
-### PL002.11 QTabWidget 改造（z.plan.md PL002.6）
-
-- [x] PL002.11.a \_build_ui 两页签（现有布局整体迁入 Tab1 只换父容器）（2026-08-22 完成）
-- [x] PL002.11.b currentChanged 首次切换触发拉取（2026-08-22 完成）
-- [x] PL002.11.c 主刷新定时器隔离（refresh 不触达 DataPage）（2026-08-22 完成）
-- [x] PL002.11.d probe 双页 + 拉取计数 == 1（2026-08-22 完成：14/14 PASS）
-
-### PL002.12 验证收尾（z.plan.md PL002.7）
-
-- [x] PL002.12.a verify_pl002_accept 反向断言五项（2026-08-22 完成：7/7 PASS）
-- [x] PL002.12.b 全量回归 0 异常 + GUI offscreen 双页冒烟（2026-08-22 完成）
-- [x] PL002.12.c README 功能段同步（2026-08-22 完成）
-- [x] PL002.12.d 版本定案 **ver 0.220**（2026-08-22，与 PL001 合并提交）
-
-## PL003 UI 整体重构：四主题注册制 + 拟物化扩展（依据 z.plan.md PL003 方案，2026-08-22 规划）
+## PL003 UI 整体重构：四主题注册制 + 拟物化扩展（依据 z.plan.md PL003 方案，2026-08-22 已实施，版本 ver 0.230）
 
 > 目标：主题注册制泛化（light/dark 保留 + console 终端控制台/panel 工业面板新增）+ 下拉切换即持久化 + 列元数据外置（P23 收尾）
-> 已拍板（2026-08-22）：四主题皆做/命名 console·panel/下拉切换切完即存/配额阈值行为不变仅颜色随主题
-> 硬限制：QSS 无 box-shadow 用双描边模拟立体；配色神似不逐像素；QProgressBar::chunk 无法分段（首版退化普通圆角条，M3b 自绘可选追加不阻塞）
+> 已拍板：四主题皆做/命名 console·panel/下拉切换切完即存/配额阈值行为不变仅颜色随主题
+> 硬限制：QSS 无 box-shadow 用双描边模拟立体；配色神似不逐像素；chunk 无法分段首版退化普通圆角条（M3b 自绘可选追加不阻塞）
 
-### PL003.1 主题注册制泛化（先行，视觉零变化）
-
-- [x] PL003.1.a themes.py 删硬编码双主题四常量 → `_THEME_QSS` 注册制构建 + `DEFAULT_THEME_NAME`（2026-08-22 完成）
-- [x] PL003.1.b A3.5/C0.6 校验泛化保留（逐主题占位符残留 + palettes 键集==THEME_NAMES 严格相等）（2026-08-22 完成）
-- [x] PL003.1.c get_theme 字典查找 + 未知名回退默认（2026-08-22 完成）
-- [x] PL003.1.d 配额动态色迁 palette（chunk 三档/quota_gray/pie_bg/pie_text + 必含契约校验）；quota_chunk_color(percent, theme_name)（2026-08-22 完成）
-- [x] PL003.1.e colors 节瘦身为纯托盘色节（quota_ok/quota_gray/quota_pie_dot）；system_tray 消费不变（2026-08-22 完成）
-- [x] PL003.1.f main_window.\_is_dark → \_theme_name；饼图实例色随主题；settings 零改动（2026-08-22 完成）
-- [x] PL003.1.g 验证：offscreen init + 全量回归清零（2026-08-22 完成）
-
-### PL003.2 切换交互：按钮改下拉
-
-- [x] PL003.2.a 删 \_theme_button/toggle_theme → 主题 QComboBox（2026-08-22 完成）
-- [x] PL003.2.b theme_labels 显示名映射 + 键集与 themes 数组一致校验（2026-08-22 完成）
-- [x] PL003.2.c currentTextChanged → 应用 → 立即 save_config；启动恢复 blockSignals 防回环（2026-08-22 完成）
-- [x] PL003.2.d 连带修复：进度条 chunk 动态色切主题后统一重着色（\_apply_theme 遍历卡片重刷）（2026-08-22 完成）
-- [x] PL003.2.e 验证：offscreen 切换断言 QSS 变化 + 持久化落盘 + 回归（2026-08-22 完成：探针 14/14）
-
-### PL003.3 双新主题包数据落地（console + panel）
-
-- [x] PL003.3.a \_QSS_TEMPLATE 新增 {font_family} 占位符；light/dark Segoe UI、console/panel Consolas（2026-08-22 完成）
-- [x] PL003.3.b console palette：近黑底 #0a0e14/卡片深底强调描边/绿磷光文字（2026-08-22 完成）
-- [x] PL003.3.c panel palette：米灰绿底/近黑文字/胶囊大圆角（2026-08-22 完成）
-- [x] PL003.3.d 能力边界落地：分段进度条退化普通圆角条（M3b 不阻塞）；饼图复用 QPainter 实例色（2026-08-22 完成）
-- [x] PL003.3.e 截图对照参考图目检（标准：风格气质到位非逐像素复刻；**需切换多模态模型**）
-
-### PL003.4 列元数据外置（P23 关联收尾）
-
-- [x] PL003.4.a ui.json table_headers → table_columns [{id, title}]（数组顺序即展示顺序）（2026-08-22 完成）
-- [x] PL003.4.b TABLE_HEADERS 从 title 派生单源化；COLUMN_IDS 保持代码内声明（P23 不推翻）（2026-08-22 完成）
-- [x] PL003.4.c 导入期校验 columns id 序列与 COLUMN_IDS 严格相等（实测拦截 cache 列 id 写错）；hidden_columns 语义不变（2026-08-22 完成）
-- [x] PL003.4.d 验证：全量回归（2026-08-22 完成）
-
-### PL003.5 收尾
-
-- [x] PL003.5.a verify_pl003_accept 反向断言（2026-08-22 完成：5/5 PASS：键集一致/未知名回退/三档随主题/theme_labels 与动态色键契约可触发）
-- [x] PL003.5.b README 主题章节 / ui.json 参数表 / z.plan P25 状态 / y.problem P25 状态同步（2026-08-22 完成）
-- [x] PL003.5.c 版本定案 **ver 0.230**（2026-08-22，独立提交）
+主题注册制泛化（PL003.1）：themes.py 删硬编码双主题 → `_THEME_QSS` 注册制构建 + DEFAULT_THEME_NAME/get_theme 未知名回退 + 动态色键迁 palette 必含契约校验（chunk 三档/quota_gray/pie_bg/pie_text）+ quota_chunk_color 加 theme_name 参 + colors 节瘦身为纯托盘色节 + _is_dark→_theme_name——视觉零变化回归清零。
+切换交互（PL003.2）：按钮改下拉 + theme_labels 显示名外置键集校验 + 切换即存 blockSignals 防回环 + chunk 动态色重着色连带修复（探针 14/14）。
+双新主题包（PL003.3）：{font_family} 占位符 + console 近黑磷光/panel 米灰线框两套 palette 落地；**遗留 PL003.3.e 截图对照参考图目检（需多模态模型）**。
+列元数据外置（PL003.4）：table_columns [{id,title}] + TABLE_HEADERS 从 title 派生单源化 + 与 COLUMN_IDS 导入期严格相等校验（实测拦截 cache 列 id 写错）。
+验证收尾（PL003.5）：verify_pl003_accept 反向断言 5/5 + 文档四处同步 + 版本定案 ver 0.230。A0.16/K0.1 连带修复渲染路径 quota_chunk_color 未传 theme_name 缺陷（PL003 改造遗漏）。
 
 ## PL004 用量纯净视图回归：切换日志移除 + 配额单卡选择器（依据 z.plan.md PL004 方案，2026-08-23 规划，版本 ver 0.240）
 
@@ -565,3 +444,43 @@ GUI：themes 双主题 QSS + 三色分级；main_window 卡片/进度条/表格/
 - [x] K4.1 新建 .temp/verify_k_accept.py 汇总反向验收：串联 K0-K3 七个子脚本（探针+验收成对）统一出口——验证：7/7 PASS（2026-08-23 完成）
 - [x] K4.2 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源 ver 0.242（2026-08-23 完成）
 - [x] K4.3 版本推进 ver 0.242 三处同步（base.json/README 徽章/x.progress 版本行，按审计修复第三位数字惯例）+ V2 规范 commit 草稿给出（2026-08-23 完成）
+
+## L. 第17轮审计修复任务清单（依据 z.plan.md 附录 A017，2026-08-23 规划）
+
+> 范围：P 级 16 条（中 1 / 低 15，无高）；观察项 18 条经用户复核全部维持豁免
+> 重点：中级别饼图弧色需用户先裁定意图方向；多条为 A016/K 系列修复的边界补全
+> 硬限制：只修 A017 清单条目；每批完成后跑反向验收再全量回归
+
+### L0 展示语义裁定与修复（中 1 条，已裁定方案 A）
+
+- [x] L0.1 饼图弧色分级色改造（**已裁定方案 A，2026-08-23 用户确认**）：_RemainingPieChart 增加 theme 名持有（构造/set_colors 联动更新）+ set_used_percent 内按 `quota_chunk_color(percent, theme)` 联动重算弧色（<60% 绿/60-80% 黄/≥80% 红三档与进度条一致）；两处矛盾注释统一为"分级色圆弧"——验证：探针断言 panel 主题下 usage=90 时弧色==quota_chunk_color(90,"panel")=#a03030 且 ≠ quota_chunk_color(90)（2026-08-24 完成）
+
+### L1 数据与交互一致性（低 8 条）
+
+- [x] L1.1 K0.2 补全：main_window.py `_start_cdp_guide` 早退分支补状态栏提示（复用 ui.json in_flight 文案）+ 新增 `_set_guide_actions_enabled` 随引导态启停菜单动作（_start_cdp_guide 禁用 / _on_guide_success+failed 恢复）（2026-08-24 完成：假池断言动作禁用+提示出现+零重复提交）
+- [x] L1.2 K0.3 回落换源：main_window.py `_rebuild_quota_account_combo` 回落分支 `self._config.quota_account` → `load_config().quota_account`（与切换回调同源）——验证：结构断言；行为层面两实现等价（磁盘值恒跟随会话选择），探针以合法落定项断言（2026-08-24 完成）
+- [x] L1.3 G1 失败占位入缓存：go_quota.py fetch 循环 except 分支将占位错误项同步 append 进 `_last_quotas`（成功项照旧）——in-flight/节流期全集不再丢失败项——验证：探针一好一坏 mock 断言缓存含 2 条且坏项带 error（2026-08-24 完成）
+- [x] L1.4 K1.1 粒度声明：opencode_data.py 守卫注释补"单源失败空覆盖属已知取舍（per-source 合并待后续评估）"（2026-08-24 完成）
+- [x] L1.5 B1 深度校验：browser_creds.py 取值改 `(resp.get("result") or {})` 式 + cookie 循环 isinstance(cookie, dict) 过滤——验证：探针 result=null 响应断言不抛 AttributeError 返回 (None, None)（2026-08-24 完成）
+- [x] L1.6 O2 JSON null 兜底：opencode_data.py releases JSON 路径 tag_name/published_at/body 改 `(x or "")` 兜底显式 null（对齐 RSS 口径）——验证：探针 null 字段断言空串非 "None"（2026-08-24 完成）
+- [x] L1.7 G2 并发收敛：go_quota.py 新增 `_FETCH_STATE_LOCK = threading.Lock()` 护 in-flight check-set 与 finally 复位路径（网络 IO 不持锁保持即时返回语义）——验证：源码结构断言 + 行为 smoke（2026-08-24 完成）
+- [x] L1.8 error_stage 对齐：go_quota.py in-flight 全集副本删 error_stage 赋值行（对齐节流分支不设语义；ui 引导判断依赖 is_cached 已排除不受影响）——验证：结构断言 in-flight 段零 error_stage（2026-08-24 完成）
+
+### L2 配置卫生（低 1 条）
+
+- [x] L2.1 theme 死键双侧删除：ui.json button_labels 删 `"theme": "主题"` 行 + main_window.py _UI_STRUCT_KEYS 的 button_labels 元组同步删 `"theme"`——验证：verify 断言 ui.json 无该键且 IMPORT OK 契约通过（2026-08-24 完成）
+
+### L3 清理与文档（低 6 条）
+
+- [x] L3.1 注释失实修正：main_window.py `_render_quota` 函数头注释按 K0.3 现状重写（"失配回落持久化值，仍失配保持首项（不保证有效性）"）（2026-08-24 完成）
+- [x] L3.2 说明区补条目：main_window.py 类型清单补 _DataSignals/_DataPageTask 两行；常量清单补 USAGE_TAB_TITLE/DATA_PAGE_ERROR_TEMPLATE/THEME_LABELS/QUOTA_ACCOUNT_LABEL/QUOTA_ACCOUNT_UNKNOWN/QUOTA_ADD_ACCOUNT_BUTTON 六键——验证：说明区提及符号 grep 全存在（2026-08-24 完成）
+- [x] L3.3 pending 冗余补发：main_window.py _on_load_error seq 匹配分支追加 self._consume_pending()——验证：结构断言 error 路径消费 pending（2026-08-24 完成）
+- [x] L3.4 README 配置表同步：ver 快照删除/table_headers→data_table_headers/删 notify_message_fallback 行/palettes 描述更新为四主题/base.json 表补列 data_fetch_interval_sec/data_url/gh_releases_api_url/gh_releases_rss_url 四键（2026-08-24 完成）
+- [x] L3.5 符号名修正：opencode_data.py 说明区 _R_BLOCK_PATTERN → _R_OBJECT_PATTERN（2026-08-24 完成）
+- [x] L3.6 关联配置补列：opencode_usage.py 说明区补 base.json（db_default_path/table_limit_group/table_limit_day/subprocess_timeout/retry_count/retry_delay）与 ui.json（unknown_label）键列（2026-08-24 完成）
+
+### L4 验证与收尾
+
+- [x] L4.1 新建 .temp/verify_l_accept.py 反向验收 20 断言（L0.1 分级色/L1 组七项结构+行为/L2.1 双侧删除/L3 组五项）（2026-08-24 完成：20/20 PASS）
+- [x] L4.2 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源；连带更新 verify_k0_accept/verify_k1_accept/verify_5a3 三处过时断言适配 L 系列新结构（2026-08-24 完成）
+- [x] L4.3 版本推进三处同步（base.json/README 徽章/x.progress 版本行）+ **2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式（用户指定）** + V2 规范 commit 草稿给出（2026-08-24 完成）

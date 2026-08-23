@@ -238,7 +238,9 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
     except Exception as exc:
         snapshot.errors.append(f"官方动态拉取失败：{exc}")
     # A0.16/K1.1：三源全空且已有历史缓存时保留旧快照标注返回（失败不覆盖成功
-    # 数据，对齐 go_quota 只缓存成功项的模式）；首刷无缓存时照常返回空快照+错误
+    # 数据，对齐 go_quota 只缓存成功项的模式）；首刷无缓存时照常返回空快照+错误。
+    # A017/L1.4 已知取舍声明：守卫粒度为三源整体——单源失败（如 Releases 网络抖动
+    # 返回 []）而其他源成功时，空源仍会覆盖旧值；per-source 合并待后续评估
     has_data = bool(snapshot.model_blocks or snapshot.daily_usage or snapshot.releases)
     if not has_data and _last_snapshot is not None:
         message = "；".join(snapshot.errors) if snapshot.errors else "数据页拉取失败"
@@ -329,9 +331,11 @@ def _fetch_releases_json() -> list[dict[str, Any]]:
             continue
         items.append(
             {
-                "tag_name": str(release.get("tag_name", "")),
-                "published_at": str(release.get("published_at", "")),
-                "body": str(release.get("body", "") or ""),
+                # A017/L1.6：(x or "") 兜底显式 null——与 RSS 路径同口径，
+                # 防 "None" 字面量外显
+                "tag_name": str(release.get("tag_name") or ""),
+                "published_at": str(release.get("published_at") or ""),
+                "body": str(release.get("body") or ""),
             }
         )
     return items
@@ -399,7 +403,7 @@ if __name__ == "__main__":
 #   _BROWSER_UA：浏览器 UA（数据页与 GitHub 共用；无浏览器 UA 会被 opencode.ai
 #     403 拦截，实测 Python-urllib 默认 UA 被拒）
 #   _GH_API_HEADERS / _RSS_NS / _RELEASE_LIMIT：GitHub 请求头/RSS 命名空间/条数上限
-#   _R_BLOCK_PATTERN 等 $R/时序正则族：页面结构锚点（markup 变更时集中调整）
+#   _R_OBJECT_PATTERN 等 $R/时序正则族：页面结构锚点（markup 变更时集中调整）
 # 模块级变量：_last_snapshot / _last_success_at——成功快照缓存与时间戳（缓存兜底；
 #   A0.16/K1.1 起仅含实质数据的快照才写入，失败保留旧数据）
 # 类型：

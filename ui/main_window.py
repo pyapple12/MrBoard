@@ -257,7 +257,7 @@ _UI_STRUCT_KEYS = (
     ("tooltips", ("total_detail", "columns", "pie_remaining"), TOOLTIPS),
     (
         "button_labels",
-        ("refresh", "export", "theme", "settings"),
+        ("refresh", "export", "settings"),
         BUTTON_LABELS,
     ),
     ("menu_labels", ("show_window", "refresh", "quit"), dict(_SC.ui["menu_labels"])),
@@ -487,7 +487,8 @@ class _ExportTask(QRunnable):
 
 
 class _RemainingPieChart(QWidget):
-    # 剩余量饼图：已用/剩余双色圆弧 + 中心"剩余 Y%"标注（P16，替换"最紧窗口"文字位）
+    # 剩余量饼图：分级色圆弧（随用量三档变色，A017/L0.1）+ 中心"剩余 Y%"标注
+    # （P16，替换"最紧窗口"文字位）
 
     def __init__(self, parent: QWidget | None = None) -> None:
         # 初始化：已用比例为 0，尺寸/色值/字号由 ui.json 驱动（L9）；
@@ -496,28 +497,39 @@ class _RemainingPieChart(QWidget):
         self._used_percent = 0.0
         self._bg_color = QColor(PIE_COLOR_BG_DEFAULT)
         self._text_color = QColor(PIE_COLOR_TEXT_DEFAULT)
+        self._theme_name = DEFAULT_THEME_NAME
         self._arc_color = QColor(quota_chunk_color(0, DEFAULT_THEME_NAME))
         self.setFixedSize(PIE_SIZE, PIE_SIZE)
         self.setToolTip(TOOLTIPS["pie_remaining"])
 
-    def set_colors(self, bg: QColor, text: QColor, arc: QColor) -> None:
-        # 更新饼图背景/文字/圆弧色并重绘（PL003.1.d：切主题时随调色板同步）
+    def set_colors(self, bg: QColor, text: QColor, theme_name: str) -> None:
+        # 更新饼图背景/文字色并重绘（PL003.1.d：切主题时随调色板同步）；
+        # A017/L0.1：弧色不再外部传入——控件按主题名 + 当前用量三档自算
+        # （与进度条 quota_chunk_color 同源同档，高用量同步警示）
         self._bg_color = bg
         self._text_color = text
-        self._arc_color = arc
+        self._theme_name = theme_name
+        self._sync_arc_color()
         self.update()
 
     def set_used_percent(self, percent: float) -> None:
-        # 更新已用比例并重绘（0-100 截断，越界防御）
+        # 更新已用比例并重绘（0-100 截断，越界防御）；A017/L0.1：弧色随用量联动
         self._used_percent = max(0.0, min(100.0, percent))
+        self._sync_arc_color()
         self.update()
+
+    def _sync_arc_color(self) -> None:
+        # 弧色单点计算：<60% 绿 / 60-80% 黄 / ≥80% 红（quota_chunk_color 三档，
+        # 与进度条 chunk 同源同主题——高用量时饼图与进度条同步警示）
+        used_int = int(round(self._used_percent))
+        self._arc_color = QColor(quota_chunk_color(used_int, self._theme_name))
 
     def used_percent(self) -> float:
         # 返回当前已用比例（外部读取/测试用）
         return self._used_percent
 
     def paintEvent(self, a0: QPaintEvent | None) -> None:
-        # 自绘：浅色底（剩余）→ 分级色圆弧（已用）→ 中心"剩余 Y%"文字
+        # 自绘：浅色底（剩余）→ 分级色圆弧（已用，A017/L0.1）→ 中心"剩余 Y%"文字
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(3, 3, -3, -3)
@@ -801,7 +813,8 @@ class MainWindow(QMainWindow):
         self._quota_account_combo.currentIndexChanged.connect(
             self._on_quota_account_changed
         )
-        # PL005.1：点击弹菜单两条添加路径（复用既有引导流程文案与逻辑）
+        # PL005.1：点击弹菜单两条添加路径（复用既有引导流程文案与逻辑）；
+        # A017/L1.1：动作引用保留，引导期间禁用防静默无反馈
         self._add_account_button = QPushButton(QUOTA_ADD_ACCOUNT_BUTTON)
         self._add_account_menu = QMenu(self._add_account_button)
         auto_action = QAction(GUIDE_AUTO_BUTTON, self._add_account_menu)
@@ -810,6 +823,7 @@ class MainWindow(QMainWindow):
         manual_action.triggered.connect(self._manual_guide)
         self._add_account_menu.addAction(auto_action)
         self._add_account_menu.addAction(manual_action)
+        self._add_account_actions = (auto_action, manual_action)
         self._add_account_button.setMenu(self._add_account_menu)
         selector_row.addWidget(selector_label)
         selector_row.addWidget(self._quota_account_combo, 1)
@@ -1006,12 +1020,13 @@ class MainWindow(QMainWindow):
                     f"QProgressBar::chunk {{ background-color: "
                     f"{quota_chunk_color(bar.value(), self._theme_name)}; }}"
                 )
-        # 饼图背景/文字/圆弧色随主题（实例色，PL003.1.d）
+        # 饼图背景/文字色随主题（实例色，PL003.1.d）；弧色由控件按主题+用量自算
+        # （A017/L0.1：set_colors 第三参改为 theme 名，弧色分级联动）
         palette = self._theme_palette()
         self._quota_pie.set_colors(
             QColor(palette["pie_bg"]),
             QColor(palette["pie_text"]),
-            QColor(quota_chunk_color(0, self._theme_name)),
+            self._theme_name,
         )
 
     def _theme_palette(self) -> dict[str, str]:
@@ -1110,9 +1125,12 @@ class MainWindow(QMainWindow):
 
     def _on_load_error(self, seq: int, message: str) -> None:
         # 加载失败：仅状态栏提示（保留旧 view，z.plan 第四章保留旧数据策略；
-        # C0.5：旧任务失败消息不覆盖新任务状态）
+        # C0.5：旧任务失败消息不覆盖新任务状态）；
+        # A017/L3.3：seq 匹配的本次失败同样消费待补发标志（防残留至下次成功后
+        # 冗余补发一次全维度查询）
         if seq != self._refresh_seq:
             return
+        self._consume_pending()
         self._status_bar.showMessage(message)
 
     def _on_tab_changed(self, index: int) -> None:
@@ -1140,17 +1158,28 @@ class MainWindow(QMainWindow):
             return
         self._status_bar.showMessage(DATA_PAGE_ERROR_TEMPLATE.format(message=message))
 
+    def _set_guide_actions_enabled(self, enabled: bool) -> None:
+        # 配额区"添加账户"菜单动作随引导态启停（A017/L1.1：引导期间禁用防静默
+        # 无反馈——用户点击有感知，引导结束恢复）
+        for action in self._add_account_actions:
+            action.setEnabled(enabled)
+
     def _start_cdp_guide(self) -> None:
         # 一键自动获取：后台执行 CDP 引导流程（独立临时 Chrome，不影响用户浏览器）；
         # A0.16/K0.2：引导进行中早退——配额区添加账户菜单与引导卡共用本入口，
-        # 防双 CDP 任务并发（双临时 Chrome/端口冲突/凭据并发写）
+        # 防双 CDP 任务并发（双临时 Chrome/端口冲突/凭据并发写）；
+        # A017/L1.1：早退补状态栏提示（不再静默无反馈）
         if self._guide_active:
+            self._status_bar.showMessage(
+                str(_SC.ui["go_quota_error_messages"]["in_flight"])
+            )
             return
         self._guide_frame.hide()
         self._auto_guide_button.setEnabled(False)
         # A0.6/A0.7：引导期间禁用手动填写（防与 worker 并发写凭据）+ 抑制引导卡重现
         self._manual_guide_button.setEnabled(False)
         self._guide_active = True
+        self._set_guide_actions_enabled(False)
         # B0.8：引导期暂停定时刷新（最长 3 分钟，避免无意义唤醒与节流纠缠）
         self._refresh_timer.stop()
         self._status_bar.showMessage(STATUS_MESSAGES["guide_starting"])
@@ -1189,6 +1218,7 @@ class MainWindow(QMainWindow):
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
+        self._set_guide_actions_enabled(True)
         if workspace_id:
             self._pending_quota_account = workspace_id
         self._refresh_timer.start(
@@ -1203,6 +1233,7 @@ class MainWindow(QMainWindow):
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
+        self._set_guide_actions_enabled(True)
         self._refresh_timer.start(
             self._config.refresh_interval_ms
         )  # B0.8：恢复定时刷新
@@ -1231,7 +1262,8 @@ class MainWindow(QMainWindow):
 
     def _render_quota(self, infos: list[GoQuotaInfo]) -> None:
         # 渲染 Go 配额（PL004.3 单卡）：选择器按 infos 重建后，渲染当前选中账户项；
-        # 选中失配（凭据已删/尚未刷出）回落首个有效项，全无效渲染首项错误态；
+        # 选中失配（凭据已删/尚未刷出）回落持久化值，仍失配保持首项
+        # （不保证有效性，A017/L3.1 注释按 K0.3 现状修正）；
         # PL005.2：新添加账户的 pending 标志优先匹配选中（一次性，失配静默清除）；
         # A0.16/K1.5：渲染目标按选择器当前索引取（combo 顺序 == infos 顺序）——
         # 同 workspace 双 cookie 时按索引区分，不再按 workspace_id 恒匹配首项
@@ -1274,7 +1306,7 @@ class MainWindow(QMainWindow):
                 if pos >= 0:
                     self._quota_account_combo.setCurrentIndex(pos)
                 return
-            target = self._config.quota_account
+            target = load_config().quota_account
             pos = self._quota_account_combo.findData(target)
             if pos >= 0:
                 self._quota_account_combo.setCurrentIndex(pos)
@@ -1453,6 +1485,9 @@ class MainWindow(QMainWindow):
 #   TOTAL_TOKEN_PREFIX / CARD_TITLES / QUOTA_SECTION_TITLE / DETAIL_SECTION_TITLE /
 #     BUTTON_LABELS / TOOLTIPS / STATUS_MESSAGES / DIALOG_TITLES / DIALOG_PROMPTS：
 #     界面文案外置 ui.json（5A.3 C3/C4：卡片/区域/按钮/状态栏/对话框文案单一来源）
+#   USAGE_TAB_TITLE / DATA_PAGE_ERROR_TEMPLATE / THEME_LABELS / QUOTA_ACCOUNT_LABEL /
+#     QUOTA_ACCOUNT_UNKNOWN / QUOTA_ADD_ACCOUNT_BUTTON：页签/数据页错误模板/主题显示名/
+#     配额账户选择器与添加账户文案（PL002.11/PL003.2/PL004.3/PL005.1）
 #   COST_ZERO_EPSILON / TOTAL_TOKENS_UNIT / TOTAL_TOKENS_UNIT_THRESHOLD /
 #     STATUS_TIME_FORMAT / TOKEN_ABBR_UNITS：容差/单位/时间格式外置（6A.3 H5/H6 + A2.1）
 #   _usage_task_in_flight / _usage_pending：usage 任务在途/待补发标志（F0.2 补列，
@@ -1467,7 +1502,9 @@ class MainWindow(QMainWindow):
 #   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
 #   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）
 #   _ExportSignals：导出任务信号载体（done/failed）
-#   _CdpGuideSignals：CDP 凭据引导任务信号载体（success/failed）
+#   _DataSignals：数据页任务信号载体（data_ready/data_error，PL002.10）
+#   _DataPageTask：数据页拉取后台任务（懒加载首次切换触发，PL002.10）
+#   _CdpGuideSignals：CDP 凭据引导任务信号载体（success[含 workspace_id]/failed）
 #   _UsageTask：用量统计后台任务（独立打开只读连接，规避 sqlite 跨线程限制）
 #   _QuotaTask：配额拉取后台任务（网络不阻塞 UI，支持注入 fetcher）
 #   _ExportTask：导出后台任务（独立连接 + exporter.export_all 落盘）
