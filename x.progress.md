@@ -484,3 +484,66 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 - [x] L4.1 新建 .temp/verify_l_accept.py 反向验收 20 断言（L0.1 分级色/L1 组七项结构+行为/L2.1 双侧删除/L3 组五项）（2026-08-24 完成：20/20 PASS）
 - [x] L4.2 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源；连带更新 verify_k0_accept/verify_k1_accept/verify_5a3 三处过时断言适配 L 系列新结构（2026-08-24 完成）
 - [x] L4.3 版本推进三处同步（base.json/README 徽章/x.progress 版本行）+ **2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式（用户指定）** + V2 规范 commit 草稿给出（2026-08-24 完成）
+
+## PL006 前后端接口层：AppService 门面 + 统一任务运行器（依据 z.plan.md PL006 方案，2026-08-24 规划）
+
+> 目标：建立 services/service.py 门面与 ui/task_runner.py 异步设施，main_window 与 modules 解耦——UI 只 import services 不再直接触碰任何 modules 符号；前端可整体替换而后端不动
+> 现状诊断：点对点直连——直接 import 五个 modules 的 8 类符号 + 自建 5 个 QRunnable 任务类 + 4 组 Signals 承载编排
+> 三条纪律：Service 纯 Python 零 Qt / DTO 第一版直接透传 modules dataclass（独立 DTO 留待 QML 迁移）/ UI 只 import services
+> 归属判定规则：替换前端时必然重写 = 归 ui/（TaskRunner）；可原样带走 = 归 services/（AppService）。多前端并存（ui/qt6 与 ui/qml 并列+main.py --frontend 分发）为远期形态，启用第二前端那天才搬迁
+> 版本归属：**V0.2.5.1**（2026-08-24 用户定版；四段式第三位=功能批次、第四位=批次内序号）
+
+### PL006.1 services/service.py 门面
+
+- [x] PL006.1.a 新建 services/**init**.py（get_service 单例入口 re-export）与 services/service.py：ServiceError(Exception) 业务错误基类（message 中文）；AppService 类（2026-08-24 完成）
+- [x] PL006.1.b resolve_db_path() -> Path | None（find_db_path 包装）与 get_usage(db_path) -> UsageData：内聚 OpenCodeDB 打开/totals/by_* 循环/DIMENSIONS 推导/TABLE_LIMIT 分档/close 全套（原 _UsageTask.run 主体迁入；db_path None 抛 ServiceError）；UsageData dataclass 随迁 services（2026-08-24 完成：探针 ② 真实库等价 PASS）
+- [x] PL006.1.c get_quotas() -> list[GoQuotaInfo]（fetch_go_quota 直通）；get_data_page() -> ModelDataSnapshot（refresh_data_page 直通）（2026-08-24 完成）
+- [x] PL006.1.d export_data(db_path, out_dir) -> None（OpenCodeDB + export_all + close，原 _ExportTask.run:473-479 主体迁入；db_path None 抛 ServiceError）（2026-08-24 完成：探针 ③ ServiceError 断言）
+- [x] PL006.1.e save_account(ws, cookie)（save_dashboard_credentials 包装）；add_account_via_cdp(login_wait_seconds=None) -> tuple[str, str]：CDP 五步编排 + _wait_for_login_cookie 整体迁入，失败抛 ServiceError(中文消息)（2026-08-24 完成：s7/s9 场景全过）
+- [x] PL006.1.f 验证：Service 各方法行为等价断言 + 全程零 PyQt6 import 断言（AST 扫描 services/ 目录）（2026-08-25 完成：probe_pl006 ① 零 Qt []）
+
+### PL006.2 ui/task_runner.py Qt 异步设施
+
+- [x] PL006.2.a TaskRunner(QObject)：finished = pyqtSignal(int, object)/failed = pyqtSignal(int, str)；构造注入 QThreadPool——归属 ui/（随前端生灭，内部零业务逻辑）（2026-08-24 完成）
+- [x] PL006.2.b run(fn, *, seq)：fn 提交线程池，成功发 finished、异常发 failed(seq, str(exc))；ui.json 文案格式化留在 UI 层 handler（2026-08-24 完成）
+- [x] PL006.2.c **实测教训落地**：QRunnable wrapper 在 worker 运行期被 GC 触发 0xC0000409 崩溃——_live_tasks 持执行中引用 + _done_tasks deque(maxlen=16) 保完成引用防悬空；setAutoDelete(False) 由 Python 全权管理生命周期——验证：最小 TaskRunner 用例 + s4/s7/s9 全链路零崩溃（2026-08-25 完成）
+
+### PL006.3 main_window 切换调用
+
+- [x] PL006.3.a 删四个数据任务类（_UsageTask/_QuotaTask/_DataPageTask/_ExportTask）与对应 Signals，改 TaskRunner.run(service...)：usage_ready/quota_ready/data_ready 由 finished(object) 载荷区分，handler 逻辑不变；error/failed 由 failed 承载（2026-08-24 完成）
+- [x] PL006.3.b _CdpGuideTask 删除改 TaskRunner.run(lambda: service.add_account_via_cdp(...))：success/failed 双语义由 on_done(结果元组)/on_error 回调承载（workspace_id 经结果携带，pending 逻辑不变）（2026-08-24 完成）
+- [x] PL006.3.c import 区收敛：删全部 from modules... 编排行仅保留 DTO 类型注解用途 import 与 from services / from ui.task_runner；CDP 四常量随编排迁 services；MainWindow 可注入性保留（2026-08-24 完成：probe_pl006 ⑤ 八个编排符号零残留）
+- [x] L3.3 同步核对：_on_load_error 的 _consume_pending 在新信号体系下语义保持（2026-08-24 完成：verify_f_accept 补发断言适配 PASS）
+- [x] PL006.3.d 验证：offscreen GUI 冒烟全流程 + 全量回归 usage/export 相关历史脚本全部适配通过（s4/s7/s9/v0809/v1010/5a2/f/g/h）（2026-08-25 完成）
+
+### PL006.4 验证与收尾
+
+- [x] PL006.4.a 新建 .temp/verify_pl006_accept.py 反向验收：services/ 目录零 Qt 断言（AST 扫描）/行为等价/runner 双路径/UI 零 modules import（2026-08-24 完成）
+- [x] PL006.4.b 全量回归 0 异常 + IMPORT OK + offscreen 冒烟 + --version；run_all_verify 超时放宽 120→300 秒（批量环境 CDP mock 场景偶超旧阈值）（2026-08-25 完成）
+- [ ] PL006.4.c README 项目结构段补 services/ 与 ui/task_runner 说明 + x.progress 勾选 + commit 草稿
+
+## PL007 主题资源文件夹化：theme 与代码彻底解耦（依据 z.plan.md PL007 方案，2026-08-24 规划）
+
+> 目标：主题作为纯声明式资源管理于 ui/themes/ 文件夹（theme.json 纯数据 + base.qss 共享模板），不含任何 Python；新增主题 = 新建文件夹不改任何 .py
+> 现状诊断：颜色已外置 ui.json palettes 但两处耦合残留——QSS 模板是 themes.py 的 Python 字符串常量；主题资产分散三处（themes.py 模板/ui.json palettes/ui.json theme_labels）
+> 硬限制：消费方 import 路径不变（from ui.themes import ... 零改动）；ui.json themes 数组为注册顺序唯一权威；契约校验链只增不减（A3.5/C0.6/E3.9/H3.1/I0.1/动态色必含全套保留适配文件源）
+> 版本归属：**V0.2.5.2**（2026-08-24 用户定版；与 PL006 的 V0.2.5.1 同属 V0.2.5.x 功能批次）
+
+### PL007.1 资源文件落地
+
+- [ ] PL007.1.a ui/themes.py → ui/themes/**init**.py（包替代模块）；_QSS_TEMPLATE 内容平移至 ui/themes/_templates/base.qss（{var} 变量语法不变）
+- [ ] PL007.1.b 四主题资源文件：ui/themes/{light,dark,console,panel}/theme.json——schema {display_name, font_family, palette:{全部色键含动态色六键}}；ui.json palettes 数据拆分迁入（display_name 承接 theme_labels、font_family 并入）
+- [ ] PL007.1.c ui.json 清理：palettes/theme_labels 键移除；保留 "themes": [...] 数组作为注册顺序权威（settings.THEMES/base.json default_theme 校验链零改动）
+
+### PL007.2 加载器改造（契约校验全套保留）
+
+- [ ] PL007.2.a **init**.py 加载流程：读注册表 → 逐主题加载 theme.json（json 解析错误/缺文件 RuntimeError 中文提示）→ 构建 _THEME_QSS
+- [ ] PL007.2.b 契约校验链文件源适配并全套保留：palettes 容器类型 H3.1/I0.1 → theme.json 结构校验；值类型 E3.9；占位符残留 A3.5（对 base.qss）；themes↔文件夹键序一致 C0.6；长度下限 A3.5；动态色六键必含 PL003.1.d
+- [ ] PL007.2.c 导出 API 同名同签名零改动：get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK——消费方 import 零改动
+- [ ] PL007.2.d 未注册主题目录处理：文件夹多出未注册目录视为无效不加载 + logger.warning
+
+### PL007.3 验证与收尾
+
+- [ ] PL007.3.a 探针：四主题加载等价断言（新 QSS 与迁移前逐字节对比）；契约触发断言（删动态色键/改坏占位符/注册表含幽灵主题各抛 RuntimeError）；新主题热添加模拟（复制 light 改名断言出现在 THEME_NAMES）
+- [ ] PL007.3.b 全量回归 0 异常 + offscreen 冒烟四主题切换 + IMPORT OK
+- [ ] PL007.3.c README 主题章节补"自定义主题 = 新建文件夹"指引 + x.progress 勾选 + 版本推进决策 + commit 草稿

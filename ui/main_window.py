@@ -41,28 +41,20 @@ from PyQt6.QtWidgets import (
 
 from config.settings import load_config, save_config
 from config.static.static_config import get_static_config
-from modules import browser_creds
-from modules.exporter import export_all
+
+# A017/PL006：仅保留 DTO 类型注解用途的 modules import（函数调用一律走 services 门面）
 from modules.go_quota import (
     ERROR_STAGE_AUTH,
     ERROR_STAGE_NO_CREDS,
     QUOTA_WINDOW_KEYS,
-    DashboardCredentials,
-    GoQuotaError,
     GoQuotaInfo,
-    fetch_dashboard_usage,
-    fetch_go_quota,
-    save_dashboard_credentials,
 )
-from modules.opencode_usage import (
-    OpenCodeDB,
-    TokenStats,
-    UsageRow,
-    UsageSummary,
-    find_db_path,
-)
-from modules.opencode_data import ModelDataSnapshot, refresh_data_page
+from modules.opencode_usage import TokenStats, UsageRow, UsageSummary
+from modules.opencode_data import ModelDataSnapshot
+from services import get_service
+from services.service import ServiceError, UsageData
 from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
+from ui.task_runner import TaskRunner
 from ui.themes import (
     DEFAULT_THEME_NAME,
     THEME_NAMES,
@@ -76,14 +68,9 @@ logger = get_logger(__name__)
 # 静态配置解包（S8：参数外置 base.json，运行时零 IO）
 _SC = get_static_config()
 AUTO_LOAD_DELAY_MS = int(_SC.base["auto_load_delay_ms"])
-# L8/L10：表格行数上限与 CDP 超时（base.json 驱动）
+# L8/L10：表格行数上限（base.json 驱动；A017/PL006 CDP 参数随编排迁 services）
 TABLE_LIMIT_GROUP = int(_SC.base["table_limit_group"])
 TABLE_LIMIT_DAY = int(_SC.base["table_limit_day"])
-CDP_FETCH_TIMEOUT = int(_SC.base["cdp_fetch_timeout"])
-CDP_WAIT_TIMEOUT = int(_SC.base["cdp_wait_timeout"])
-# S7：CDP 引导参数模块级解包（一次性解包约定）
-CDP_POLL_INTERVAL = int(_SC.base["cdp_poll_interval"])
-CDP_LOGIN_WAIT_SECONDS = int(_SC.base["cdp_login_wait_seconds"])
 # L9：剩余量饼图参数（ui.json 驱动；PL003.1.d 起 bg/text 色随主题 palette，
 # 模块级仅保留默认主题色作初始值）
 PIE_SIZE = int(_SC.ui["pie_size"])
@@ -324,166 +311,11 @@ class UsageData:
     rows: dict[str, list[UsageRow]]
 
 
-class _LoadSignals(QObject):
-    # 用量/配额加载信号载体（usage_ready 携带刷新序号，B0.5 去重用）
-
-    usage_ready = pyqtSignal(int, object)
-    quota_ready = pyqtSignal(int, object)
-    error = pyqtSignal(int, str)  # C0.5：携带刷新序号
-
-
-class _ExportSignals(QObject):
-    # 导出任务信号载体：完成/失败回传主线程
-
-    done = pyqtSignal(str)
-    failed = pyqtSignal(str)
-
-
 # F0.2：usage 任务在途/待补发标志（连点去重——跨线程读写由 GIL 保证原子，
-# 与 go_quota._fetch_in_flight 同式）
+# 与 go_quota._fetch_in_flight 同式；A017/PL006 起复位逻辑经 usage 任务包装函数
+# 的 finally 单点保持，H0.6 时序结论不变）
 _usage_task_in_flight = False
 _usage_pending = False
-
-
-class _UsageTask(QRunnable):
-    # 用量统计后台任务：独立打开只读连接（规避 sqlite 跨线程限制），完成后发信号
-    # F0.2：连点去重——run 入口检查模块级在途标志，已有任务执行时仅置 pending
-    # 不叠加查询；当前任务结束后由 _on_usage_ready 补发最新一次
-
-    def __init__(
-        self, db_path: Path | None, signals: _LoadSignals, seq: int = 0
-    ) -> None:
-        # 初始化任务：记录数据库路径（探测失败可能为 None）、信号对象与刷新序号（B0.5 去重）
-        super().__init__()
-        self.db_path = db_path
-        self.signals = signals
-        self.seq = seq
-
-    def run(self) -> None:
-        # 后台执行：totals + 全部分组查询，失败发 error 信号
-        # F0.2：连点去重——已有任务在途时仅标记待补发（序号已递增，最终取最新）
-        global _usage_task_in_flight, _usage_pending
-        if _usage_task_in_flight:
-            _usage_pending = True
-            return
-        _usage_task_in_flight = True
-        try:
-            if self.db_path is None:
-                # 探测失败场景走既有 error 信号宽容路径（原 OpenCodeDB(None)
-                # 抛 TypeError 消息晦涩；Pyright 收窄需要显式判 None）
-                raise ValueError(STATUS_MESSAGES["no_db_found"])
-            db = OpenCodeDB(self.db_path)
-            try:
-                summary = db.totals()
-                # C1：rows 不含 total 伪维度（从未消费；总量明细弹窗直接读 summary）
-                # R1：按 DIMENSIONS 推导构建（day 特例 TABLE_LIMIT_DAY），新增维度只改 DIMENSIONS
-                rows = {
-                    dim: getattr(db, f"by_{dim}")(
-                        limit=TABLE_LIMIT_DAY if dim == "day" else TABLE_LIMIT_GROUP,
-                    )
-                    for dim in DIMENSIONS
-                }
-            finally:
-                db.close()
-            self.signals.usage_ready.emit(
-                self.seq, UsageData(summary=summary, rows=rows)
-            )
-        except Exception as exc:
-            self.signals.error.emit(
-                self.seq,
-                STATUS_MESSAGES["usage_failed_template"].format(error=exc),
-            )
-        finally:
-            # H0.6：复位统一 finally 单点（与 go_quota._fetch_in_flight 同式；
-            # 防未来新增异常分支漏复位致去重永久吞刷新——emit 时 in_flight
-            # 仍 True，但 _consume_pending 只读 pending，时序兼容已验证）
-            _usage_task_in_flight = False
-
-
-class _QuotaTask(QRunnable):
-    # Go 配额后台任务：网络请求不阻塞 UI，完成后发信号
-
-    def __init__(
-        self,
-        signals: _LoadSignals,
-        quota_fetcher: Callable[..., list[GoQuotaInfo]],
-        seq: int = 0,
-    ) -> None:
-        # 初始化任务：记录信号对象、配额获取函数与刷新序号（C0.5 去重）
-        super().__init__()
-        self.signals = signals
-        self.quota_fetcher = quota_fetcher
-        self.seq = seq
-
-    def run(self) -> None:
-        # 后台执行：拉取 Go 配额（内部含节流与缓存兜底；PL001.8 返回多账户列表）
-        try:
-            self.signals.quota_ready.emit(self.seq, self.quota_fetcher())
-        except Exception as exc:
-            self.signals.quota_ready.emit(
-                self.seq,
-                [
-                    GoQuotaInfo(
-                        error=STATUS_MESSAGES["quota_failed_template"].format(error=exc)
-                    )
-                ],
-            )
-
-
-class _DataSignals(QObject):
-    # 数据页后台任务信号：快照就绪（携带序号防竞态，对齐 _LoadSignals 模式）
-
-    data_ready = pyqtSignal(int, object)
-    error = pyqtSignal(int, str)
-
-
-class _DataPageTask(QRunnable):
-    # 数据页后台任务（PL002.10）：refresh_data_page（内部节流缓存），完成后发信号
-
-    def __init__(self, signals: _DataSignals, seq: int = 0) -> None:
-        # 初始化任务：记录信号对象与序号
-        super().__init__()
-        self.signals = signals
-        self.seq = seq
-
-    def run(self) -> None:
-        # 后台执行：拉取数据页快照（节流/缓存兜底在数据层），失败发 error
-        try:
-            snapshot = refresh_data_page()
-            self.signals.data_ready.emit(self.seq, snapshot)
-        except Exception as exc:
-            self.signals.error.emit(self.seq, str(exc))
-
-
-class _ExportTask(QRunnable):
-    # 导出后台任务：独立连接查询 + exporter 落盘，完成后发信号
-
-    def __init__(
-        self, db_path: Path | None, out_dir: Path, signals: _ExportSignals
-    ) -> None:
-        # 初始化任务：记录数据库路径/输出目录/信号对象
-        super().__init__()
-        self.db_path = db_path
-        self.out_dir = out_dir
-        self.signals = signals
-
-    def run(self) -> None:
-        # 后台执行：全量导出到 out_dir，成功发 done / 失败发 failed
-        try:
-            if self.db_path is None:
-                raise ValueError(STATUS_MESSAGES["no_db_found"])
-            db = OpenCodeDB(self.db_path)
-            try:
-                export_all(db, self.out_dir)
-            finally:
-                db.close()
-            self.signals.done.emit(
-                STATUS_MESSAGES["export_done_template"].format(dir=self.out_dir)
-            )
-        except Exception as exc:
-            self.signals.failed.emit(
-                STATUS_MESSAGES["export_failed_template"].format(error=exc)
-            )
 
 
 class _RemainingPieChart(QWidget):
@@ -562,86 +394,6 @@ class _CdpGuideSignals(QObject):
     failed = pyqtSignal(str)
 
 
-def _wait_for_login_cookie(deadline: float) -> tuple[str | None, str | None]:
-    # 端到端轮询：CDP 拿 cookie + 登录后当前页面 URL 提取 workspaceID，实测 dashboard
-    # 可解析才算登录完成（防占位 cookie 误判：打开登录页时页面会种匿名 auth cookie）
-    # 返回 (cookie, 验证通过的 workspace_id)——多账户场景保存时须用验证通过的
-    while time.time() < deadline:
-        candidate, workspace_id = browser_creds.fetch_login_state_via_cdp(
-            timeout=CDP_FETCH_TIMEOUT
-        )
-        if candidate and workspace_id:
-            try:
-                usage = fetch_dashboard_usage(
-                    DashboardCredentials(workspace_id, candidate, "cdp验证")
-                )
-                if usage:
-                    logger.info("cookie 验证通过（dashboard 可解析）")
-                    return candidate, workspace_id
-            except GoQuotaError:
-                # 占位 cookie/页面未跳转：dashboard 返回登录页或解析失败，继续轮询
-                pass
-        time.sleep(CDP_POLL_INTERVAL)
-    return None, None
-
-
-class _CdpGuideTask(QRunnable):
-    # CDP 一键获取凭据后台任务：启动临时调试 Chrome → 等登录 → 存凭据 → 清理
-
-    def __init__(
-        self, signals: _CdpGuideSignals, login_wait_seconds: int | None = None
-    ) -> None:
-        # 初始化任务：记录信号对象与登录等待时长（None 时统一取静态配置）
-        super().__init__()
-        self.signals = signals
-        self.login_wait_seconds = (
-            CDP_LOGIN_WAIT_SECONDS if login_wait_seconds is None else login_wait_seconds
-        )
-
-    def run(self) -> None:
-        # 后台执行：环境预检 → 启动调试 Chrome → 轮询登录（CDP 拿 cookie + 页面 URL
-        # 提取 workspaceID）→ 写凭据 → 清理
-        proc = None
-        try:
-            if browser_creds.is_chrome_running():
-                logger.info("检测到用户 Chrome 正在运行（独立临时 profile 不冲突）")
-            # B0.1：双浏览器判定（Edge-only v20 用户不再误判为 v10）
-            if not browser_creds.has_v20_cookies():
-                self.signals.failed.emit(GUIDE_MESSAGES["v10_detect"])
-                return
-            proc = browser_creds.launch_chrome_debug()
-            if proc is None:
-                self.signals.failed.emit(GUIDE_MESSAGES["launch_failed"])
-                return
-            if not browser_creds.wait_cdp_ready(timeout=CDP_WAIT_TIMEOUT):
-                self.signals.failed.emit(GUIDE_MESSAGES["cdp_not_ready"])
-                return
-            auth_cookie, workspace_id = _wait_for_login_cookie(
-                time.time() + self.login_wait_seconds
-            )
-            if not auth_cookie or not workspace_id:
-                self.signals.failed.emit(
-                    GUIDE_MESSAGES["login_timeout_template"].format(
-                        minutes=self.login_wait_seconds // 60
-                    )
-                )
-                return
-            save_dashboard_credentials(workspace_id, auth_cookie)
-            self.signals.success.emit(
-                GUIDE_MESSAGES["creds_saved_template"].format(
-                    workspace_id=workspace_id[:16]
-                ),
-                workspace_id,
-            )
-        except Exception as exc:
-            self.signals.failed.emit(
-                GUIDE_MESSAGES["auto_fetch_failed"].format(error=exc)
-            )
-        finally:
-            if proc is not None:
-                browser_creds.shutdown_chrome_debug(proc)
-
-
 def _format_tokens(count: int) -> str:
     # token 数格式化：K/M/B/G 缩写（阈值与后缀来自 ui.json token_abbr_units，A2.1）
     for threshold, suffix in TOKEN_ABBR_UNITS:
@@ -694,37 +446,45 @@ class MainWindow(QMainWindow):
     def __init__(
         self,
         db_path: Path | None = None,
-        quota_fetcher: Callable[..., list[GoQuotaInfo]] = fetch_go_quota,
+        quota_fetcher: Callable[..., list[GoQuotaInfo]] | None = None,
     ) -> None:
-        # 初始化窗口：探测数据库、装配 UI、启动延迟加载与定时器
+        # 初始化窗口：探测数据库、装配 UI、启动延迟加载与定时器；
+        # A017/PL006：后端调用一律走 services 门面（quota_fetcher 可注入供测试）
         super().__init__()
-        self.db_path = db_path if db_path is not None else find_db_path()
-        self.quota_fetcher = quota_fetcher
+        self._service = get_service()
+        self.db_path = (
+            db_path if db_path is not None else self._service.resolve_db_path()
+        )
+        self.quota_fetcher = quota_fetcher or self._service.get_quotas
         self._usage_data: UsageData | None = None
         self._pending_auto_load = False
-        # B0.5：刷新序号（_UsageTask 乱序完成时丢弃过期结果）
+        # B0.5：刷新序号（任务乱序完成时丢弃过期结果）
         self._refresh_seq = 0
         # globalInstance 可能返回 None（PyQt6 stub Optional），兜底新建实例
         self._pool = QThreadPool.globalInstance() or QThreadPool()
-        self._signals = _LoadSignals()
-        self._signals.usage_ready.connect(self._on_usage_ready)
-        self._signals.quota_ready.connect(self._on_quota_ready)
-        self._signals.error.connect(self._on_load_error)
-        self._export_signals = _ExportSignals()
-        # M11 结构性整改：_status_bar 作为窗口基础设施提前创建（setStatusBar），
-        # 导出信号直连 showMessage——所有信号连接统一在前部，消除对 _build_ui
-        # 的初始化顺序依赖（不再需要转发方法或后置连接）
+        # A017/PL006：每职责一个 TaskRunner 实例，信号直连对应 handler 零分发
+        # （M11 结构保留：状态栏先建，导出/失败消息直连 showMessage）
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
-        self._export_signals.done.connect(self._status_bar.showMessage)
-        self._export_signals.failed.connect(self._status_bar.showMessage)
-        self._guide_signals = _CdpGuideSignals()
-        self._guide_signals.success.connect(self._on_guide_success)
-        self._guide_signals.failed.connect(self._on_guide_failed)
-        # PL002.10：数据页后台任务信号（懒加载触发；序号防竞态）
-        self._data_signals = _DataSignals()
-        self._data_signals.data_ready.connect(self._on_data_ready)
-        self._data_signals.error.connect(self._on_data_error)
+        self._usage_runner = TaskRunner(self._pool, self)
+        self._usage_runner.finished.connect(self._on_usage_ready)
+        self._usage_runner.failed.connect(self._on_load_error)
+        self._quota_runner = TaskRunner(self._pool, self)
+        self._quota_runner.finished.connect(self._on_quota_ready)
+        self._quota_runner.failed.connect(self._on_quota_failed)
+        self._data_runner = TaskRunner(self._pool, self)
+        self._data_runner.finished.connect(self._on_data_ready)
+        self._data_runner.failed.connect(self._on_data_error)
+        self._export_runner = TaskRunner(self._pool, self)
+        self._export_runner.finished.connect(self._on_export_done)
+        self._export_runner.failed.connect(
+            lambda _seq, msg: self._status_bar.showMessage(
+                STATUS_MESSAGES["export_failed_template"].format(error=msg)
+            )
+        )
+        self._guide_runner = TaskRunner(self._pool, self)
+        self._guide_runner.finished.connect(self._on_guide_done)
+        self._guide_runner.failed.connect(self._on_guide_failed)
         self._data_page_seq = 0
         # A0.6/A0.7：CDP 引导进行中标志（抑制引导卡重现 + 禁用手动填写防并发写）
         self._guide_active = False
@@ -979,17 +739,24 @@ class MainWindow(QMainWindow):
         if self.db_path is not None:
             if _usage_task_in_flight:
                 _usage_pending = True
-                self._pool.start(
-                    _QuotaTask(self._signals, self.quota_fetcher, self._refresh_seq)
-                )
+                self._quota_runner.run(self.quota_fetcher, seq=self._refresh_seq)
                 return
-            task = _UsageTask(self.db_path, self._signals, self._refresh_seq)
-            self._pool.start(task)
+            _usage_task_in_flight = True
+            self._usage_runner.run(self._usage_job, seq=self._refresh_seq)
         else:
             self._status_bar.showMessage(STATUS_MESSAGES["no_db_found"])
-        self._pool.start(
-            _QuotaTask(self._signals, self.quota_fetcher, self._refresh_seq)
-        )
+        self._quota_runner.run(self.quota_fetcher, seq=self._refresh_seq)
+
+    def _usage_job(self) -> UsageData:
+        # usage 任务体（A017/PL006：Service 调用 + in-flight 复位单点——H0.6 时序
+        # 结论保持：emit 后 finally 复位，_consume_pending 只读 pending 无竞态）
+        global _usage_task_in_flight
+        try:
+            return self._service.get_usage(self.db_path)
+        except ServiceError as exc:
+            raise RuntimeError(str(exc)) from exc
+        finally:
+            _usage_task_in_flight = False
 
     def _on_theme_changed(self, index: int) -> None:
         # 主题下拉切换（PL003.2）：更新主题名 → 应用 → 立即持久化
@@ -1072,7 +839,8 @@ class MainWindow(QMainWindow):
         global _usage_pending
         if _usage_pending:
             _usage_pending = False
-            self._pool.start(_UsageTask(self.db_path, self._signals, self._refresh_seq))
+            _usage_task_in_flight = True
+            self._usage_runner.run(self._usage_job, seq=self._refresh_seq)
 
     def _show_total_detail(self) -> None:
         # 点击总览弹出总量明细：会话/消息/天数/tokens 分解/缓存率/费用（P15）
@@ -1123,6 +891,18 @@ class MainWindow(QMainWindow):
             for info in infos
         )
 
+    def _on_quota_failed(self, seq: int, message: str) -> None:
+        # 配额任务异常兜底（A017/PL006.3：构造占位错误项走既有渲染路径——
+        # 保持"配额失败不弹窗只降级"策略）
+        self._on_quota_ready(
+            seq,
+            [
+                GoQuotaInfo(
+                    error=STATUS_MESSAGES["quota_failed_template"].format(error=message)
+                )
+            ],
+        )
+
     def _on_load_error(self, seq: int, message: str) -> None:
         # 加载失败：仅状态栏提示（保留旧 view，z.plan 第四章保留旧数据策略；
         # C0.5：旧任务失败消息不覆盖新任务状态）；
@@ -1137,7 +917,7 @@ class MainWindow(QMainWindow):
         # 数据与动态页首次切换触发懒加载（PL002.10：has_loaded 幂等防重复拉取）
         if index == 1 and not self._data_page.has_loaded:
             self._data_page_seq += 1
-            self._pool.start(_DataPageTask(self._data_signals, self._data_page_seq))
+            self._data_runner.run(self._service.get_data_page, seq=self._data_page_seq)
 
     def _on_data_ready(self, seq: int, snapshot: ModelDataSnapshot) -> None:
         # 数据页快照就绪：灌入三渲染入口 + has_loaded 置位（懒加载幂等）；
@@ -1183,7 +963,9 @@ class MainWindow(QMainWindow):
         # B0.8：引导期暂停定时刷新（最长 3 分钟，避免无意义唤醒与节流纠缠）
         self._refresh_timer.stop()
         self._status_bar.showMessage(STATUS_MESSAGES["guide_starting"])
-        self._pool.start(_CdpGuideTask(self._guide_signals))
+        self._guide_runner.run(
+            lambda: self._service.add_account_via_cdp(), seq=self._refresh_seq
+        )
 
     def _manual_guide(self) -> None:
         # 手动填写入口：弹对话框输入 workspaceId + authCookie，程序加密写入
@@ -1202,7 +984,7 @@ class MainWindow(QMainWindow):
         if not ok2 or not auth_cookie.strip():
             return
         try:
-            save_dashboard_credentials(workspace_id.strip(), auth_cookie.strip())
+            self._service.save_account(workspace_id.strip(), auth_cookie.strip())
             # PL005.2：记录 pending，刷新回来后选择器自动选中新添加的账户
             self._pending_quota_account = workspace_id.strip()
             self._status_bar.showMessage(STATUS_MESSAGES["creds_saved"])
@@ -1212,9 +994,14 @@ class MainWindow(QMainWindow):
                 STATUS_MESSAGES["creds_save_failed"].format(error=exc)
             )
 
-    def _on_guide_success(self, message: str, workspace_id: str = "") -> None:
-        # 引导成功：提示并立即刷新配额（凭据已落盘，凭据链可读到）；
+    def _on_guide_done(self, seq: int, result: object) -> None:
+        # 引导成功（A017/PL006.3：TaskRunner finished 载荷为 (auth_cookie, workspace_id)
+        # 元组——凭据已在 Service 内落盘）：提示并立即刷新配额；
         # PL005.2：记录 pending workspace_id，刷新回来后选择器自动选中新账户
+        auth_cookie, workspace_id = result
+        message = GUIDE_MESSAGES["creds_saved_template"].format(
+            workspace_id=workspace_id[:16]
+        )
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
@@ -1249,8 +1036,16 @@ class MainWindow(QMainWindow):
         if not out_dir:
             return
         self._status_bar.showMessage(STATUS_MESSAGES["exporting"])
-        task = _ExportTask(self.db_path, Path(out_dir), self._export_signals)
-        self._pool.start(task)
+        self._export_runner.run(
+            lambda: self._service.export_data(self.db_path, Path(out_dir)),
+            seq=self._refresh_seq,
+        )
+
+    def _on_export_done(self, seq: int, out_dir: Path) -> None:
+        # 导出完成：状态栏提示（A017/PL006.3 导出任务完成语义）
+        self._status_bar.showMessage(
+            STATUS_MESSAGES["export_done_template"].format(dir=out_dir)
+        )
 
     def _render_cards(self, summary: UsageSummary) -> None:
         # 渲染用量总览卡片值（P17 新顺序）
@@ -1473,8 +1268,6 @@ class MainWindow(QMainWindow):
 # 模块级常量：
 #   AUTO_LOAD_DELAY_MS：启动延迟加载毫秒数（base.json 驱动）
 #   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：表格行数上限（base.json）
-#   CDP_FETCH_TIMEOUT / CDP_WAIT_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：
-#     CDP 引导参数（base.json）
 #   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG_DEFAULT / PIE_COLOR_TEXT_DEFAULT：
 #     剩余量饼图参数与默认主题色（ui.json + 默认 palette 派生，A0.16/K3.6 改名同步）
 #   PIE_START_ANGLE / FULL_CIRCLE_16：饼图绘制角度常量（Qt 角度单位，代码内，C11）
@@ -1491,7 +1284,8 @@ class MainWindow(QMainWindow):
 #   COST_ZERO_EPSILON / TOTAL_TOKENS_UNIT / TOTAL_TOKENS_UNIT_THRESHOLD /
 #     STATUS_TIME_FORMAT / TOKEN_ABBR_UNITS：容差/单位/时间格式外置（6A.3 H5/H6 + A2.1）
 #   _usage_task_in_flight / _usage_pending：usage 任务在途/待补发标志（F0.2 补列，
-#     连点去重——跨线程读写 GIL 原子，与 go_quota._fetch_in_flight 同式）
+#     连点去重——跨线程读写 GIL 原子，与 go_quota._fetch_in_flight 同式；
+#     A017/PL006 起复位经 _usage_job finally 单点）
 # 契约校验块：_UI_STRUCT_KEYS 逐组校验 ui.json 键集（card_titles/quota_window_labels/
 #   dimension_labels/detail_line_templates/status_messages 显式 18 键/guide_messages/
 #   tooltips/button_labels/menu_labels/go_quota_error_messages（F0.1 补列）等，
@@ -1499,19 +1293,10 @@ class MainWindow(QMainWindow):
 #   notify_message_template（H0.8，I3.5 补列；P24 定案后仅主模板键）+
 #   table_headers 长度严格相等（C0.7）——删键/改键导入期抛错，防运行时 KeyError/IndexError
 # 类型：
-#   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留）
-#   _LoadSignals：跨线程信号载体（usage_ready/quota_ready/error）
-#   _ExportSignals：导出任务信号载体（done/failed）
-#   _DataSignals：数据页任务信号载体（data_ready/data_error，PL002.10）
-#   _DataPageTask：数据页拉取后台任务（懒加载首次切换触发，PL002.10）
-#   _CdpGuideSignals：CDP 凭据引导任务信号载体（success[含 workspace_id]/failed）
-#   _UsageTask：用量统计后台任务（独立打开只读连接，规避 sqlite 跨线程限制）
-#   _QuotaTask：配额拉取后台任务（网络不阻塞 UI，支持注入 fetcher）
-#   _ExportTask：导出后台任务（独立连接 + exporter.export_all 落盘）
-#   _CdpGuideTask：CDP 一键获取凭据任务（启动临时调试 Chrome → 轮询登录[CDP 拿
-#     cookie + 页面 URL 提取 workspaceID，E4 改案] → 写凭据文件 → 关闭清理；
-#     不影响用户浏览器；login_wait_seconds 默认 None 从 base.json 读）
-#   _RemainingPieChart：剩余量饼图控件（QPainter 双色圆弧 + 中心"剩余 Y%"，P16）
+#   UsageData：后台任务返回的完整用量数据（summary + 各维度行，内存驻留；
+#     A017/PL006.1 定义迁至 services.service，此处 import 供注解）
+#   _RemainingPieChart：剩余量饼图控件（QPainter 分级色圆弧[随用量三档变色] +
+#     中心"剩余 Y%"，P16/A017-L0.1）
 # 函数：
 #   _format_tokens()：K/M/B/G 缩写格式化
 #   _format_cost()：费用格式化（近零容差内显示 -，≥1 两位小数，<1 四位小数）
@@ -1519,8 +1304,6 @@ class MainWindow(QMainWindow):
 #   _format_cache_rate()：缓存率格式化（一位小数百分比）
 #   _format_cache_rate_of()：缓存率计算+格式化复合（卡片/明细弹窗/表格 3 处共用，6A.4 O3）
 #   _format_total_tokens()：总览总 token 格式化（千分位 + 亿单位，P15）
-#   _wait_for_login_cookie()：端到端轮询登录（实测 dashboard 可解析才算完成，
-#     返回验证通过的 workspace_id，多账户场景防保存错误）
 #   MainWindow：
 #     __init__：注入 db_path/quota_fetcher（可测试）；恢复配置（主题/窗口几何/
 #       刷新间隔/隐藏列，config.settings.load_config）；装配 UI；启动延迟加载
@@ -1548,7 +1331,7 @@ class MainWindow(QMainWindow):
 #     _show_columns_menu/_on_column_toggle：列显示开关（QMenu 勾选，
 #       setColumnHidden + hidden_columns 持久化，P13；E0.3：持久化失败仅
 #       warning 降级，与 D0.10 同式）
-#     _export_data：QFileDialog 选目录 → 后台 _ExportTask（状态栏提示导出中）
+#     _export_data：QFileDialog 选目录 → 后台导出（TaskRunner，状态栏提示导出中）
 #     _render_cards/_render_quota/_render_quota_card/_render_table：卡片（P17 新顺序 +
 #       缓存率）/配额单卡渲染（PL004.3：选择器按 infos 重建 + 按索引取渲染目标
 #       [A0.16/K1.5] + pending 自动选中新账户 PL005.2）/表格渲染
@@ -1557,18 +1340,19 @@ class MainWindow(QMainWindow):
 #       按钮[PL005.1 QMenu 两路径] + 单张配额卡）
 #     _rebuild_quota_account_combo/_on_quota_account_changed：账户选择器重建
 #       （会话选中保持防快照打回 A0.16/K0.3）与切换即存即渲染
-#     _start_cdp_guide/_manual_guide/_on_guide_success/_on_guide_failed：凭据引导
+#     _start_cdp_guide/_manual_guide/_on_guide_done/_on_guide_failed：凭据引导
 #       双路径（A0.16/K0.2 引导互斥早退防并发；成功 pending 记录+自动刷新；
 #       失败按 _should_show_guide 条件显示引导卡）
 #     _should_show_guide：引导卡显示条件单点维护（_on_quota_ready 与 failed 回调共用）
 #     save_state：窗口几何（QByteArray hex）/主题/刷新间隔/隐藏列 → config 持久化
 #     closeEvent：保存状态并隐藏到托盘（常驻模式，真退出走托盘菜单）
-# 设计理由：数据加载全后台（QThreadPool）+ 信号回传（线程安全）；worker 自建
-#   只读连接避免 sqlite check_same_thread 问题；维度切换零查询；
-#   配置"退出即存、启动即恢复"（对齐 AccelWorld B2 修复经验）；
-#   CDP 引导独立临时 profile，不打扰用户正在使用的浏览器（S6.1 实测结论）
-# 异常处理：任务内异常转 error/done/failed 信号；配额错误包装为 GoQuotaInfo
+# 设计理由：数据加载全后台（services 门面 + ui.task_runner 统一线程池封装）+
+#   信号回传（线程安全）；worker 自建只读连接避免 sqlite check_same_thread 问题；
+#   维度切换零查询；配置"退出即存、启动即恢复"（对齐 AccelWorld B2 修复经验）；
+#   CDP 引导独立临时 profile，不打扰用户正在使用的浏览器（S6.1 实测结论）；
+#   A017/PL006 起后端编排全部收敛 services.AppService（UI 与 modules 解耦，
+#   前端可整体替换）
+# 异常处理：任务内异常转 finished/failed 信号；配额错误包装为 GoQuotaInfo
 #   携带提示；引导失败仅状态栏提示不弹窗
 # 关联配置：VERSION（utils.logger 单点导出，G3.4 同步）；config.settings（geometry/theme/refresh_interval_ms/
-#   hidden_columns）；go_quota（fetch_go_quota/save_dashboard_credentials 均可注入替换，
-#   测试用）
+#   hidden_columns）；services（get_service 后端门面单点，quota_fetcher 可注入替换，测试用）

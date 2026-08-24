@@ -138,6 +138,8 @@ mrboard/
 │   ├── pricing.py             # 定价：三级来源合并 + 多币种分桶
 │   ├── exporter.py            # 导出：CSV(UTF-8 BOM) + JSON
 │   └── browser_creds.py       # 浏览器凭据：v10 DPAPI + v20 CDP 引导
+├── services/                   # 应用服务门面（A017/PL006）：UI 唯一后端入口，纯 Python 零 Qt
+│   └── service.py             # AppService：聚合用量/配额/导出/凭据编排，前端可整体替换
 ├── config/
 │   ├── settings.py            # 用户配置读写（AppConfig，config/user_config.json）
 │   └── static/                # 静态配置（只读，json 驱动）
@@ -146,6 +148,7 @@ mrboard/
 │       └── ui.json            # UI 参数（颜色/阈值/表头）
 ├── ui/                        # GUI 层
 │   ├── main_window.py         # 主窗口（卡片/配额/表格/引导 + 后台加载）
+│   ├── task_runner.py         # 统一后台任务运行器（QThreadPool 封装，A017/PL006）
 │   ├── system_tray.py         # 系统托盘（状态色图标/菜单/预警）
 │   └── themes.py              # 浅色/深色主题 QSS（模板 + 调色板）
 ├── data/                      # 静态数据（预留）+ 运行数据（凭据/日志/价格缓存，已 gitignore）
