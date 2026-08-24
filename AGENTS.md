@@ -136,6 +136,10 @@
 - **任务前强制 skill 搜索**：每轮新任务开始，先检查系统提示中 available_skills 列表，按触发词匹配（"推进任务/研究 progress.md 章节" → progress-task；"审计项目/全量审计/再次审计" → audit-project；"归档审计报告/写入 plan" → audit-report；"创建/编辑 opencode 自身配置" → customize-opencode），匹配即调用 skill 工具加载并严格按其指令执行（流程/TDD/验证/硬性约束逐条遵守，与记忆冲突时以 skill 为准）；无匹配才自行处理并说明。禁止仅凭上下文记忆执行 skill 流程（指令可能被上下文冲淡）
 - **文件修改必须用 edit 工具**：修改任何既有文件（.py 代码、.md 文档、json 配置等）一律使用 edit 的精确 oldString/newString 替换，禁止用 Python 脚本（python -c / .temp/impl_*.py）或 PowerShell 命令执行内容替换（易踩引号/缩进/控制字符坑）；新建 .temp 探针/verify 脚本不受限（write 创建），但后续修改仍走 edit
 - **修复验证独立化**（A010 教训：C0.1 字段名漏网因 probe 用与实现同源的手写 mock）：探针/verify 的结构性样例必须来自真实数据快照或独立证据（如现网 api.json 片段、官方 schema 字段名），禁止手写与实现一致的 mock 自证；手写 mock 仅用于"行为"（如 mock http_get 抛错）不用于"结构"
+- **异步任务测试模板**（A017/PL006 教训：mock 上下文先于 worker 结束撤销，导致真实浏览器调用挂起 120s+）：涉及 QThreadPool/后台线程的场景，`with mock.patch(...)` 必须包住"提交 + 轮询等待 + 断言"全程——等待循环内持续 `app.processEvents()` 派发队列信号；禁止在 with 外做任何依赖 patch 生效的断言
+- **挂起/崩溃立即抓线程栈**：测试进程挂起或 0xC0000409 秒杀时，第一动作是 faulthandler 线程栈转储**写文件**（stderr 会被 fail-fast 截断），按栈定位卡点；禁止在未定位前做逐个猜测性修补（PL006 实测：盲猜三轮 vs 栈转储一次定位）
+- **QThreadPool + QRunnable 必须持引用**：QRunnable 子类提交池后若 Python wrapper 无引用，worker 运行期被 GC 触发 0xC0000409 崩溃——用 `_live_tasks` 集合 + 完成后转 `deque(maxlen=N)` 保引用；或 setAutoDelete(False) 由 Python 全权管理生命周期
+- **版本号格式变更需全链路同步**：base.json / README 徽章 / x.progress 版本行三处一致外，还需排查历史 verify 脚本中 startswith("ver ") 式格式快照断言（V0.2.4.3 四段式切换实测漏 s1/s9/s12 三处）
 - 执行命令前先检测当前 shell（Windows 下为 pwsh）：使用 PowerShell 兼容命令（`Select-String` 替代 `grep`，`Get-ChildItem` 替代 `ls` 等），避免 Linux-only 工具
 - pwsh 会话带 `-NoProfile` 不加载 `$PROFILE`，输出中文前必须先设置编码：`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;`
 - 未经用户明确要求，不得擅自执行 `git add`、`git commit` 或任何其他 Git 写操作

@@ -15,7 +15,7 @@ from config.static.static_config import get_static_config
 from modules.go_quota import GoQuotaInfo
 from ui.main_window import MainWindow
 from ui.system_tray import SystemTray
-from ui.themes import QUOTA_DANGER_PERCENT
+from ui.theme_loader import QUOTA_DANGER_PERCENT
 from utils.logger import APP_NAME, get_logger
 
 logger = get_logger(__name__)

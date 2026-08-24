@@ -903,61 +903,66 @@ main.py --frontend 分发）为远期目标，**启用第二前端那天才执�
 > themes.py 的 Python 字符串常量（样式结构写死在代码里）；②四主题共用一份模板且调色板
 > 数据在 ui.json 而非主题自身——新主题无法表达结构性差异，且主题资产分散三处
 > （themes.py 模板/ui.json palettes/ui.json theme_labels）。
-> 状态：📌 方案已确认，待实施
+> 状态：📌 方案已确认（A017 讨论修正：加载器与资源分离），待实施
 
 ### 目标结构
 
 ```
-ui/themes/                    ← 包替代现 ui/themes.py（消费方 import 路径不变）
-├── __init__.py               ← 加载器：扫描文件夹 + 契约校验 + 构建 _THEME_QSS + 导出 API
-│                                （get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/
-│                                  QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK）
-├── _templates/
-│   └── base.qss              ← 共享结构模板（{var} 变量语法，内容来自现 _QSS_TEMPLATE）
-├── light/
-│   └── theme.json            ← display_name/font_family/palette{全部色键含动态色六键}
-├── dark/theme.json
-├── console/theme.json
-└── panel/theme.json
+ui/
+├── theme_loader.py          ← 唯一的 Python 代码：加载器 + 契约校验 + 导出 API
+│                               （get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/
+│                                 QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK）
+└── themes/                  ← 纯声明式资源文件夹（零 .py 文件，不是 Python 包）
+    ├── _templates/
+    │   └── base.qss         ← 共享结构模板（{var} 变量语法）
+    ├── light/
+    │   └── theme.json       ← display_name/font_family/palette{全部色键含动态色六键}
+    ├── dark/theme.json
+    ├── console/theme.json
+    └── panel/theme.json
 ```
 
-**解耦达成标准**：新建主题 = 新建文件夹 + 一个 theme.json，不改任何一行 .py 重启即在
+**关键设计决策**：`themes.py` 与 `themes/` 不能同名共存（Python 硬约束）——
+加载器改名 `theme_loader.py`，`themes/` 成为零 .py 的纯资源文件夹。
+消费方 import 改为 `from ui.theme_loader import ...`（一次性替换）。
+
+**解耦达成标准**：新增主题 = 新建文件夹 + 一个 theme.json，不改任何一行 .py 重启即在
 下拉框出现；调整样式结构 = 编辑 base.qss 一处四主题同步生效。
 
 ### 任务分解
 
 #### PL007.1 资源文件落地
 
-- ui/themes.py → ui/themes/**init**.py（加载器）；\_QSS_TEMPLATE 内容平移至
-  \_templates/base.qss；ui.json 的 palettes 四组与 theme_labels 拆分进各主题 theme.json
-  （display_name 字段承接 theme_labels；font_family 并入 palette 或顶层字段）
+- 新建 ui/themes/ 资源文件夹：\_templates/base.qss（\_QSS_TEMPLATE 内容平移）；
+  四主题 theme.json（display_name 承接 ui.json theme_labels；font_family 并入 palette；
+  palette 含全部色键含动态色六键）
+- 删除 ui/themes.py（被 theme_loader.py 替代）
 - ui.json 清理：palettes/theme_labels 键移除；**保留 "themes": [...] 数组**作为注册顺序
   权威（settings.THEMES/base.json default_theme 校验链零改动）
 - theme.json schema：{display_name, font_family, palette:{30+ 色键含动态色六键}}
 
-#### PL007.2 加载器改造（契约校验全套保留）
+#### PL007.2 加载器改造
 
-- **init**.py 职责：读 ui.json themes 注册表 → 逐主题加载 theme.json（json 解析错误/
-  缺文件 RuntimeError）→ 契约校验链全部适配文件源并保留：容器类型 H3.1/I0.1、值类型
-  E3.9、占位符残留 A3.5、themes↔文件夹一致 C0.6、长度 A3.5、动态色必含 PL003.1.d
-- 导出 API 与现 themes.py 完全同名同签名（get_theme/quota_chunk_color/THEME_NAMES/
-  DEFAULT_THEME_NAME/QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK）——
-  消费方（main_window/settings/system_tray）import 零改动
-- settings.py THEMES 白名单引用 \_SC.ui["themes"] 不变 ✅
+- 新建 ui/theme_loader.py：读 ui.json themes 注册表 → 逐主题加载 theme.json
+  （json 解析错误/缺文件 RuntimeError）→ 契约校验链全部保留适配文件源：
+  容器类型 H3.1/I0.1、值类型 E3.9、占位符残留 A3.5、themes↔注册表一致 C0.6、
+  长度下限 A3.5、动态色必含 PL003.1.d
+- 导出 API 同名同签名（get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/
+  QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK）
+- 消费方 import 行替换：from ui.themes → from ui.theme_loader（main_window/system_tray/settings）
+- settings.py THEMES 白名单引用 _SC.ui["themes"] 不变 ✅
 
 #### PL007.3 验证与收尾
 
-- 探针：四主题加载等价断言（新 QSS 与迁移前逐字节对比）；契约触发断言（删 theme.json
-  动态色键/改坏占位符/注册表含幽灵主题各抛 RuntimeError）；新主题文件夹热添加模拟
-  （复制 light 改名断言出现在 THEME_NAMES）
+- 探针：四主题 QSS 逐字节等价断言（对照迁移前黄金基线）；契约触发断言（删 theme.json
+  动态色键/改坏占位符各抛 RuntimeError）
 - 全量回归 0 异常 + offscreen 冒烟四主题切换
 - README 主题章节补"自定义主题 = 新建文件夹"指引
 
 ### 技术要点与硬限制
 
-- 消费方 import 路径不变是硬指标（from ui.themes import ... 零改动）
+- **themes.py 与 themes/ 不能同名共存**（Python 硬约束）——加载器必须用不同文件名
 - ui.json themes 数组是注册顺序唯一权威；文件夹多出未注册的主题目录视为无效不加载
-  （或按需警告日志）
 - 契约校验只增不减：A3.5/C0.6/E3.9/H3.1/I0.1/PL003.1.d 全部保留，文件源适配
 - base.qss 中 QSS 自身花括号不受 {var} 替换影响的原机制照搬
 
@@ -972,5 +977,6 @@ ui/themes/                    ← 包替代现 ui/themes.py（消费方 import �
 ### 已拍板决策（2026-08-24 记录在案）
 
 1. 版本号？ - 定版 **V0.2.5.2**（2026-08-24 用户指定；与 PL006 的 V0.2.5.1 同属 V0.2.5.x 功能批次，第四位为批次内序号）
+2. 目录命名？ - 加载器 `theme_loader.py` + 纯资源文件夹 `themes/`（A017 讨论：themes.py 与 themes/ 不能同名共存，Python 硬约束；消费方 import 一次性替换为 from ui.theme_loader）
 
 ---

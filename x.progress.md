@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.4.3（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.5.2（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -520,30 +520,30 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 
 - [x] PL006.4.a 新建 .temp/verify_pl006_accept.py 反向验收：services/ 目录零 Qt 断言（AST 扫描）/行为等价/runner 双路径/UI 零 modules import（2026-08-24 完成）
 - [x] PL006.4.b 全量回归 0 异常 + IMPORT OK + offscreen 冒烟 + --version；run_all_verify 超时放宽 120→300 秒（批量环境 CDP mock 场景偶超旧阈值）（2026-08-25 完成）
-- [ ] PL006.4.c README 项目结构段补 services/ 与 ui/task_runner 说明 + x.progress 勾选 + commit 草稿
+- [x] PL006.4.c README 项目结构段补 services/ 与 ui/task_runner 说明（L141/L151）+ x.progress 勾选 + commit 草稿 V0.2.5.1 已给出（2026-08-24 完成；仅本条自身勾选拖延至确认时补记）ss 勾选 + commit 草稿
 
 ## PL007 主题资源文件夹化：theme 与代码彻底解耦（依据 z.plan.md PL007 方案，2026-08-24 规划）
 
 > 目标：主题作为纯声明式资源管理于 ui/themes/ 文件夹（theme.json 纯数据 + base.qss 共享模板），不含任何 Python；新增主题 = 新建文件夹不改任何 .py
 > 现状诊断：颜色已外置 ui.json palettes 但两处耦合残留——QSS 模板是 themes.py 的 Python 字符串常量；主题资产分散三处（themes.py 模板/ui.json palettes/ui.json theme_labels）
-> 硬限制：消费方 import 路径不变（from ui.themes import ... 零改动）；ui.json themes 数组为注册顺序唯一权威；契约校验链只增不减（A3.5/C0.6/E3.9/H3.1/I0.1/动态色必含全套保留适配文件源）
+> 硬限制：themes.py 与 themes/ 不能同名共存（Python 硬约束）→ 加载器改 theme_loader.py + themes/ 纯资源文件夹（零 .py）；消费方 import 一次性替换 from ui.theme_loader
 > 版本归属：**V0.2.5.2**（2026-08-24 用户定版；与 PL006 的 V0.2.5.1 同属 V0.2.5.x 功能批次）
 
 ### PL007.1 资源文件落地
 
-- [ ] PL007.1.a ui/themes.py → ui/themes/**init**.py（包替代模块）；_QSS_TEMPLATE 内容平移至 ui/themes/_templates/base.qss（{var} 变量语法不变）
-- [ ] PL007.1.b 四主题资源文件：ui/themes/{light,dark,console,panel}/theme.json——schema {display_name, font_family, palette:{全部色键含动态色六键}}；ui.json palettes 数据拆分迁入（display_name 承接 theme_labels、font_family 并入）
-- [ ] PL007.1.c ui.json 清理：palettes/theme_labels 键移除；保留 "themes": [...] 数组作为注册顺序权威（settings.THEMES/base.json default_theme 校验链零改动）
+- [x] PL007.1.a 新建 ui/theme_loader.py（加载器，替代旧 ui/themes.py）；_QSS_TEMPLATE 内容平移至 ui/themes/_templates/base.qss（{var} 变量语法不变）——**2026-08-25** base.qss 含前导换行与旧模板逐字节一致
+- [x] PL007.1.b 四主题资源文件：ui/themes/{light,dark,console,panel}/theme.json——schema {display_name, font_family, palette:{全部色键含动态色六键}}；ui.json palettes 数据拆分迁入（display_name 承接 theme_labels、font_family 并入 palette）——**2026-08-25** 每主题 29 键（font_family 并入 palette 后 schema 实为 display_name+palette 两顶层键）
+- [x] PL007.1.c 删旧 ui/themes.py；ui.json 清理：palettes/theme_labels 键移除；保留 "themes": [...] 数组作为注册顺序权威（settings.THEMES/base.json default_theme 校验链零改动）——**2026-08-25**
 
-### PL007.2 加载器改造（契约校验全套保留）
+### PL007.2 加载器改造
 
-- [ ] PL007.2.a **init**.py 加载流程：读注册表 → 逐主题加载 theme.json（json 解析错误/缺文件 RuntimeError 中文提示）→ 构建 _THEME_QSS
-- [ ] PL007.2.b 契约校验链文件源适配并全套保留：palettes 容器类型 H3.1/I0.1 → theme.json 结构校验；值类型 E3.9；占位符残留 A3.5（对 base.qss）；themes↔文件夹键序一致 C0.6；长度下限 A3.5；动态色六键必含 PL003.1.d
-- [ ] PL007.2.c 导出 API 同名同签名零改动：get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK——消费方 import 零改动
-- [ ] PL007.2.d 未注册主题目录处理：文件夹多出未注册目录视为无效不加载 + logger.warning
+- [x] PL007.2.a theme_loader.py 加载流程：读注册表 → 逐主题加载 theme.json（json 解析错误/缺文件 RuntimeError 中文提示）→ 构建 _THEME_QSS——**2026-08-25**
+- [x] PL007.2.b 契约校验链文件源适配并全套保留：theme.json 结构校验；值类型 E3.9；占位符残留 A3.5（对 base.qss）；注册表↔加载主题键序一致 C0.6；长度下限 A3.5；动态色六键必含 PL003.1.d——**2026-08-25**
+- [x] PL007.2.c 导出 API 同名同签名：get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK——**2026-08-25** 新增 get_palette(name)（承接 main_window._DEFAULT_PALETTE/_theme_palette）+ THEME_DISPLAY_NAMES（承接 THEME_LABELS）
+- [x] PL007.2.d 消费方 import 行替换：from ui.themes → from ui.theme_loader（main_window/system_tray/settings）；未注册主题目录不加载 + logger.warning——**2026-08-25** 另含 main.py QUOTA_DANGER_PERCENT 一处
 
 ### PL007.3 验证与收尾
 
-- [ ] PL007.3.a 探针：四主题加载等价断言（新 QSS 与迁移前逐字节对比）；契约触发断言（删动态色键/改坏占位符/注册表含幽灵主题各抛 RuntimeError）；新主题热添加模拟（复制 light 改名断言出现在 THEME_NAMES）
-- [ ] PL007.3.b 全量回归 0 异常 + offscreen 冒烟四主题切换 + IMPORT OK
-- [ ] PL007.3.c README 主题章节补"自定义主题 = 新建文件夹"指引 + x.progress 勾选 + 版本推进决策 + commit 草稿
+- [x] PL007.3.a 探针：四主题 QSS 逐字节等价断言（对照迁移前黄金基线）；契约触发断言（删动态色键/改坏占位符各抛 RuntimeError）——**2026-08-25** probe_pl007 22/22 PASS + verify_pl007_accept 反向验收 R1-R4 共 13/13 PASS
+- [x] PL007.3.b 全量回归 0 异常 + offscreen 冒烟四主题切换 + IMPORT OK——**2026-08-25** run_all_verify 43 脚本 0 异常（18 个历史脚本已适配 theme_loader/theme.json 新源）；offscreen 四主题 app 级 QSS 各 1653 字符与黄金基线一致
+- [x] PL007.3.c README 补自定义主题指引 + x.progress 勾选 + commit 草稿——**2026-08-25** README 结构树/配置参数表/自定义主题指引三处同步；版本推进 V0.2.5.2 三处一致

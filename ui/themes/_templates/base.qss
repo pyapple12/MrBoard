@@ -1,0 +1,71 @@
+
+QMainWindow, QWidget {
+    background-color: {bg};
+    color: {fg};
+}
+QFrame#card {
+    background-color: {card_bg};
+    border: 1px solid {card_border};
+    border-radius: 8px;
+}
+QLabel#card_value {
+    font-size: 20px;
+    font-weight: bold;
+    color: {card_value_color};
+}
+QLabel#card_title {
+    font-size: 12px;
+    color: {card_title_color};
+}
+QLabel#section_title {
+    font-size: 14px;
+    font-weight: bold;
+    color: {section_title_color};
+}
+QLabel#status_ok { color: {status_ok}; }
+QLabel#status_warn { color: {status_warn}; }
+QProgressBar {
+    border: 1px solid {progress_border};
+    border-radius: 6px;
+    background-color: {progress_bg};
+    text-align: center;
+    height: 18px;
+    color: {fg};
+}
+QProgressBar::chunk { border-radius: 6px; background-color: {chunk_ok}; }
+QTableWidget {
+    background-color: {table_bg};
+    border: 1px solid {card_border};
+    border-radius: 6px;
+    gridline-color: {table_grid};
+    color: {fg};
+}
+QHeaderView::section {
+    background-color: {header_bg};
+    border: none;
+    padding: 6px;
+    font-weight: bold;
+    color: {fg};
+}
+QPushButton {
+    background-color: {button_bg};
+    color: {button_fg};
+    border: none;
+    border-radius: 4px;
+    padding: 6px 14px;
+}
+QPushButton:hover { background-color: {button_hover}; }
+QComboBox {
+    background-color: {combo_bg};
+    border: 1px solid {combo_border};
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: {fg};
+}
+QComboBox::drop-down { border: none; }
+QStatusBar { background-color: {statusbar_bg}; color: {statusbar_fg}; }
+QMenu { background-color: {menu_bg}; color: {fg}; }
+QMenu::item:selected { background-color: {menu_selected}; }
+QWidget, QMainWindow, QLabel, QPushButton, QComboBox, QTableWidget, QProgressBar {
+    font-family: {font_family};
+}

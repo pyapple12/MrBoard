@@ -55,9 +55,11 @@ from services import get_service
 from services.service import ServiceError, UsageData
 from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
 from ui.task_runner import TaskRunner
-from ui.themes import (
+from ui.theme_loader import (
     DEFAULT_THEME_NAME,
+    THEME_DISPLAY_NAMES,
     THEME_NAMES,
+    get_palette,
     get_theme,
     quota_chunk_color,
 )
@@ -75,7 +77,7 @@ TABLE_LIMIT_DAY = int(_SC.base["table_limit_day"])
 # 模块级仅保留默认主题色作初始值）
 PIE_SIZE = int(_SC.ui["pie_size"])
 PIE_FONT_SIZE = float(_SC.ui["pie_font_size"])
-_DEFAULT_PALETTE = dict(_SC.ui["palettes"].get(DEFAULT_THEME_NAME, {}))
+_DEFAULT_PALETTE = get_palette(DEFAULT_THEME_NAME)
 # 默认主题饼图色（palette 必含 pie_bg/pie_text——themes 动态色契约校验兜底）
 PIE_COLOR_BG_DEFAULT = str(_DEFAULT_PALETTE["pie_bg"])
 PIE_COLOR_TEXT_DEFAULT = str(_DEFAULT_PALETTE["pie_text"])
@@ -87,15 +89,9 @@ QUOTA_ADD_ACCOUNT_BUTTON = str(_SC.ui["quota_add_account_button"])
 # PL002.11：页签名（ui.json 驱动）
 USAGE_TAB_TITLE = str(_SC.ui["usage_tab_title"])
 DATA_PAGE_ERROR_TEMPLATE = str(_SC.ui["data_page_error_template"])
-# PL003.2：主题显示名映射（ui.json theme_labels；键集校验见导入期契约）
-THEME_LABELS: dict[str, str] = {
-    str(key): str(value) for key, value in _SC.ui["theme_labels"].items()
-}
-if set(THEME_LABELS.keys()) != set(THEME_NAMES):
-    raise RuntimeError(
-        f"ui.json theme_labels 键集与 themes 数组不一致："
-        f"{list(THEME_LABELS.keys())} vs {list(THEME_NAMES)}"
-    )
+# PL003.2/PL007：主题显示名映射（theme.json display_name，键集契约由
+# theme_loader 导入期 C0.6 校验保证与注册表一致）
+THEME_LABELS = THEME_DISPLAY_NAMES
 # C11：饼图绘制角度常量（Qt 角度单位 1/16 度；90°=12 点方向起点）
 PIE_START_ANGLE = 90 * 16
 FULL_CIRCLE_16 = 360 * 16
@@ -797,14 +793,9 @@ class MainWindow(QMainWindow):
         )
 
     def _theme_palette(self) -> dict[str, str]:
-        # 当前主题调色板（quota 动态色/饼图色取色源；未知主题回退默认）
-        palettes = _SC.ui["palettes"]
-        return dict(
-            palettes.get(
-                self._theme_name,
-                palettes.get(DEFAULT_THEME_NAME, {}),
-            )
-        )
+        # 当前主题调色板（quota 动态色/饼图色取色源；未知主题回退默认——
+        # PL007 起由 theme_loader.get_palette 提供，资源源自各主题 theme.json）
+        return get_palette(self._theme_name)
 
     def _on_usage_ready(self, seq: int, data: UsageData) -> None:
         # 用量加载完成：渲染卡片、总览按钮与表格（成功后视图才替换，失败保留旧 view；

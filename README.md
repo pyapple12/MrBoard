@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-V0.2.4.3-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-V0.2.5.2-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -150,7 +150,10 @@ mrboard/
 │   ├── main_window.py         # 主窗口（卡片/配额/表格/引导 + 后台加载）
 │   ├── task_runner.py         # 统一后台任务运行器（QThreadPool 封装，A017/PL006）
 │   ├── system_tray.py         # 系统托盘（状态色图标/菜单/预警）
-│   └── themes.py              # 浅色/深色主题 QSS（模板 + 调色板）
+│   ├── theme_loader.py        # 主题加载器：读 ui/themes/ 资源 + 契约校验（PL007）
+│   └── themes/                # 主题纯资源文件夹（零 .py；新增主题=新建子文件夹+theme.json）
+│       ├── _templates/base.qss  # 共享 QSS 结构模板（{色键} 占位符）
+│       └── light|dark|console|panel/theme.json  # 各主题 display_name + palette
 ├── data/                      # 静态数据（预留）+ 运行数据（凭据/日志/价格缓存，已 gitignore）
 ├── utils/                     # 通用工具
 │   ├── logger.py              # 统一日志（控制台 + 轮转文件，项目内 data/logs/myboard.log）
@@ -185,10 +188,15 @@ mrboard/
 | `config/static/ui.json`     | `colors.quota_*`（含饼图/托盘色）、`quota_warn_percent`、`quota_danger_percent`                                                                             | 配额颜色与阈值                                      |
 |                             | `icon_size`、`notify_duration_ms`、`data_table_headers`、`pie_size`、`pie_font_size`                                                                        | 托盘图标/通知、数据页表格表头与剩余量饼图           |
 |                             | `layout_*`、`cards_spacing`、`quota_name_width`、`reset_time_format`                                                                                        | 布局与重置时间显示格式                              |
-|                             | `themes`、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`、`app_subtitle`                                   | 主题枚举与 UI 文案                                  |
+|                             | `themes`（注册顺序权威）、`dimension_labels`、`quota_window_labels`、`guide_*`、`notify_title`、`notify_message_template`、`app_subtitle`                   | 主题枚举与 UI 文案                                  |
 |                             | `unknown_label`、`cost_zero_epsilon`、`total_tokens_unit`、`total_tokens_unit_threshold`、`status_time_format`、`token_abbr_units`、`cli_reset_time_format` | 分组缺失标签、费用容差、单位/K/M/B/G 缩写与时间格式 |
 |                             | `status_messages`（含任务错误模板）、`go_quota_error_messages`、`menu_labels`、`tooltips`、`dialog_titles`、`dialog_prompts`                                | 状态栏/错误/菜单/对话框文案                         |
-|                             | `palettes.light/dark/console/panel`（四主题，每主题约 30 色）、`theme_labels`、`table_columns`                                                              | 四主题调色板/显示名映射/明细表格列元数据            |
+|                             | `table_columns`                                                                                                                                             | 明细表格列元数据                                    |
+| `ui/themes/`                | 各主题 `theme.json`（display_name + palette 约 30 色）、`_templates/base.qss` 共享模板                                                                      | 四主题调色板/显示名/QSS 结构（PL007 资源文件夹化）  |
+
+**自定义主题**：新建 `ui/themes/<名字>/theme.json`（复制现有主题改色值），并在
+`ui.json` 的 `themes` 数组登记主题名，重启即在主题下拉框出现——无需修改任何 `.py`
+文件；调整所有主题的样式结构只需编辑 `_templates/base.qss` 一处。
 
 修改 json 后重启应用生效（`get_static_config()` 缓存单例，进程内只读一次）。
 

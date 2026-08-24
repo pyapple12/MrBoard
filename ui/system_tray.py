@@ -5,7 +5,7 @@ from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from config.static.static_config import get_static_config
-from ui.themes import QUOTA_COLOR_OK, quota_chunk_color
+from ui.theme_loader import QUOTA_COLOR_OK, quota_chunk_color
 from utils.logger import build_app_title
 
 # 图标/通知参数（S8.3：外置 ui.json，静态配置解包）
