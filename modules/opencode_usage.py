@@ -30,7 +30,9 @@ DEFAULT_DB_PATH = Path(str(_SC.base["db_default_path"])).expanduser()
 ASSISTANT_ROLE = "assistant"
 _EPOCH_MS = 1000
 _DAY_MS = _EPOCH_MS * 86400  # 天毫秒数（3A.1 R12 派生，消除魔法数字）
-SUBPROCESS_TIMEOUT = float(_SC.base["subprocess_timeout"])  # 子进程探测超时（R7）
+SUBPROCESS_TIMEOUT = int(
+    _SC.base["subprocess_timeout"]
+)  # 子进程探测超时（R7；WTH001.d 与 browser_creds 统一 int）
 # C5：分组查询默认行数收敛（消除 8 处 limit=100 魔法数字，与 GUI 配置一致）
 TABLE_LIMIT_GROUP = int(_SC.base["table_limit_group"])
 TABLE_LIMIT_DAY = int(_SC.base["table_limit_day"])
@@ -609,7 +611,9 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=20, help="分组结果行数上限")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument(
-        "--estimate", action="store_true", help="对库 cost 缺失的消息做定价估算"
+        "--estimate",
+        action="store_true",
+        help="对库 cost 缺失的消息做定价估算（仅总览统计生效，分组明细不含估算）",
     )
     args = parser.parse_args()
     # H0.5：CLI --limit 钳制（负值会致 SQLite 报错、超大值全表驻留——开发自测路径）

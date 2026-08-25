@@ -50,8 +50,12 @@ from services.service import (
 )
 from modules.opencode_usage import TokenStats, UsageRow, UsageSummary
 from modules.opencode_data import ModelDataSnapshot
-from services import get_service
-from services.service import DIMENSIONS, ServiceError, UsageData
+from services.service import (
+    DIMENSIONS,
+    ServiceError,
+    UsageData,
+    get_service,  # WTH001.e：services 混用导入形式统一归并至此
+)
 from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
 from ui.task_runner import TaskRunner
 from ui.theme_loader import (
@@ -351,7 +355,7 @@ class _RemainingPieChart(QWidget):
         self.update()
 
     def _sync_arc_color(self) -> None:
-        # 弧色单点计算：<60% 绿 / 60-80% 黄 / ≥80% 红（quota_chunk_color 三档，
+        # 弧色单点计算：三档分级随 quota_chunk_color（warn/danger 阈值 ui.json 驱动，
         # 与进度条 chunk 同源同主题——高用量时饼图与进度条同步警示）
         used_int = int(round(self._used_percent))
         self._arc_color = QColor(quota_chunk_color(used_int, self._theme_name))
@@ -624,8 +628,8 @@ class MainWindow(QMainWindow):
             bars[key] = bar
             resets[key] = reset_label
         card = {
-            "frame": frame,
-            "title": title_label,
+            # WTH001.a：frame/title 死键删除——frame 已挂 layout、title_label 已入 row，
+            # dict 仅保留渲染消费键；后续如需 frame 引用走局部变量
             "bars": bars,
             "resets": resets,
             "status": status_label,
@@ -677,7 +681,9 @@ class MainWindow(QMainWindow):
         # PL003.2：主题下拉（THEME_DISPLAY_NAMES 显示名，userData = 主题名；切换即应用即存）
         self._theme_combo = QComboBox()
         for name in THEME_NAMES:
-            self._theme_combo.addItem(THEME_LABELS.get(name, name), name)
+            # WTH001.f：直接下标访问——C0.6 契约保证注册表与加载键序一致，
+            # name 必在 THEME_DISPLAY_NAMES，.get fallback 为不可达死分支
+            self._theme_combo.addItem(THEME_LABELS[name], name)
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self._apply_theme()
         # 启动恢复持久化主题（blockSignals 防 currentIndexChanged 回环触发二次应用）

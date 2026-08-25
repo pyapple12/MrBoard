@@ -5,7 +5,7 @@
 ## 运行与验证
 
 - 入口 `main.py`：GUI 为默认模式；版本号 `VERSION` 单一来源在 `config/static/base.json` 的 `version` 字段，由 `utils/logger.py` 单点导出（main.py/main_window.py/system_tray.py 共引，D1/R4 模式）
-- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.theme_loader, services.service, ui.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_*.py`（当前 43 个：s1-s14 基线 + v0808/v0809/v1010/3A/4A/5A/6A 各批次，全量回归 = 全部运行；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护）
+- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.theme_loader, services.service, ui.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_*.py`（数量随批次增长，全量回归 = 全部 verify_*.py 脚本运行；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护计数）
 - GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
 - 依赖（`requirements.txt`）：PyQt6（其余按需添加，见 z.plan.md）
 

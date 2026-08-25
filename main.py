@@ -78,8 +78,8 @@ def _danger_notify(tray: SystemTray, info: GoQuotaInfo, suffix: str) -> None:
 
 def _on_quota_updated(tray: SystemTray, infos: list[GoQuotaInfo]) -> None:
     # 配额加载完成（PL001.8 多账户列表）：取最紧的有效账户驱动托盘图标/预警；
-    # 全部无效才置灰图标；≥80% 时气泡预警（6A.3 O4 去重语义不变；O1.1 弹泡
-    # 逻辑单点化至 _danger_notify，成功/缓存兜底两路共用）
+    # 全部无效才置灰图标；overall ≥ QUOTA_DANGER_PERCENT 时气泡预警（6A.3 O4 去重
+    # 语义不变；O1.1 弹泡逻辑单点化至 _danger_notify，成功/缓存兜底两路共用）
     global _notified_danger
     valid = [item for item in infos if item.error is None or item.is_cached]
     if not valid:

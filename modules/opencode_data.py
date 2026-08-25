@@ -291,9 +291,10 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
             _data_in_flight = False
 
 
-# 热门模型时序：data-slot 标记与 aria-label 形态（SolidJS 渲染属性）
+# 热门模型时序：data-slot 标记与 aria-label 形态（SolidJS 渲染属性）；
+# WTH001.b：token 数收紧为 \d+(?:\.\d+)?——旧宽松写法会放行 "1.2.3" 形态致 float 抛错丢整图
 _DAILY_BAR_PATTERN = re.compile(
-    r'data-slot="top-models-bar"[^>]*aria-label="([A-Z]{3} \d+) ([\d.]+)T'
+    r'data-slot="top-models-bar"[^>]*aria-label="([A-Z]{3} \d+) (\d+(?:\.\d+)?)T'
 )
 _DAILY_STACK_PATTERN = re.compile(
     r'data-slot="top-models-stack" style="grid-template-rows:([^"]+)"'
@@ -324,6 +325,8 @@ def parse_daily_usage(body: str) -> list[dict[str, Any]]:
     for bar_match in _DAILY_BAR_PATTERN.finditer(body):
         date_text = bar_match.group(1)
         total_t = float(bar_match.group(2))
+        # WTH001.c：扫描窗口 6000 为字符数上限（自 bar 起点向后截取，防 markup 变更
+        # 致 stack 结束标记丢失时无限扫描；超窗静默丢行为已知取舍）
         segment = body[bar_match.end() : bar_match.end() + 6000]
         stack_match = _DAILY_STACK_PATTERN.search(segment)
         if stack_match is None:
@@ -337,6 +340,13 @@ def parse_daily_usage(body: str) -> list[dict[str, Any]]:
             segment[stack_match.end() : stack_end]
         )
         models = {}
+        # WTH001.l：双列表数量不齐时告警（zip 按短侧截断为既定语义，不再静默丢行）
+        if len(model_names) != len(percents):
+            logger.warning(
+                "热门模型时序 name/percent 数量不齐（%d/%d），按短侧截断对齐",
+                len(model_names),
+                len(percents),
+            )
         for name, percent in zip(model_names, percents):
             models[name] = models.get(name, 0.0) + percent
         rows.append(

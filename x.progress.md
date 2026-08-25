@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.5.5（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.5.6（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -314,178 +314,69 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 列元数据外置（PL003.4）：table_columns [{id,title}] + TABLE_HEADERS 从 title 派生单源化 + 与 COLUMN_IDS 导入期严格相等校验（实测拦截 cache 列 id 写错）。
 验证收尾（PL003.5）：verify_pl003_accept 反向断言 5/5 + 文档四处同步 + 版本定案 ver 0.230。A0.16/K0.1 连带修复渲染路径 quota_chunk_color 未传 theme_name 缺陷（PL003 改造遗漏）。
 
-## PL004 用量纯净视图回归：切换日志移除 + 配额单卡选择器（依据 z.plan.md PL004 方案，2026-08-23 规划，版本 ver 0.240）
+## PL004 用量纯净视图回归：切换日志移除 + 配额单卡选择器（依据 z.plan.md PL004 方案，2026-08-23 已实施，版本 ver 0.240）
 
 > 目标：用量统计删除账户概念回归纯净单视图；Go 配额改"单卡 + 账号选择器 + 选择记忆"；凭据管理入口与托盘预警原样保留
 > 根因：opencode.db 消息 JSON 无账号维度字段且多账号混写同库——时间窗近似对并行使用物理不可分、对串行切换有采样漏检，实用价值有限
 > 已拍板（2026-08-23）：删 A+B 全量/配额单卡选择器选谁显示谁/凭据数组格式与追加式保存保留/残留物物理删除/托盘零改动/版本 ver 0.240
 > 硬限制：since/until 形参是 --since 时间过滤与账户无关严禁误删；时间窗近似方案退役后不再以任何形式重新引入
-> 完成情况：✅ 全部实施完成（2026-08-23）——removal 探针 26→0 失败、quota 行为探针 5/5、legacy 兼容实证 6/6、verify_pl004_accept 验收 18/18、全量回归 0 异常
 
-### PL004.1 删 A：切换日志体系（时间点记录）
+删 A 切换日志体系（PL004.1）：credential_store 删 SWITCH_LOG 常量与 load/save/detect 三函数及说明区条目 + 连带删指纹链（credential_fingerprint/GoQuotaInfo.fingerprint 无 UI 消费者，账户标识统一 workspace_id）+ go_quota 钩子与调用点 + main/main_window import 与启动调用；定向探针访问被删符号 AttributeError 即 PASS。
 
-- [x] PL004.1.a credential_store.py：删 `SWITCH_LOG_FILENAME` 常量（:23）+ `load_switch_log`/`save_switch_log`/`detect_credential_switch` 三函数（:111-182）+ 说明区对应条目（:214-235 相关行）
-- [x] PL004.1.b 连带删指纹链：credential_store.py `credential_fingerprint`（:103）+ go_quota.py `GoQuotaInfo.fingerprint` 字段定义（:140）与两处赋值（:396-408/:478）——无 UI 消费者，账户标识统一改用 workspace_id
-- [x] PL004.1.c go_quota.py：删 `SWITCH_LOG_FILE` 常量（:50）+ `record_credential_switch` 钩子（:103-112）+ fetch 循环内调用点（:458-459 含 PL001.3 注释）+ 说明区条目（:560/:570）
-- [x] PL004.1.d main.py：删 import（:15）与启动时调用（:38）；ui/main_window.py：删 `SWITCH_LOG_FILE`/`load_switch_log` import（:50/:65）
-- [x] PL004.1.e 验证：IMPORT OK + offscreen init + 定向探针（访问被删符号 AttributeError 即 PASS）
+删 B 时段截取链（PL004.2）：opencode_usage 删 intervals 形参全链（totals/by_* 八处签名透传/_time_clause 区间分支/CLI --account 参数与切换日志解析块；since/until 时间过滤原样保留）/ exporter 删 account_intervals/account_label 形参与 CSV account 标注列 / main_window 删账户下拉常量+三方法+_UsageTask/_ExportTask 相关字段 / settings 删 account_filter 字段三件套 / ui.json 删三键。
 
-### PL004.2 删 B：时段截取链（intervals 参数 + 账户下拉 + 导出标注列）
+配额区改造（PL004.3）：_build_quota_section 回归单卡 + _render_quota 按选中 workspace_id 渲染（失配回落首个有效项，全无效渲染错误态）+ 顶部新增账号选择器行（QComboBox userData=workspace_id，标签外置 quota_account_label）+ 选项按刷新 infos 重建（blockSignals 防回环，错误占位项照常入列）+ settings 新增 quota_account 字段三件套切换即存（失败 warning 降级同 E0.3 式）+ 托盘/数据层零改动确认（fetch_go_quota 全量轮询是切换零延迟的数据基础）；行为探针覆盖切换渲染/落盘/重启恢复/失配回落。
 
-- [x] PL004.2.a opencode*usage.py：删 intervals 形参全链——totals（:230/:235/:272）/各 by*\* 约 8 处签名与透传（:297-443）/\_time_clause 区间分支仅 intervals 部分（:460-489）/其余查询（:510/:554）；**严禁动 since/until**（--since 时间过滤）
-- [x] PL004.2.b opencode_usage.py：删 CLI `--account` 参数（:650-654）与切换日志解析块（:659-683）+ import L18-19；CLI 调用点 intervals=intervals 清理（:715/:740）
-- [x] PL004.2.c exporter.py：删 `account_intervals`/`account_label` 形参（:34-35）+ 六处查询传参（:40-65）+ 标注列写入块（:69-77 row["account"] 与 CSV_COLUMNS + ("account",)）+ 说明区条目（:132/:135）
-- [x] PL004.2.d ui/main*window.py：删账户下拉三常量（:98-100）+ `_UsageTask.intervals` 字段与传参（:363/:380/:386）+ `\_ExportTask.account*\*`（:474-475/:487-488）+ `self.\_account_intervals` 初始化（:737）
-- [x] PL004.2.e ui/main_window.py：删下拉构建与装配（:898-901/:930）+ 三方法整体 `_rebuild_account_combo`/`_sync_account_intervals`/`_on_account_changed`（:948-1019）+ 任务赋值点（:1042/:1274-1277）
-- [x] PL004.2.f config/settings.py：删 `account_filter` 字段（:40）+ to_dict 输出（:49）+ from_raw 解析块（:77-79）
-- [x] PL004.2.g config/static/ui.json：删 `account_filter_all_label`/`account_combo_template`/`account_label_date_format` 三键
-- [x] PL004.2.h 验证：IMPORT OK + offscreen init + 全量回归（pl001 系列预期 FAIL 属涟漪，PL004.5 清理）
+清理与兼容（PL004.4）：user_config 物理删除 account_filter 死键 + switch_log.json 文件直接删除 + 凭据数组追加式保存确认保留（选择器数据基础）+ 兼容实证：带旧残留键的临时 user_config offscreen 启动无错。
 
-### PL004.3 配额区改造：单卡 + 账号选择器 + 选择记忆
+回归脚本清理与新验收（PL004.5）：删 verify_pl001_accept 与 probe_pl001 系列 + 排查清理 intervals/account_filter/switch_log 引用脚本 + verify_5a3/run_all_verify 白名单同步移除失效条目 + 新建 verify_pl004_accept 反向断言（无 switch_log 四函数/无 intervals 参数/无 account 标注/无 _account_combo/quota_account 持久化回环/单卡按选中渲染/残留键已清除）。
 
-- [x] PL004.3.a `_build_quota_section` 回归单卡：删 `_quota_cards` 动态列表容器与 `_build_quota_card(primary=True)` 兼容主卡模式（PL001.9 结构），恢复单个 `_quota_card` dict
-- [x] PL004.3.b `_render_quota` 单卡渲染：按选中 workspace_id 从 infos 取项渲染；失配（已删凭据/尚未刷出）回落首个有效项；全无效渲染 infos[0] 错误态
-- [x] PL004.3.c 配额区顶部新增选择器行：QLabel + QComboBox（userData = workspace_id 自然 ID 与凭据判重同源）；标签文案外置 ui.json 新键 `quota_account_label`
-- [x] PL004.3.d 选项以每次刷新的 infos 为准重建（blockSignals 防回环）；错误占位项照常入列（选中显示该账号错误文字，不拖垮其他账号）
-- [x] PL004.3.e settings.py 新增 `quota_account: str = ""` 字段三件套（dataclass 字段/to_dict/from_raw strip 宽容）；切换回调立即 save_config（失败仅 warning 降级与 E0.3 同式）；启动恢复 blockSignals 包裹
-- [x] PL004.3.f 托盘零改动确认：main.py `_on_quota_updated` 取最紧有效账户驱动图标/预警的逻辑不动（只依赖 infos 列表不依赖卡片形态）
-- [x] PL004.3.g 数据层零改动确认：fetch_go_quota 全量轮询返回 list 不动（60s 节流/in-flight 去重/缓存兜底/占位错误项原样）——切换选择零延迟的数据基础
-- [x] PL004.3.h 探针验证：切换下拉 → 渲染项变化 + quota_account 落盘 + 重启恢复 + 失配回落路径断言
+文档同步与版本推进（PL004.6）：README 改写"配额账户切换"说明 + z.plan/y.problem 状态同步 + 版本 ver 0.240 三处一致 + commit 草稿给出。收尾验证：removal 探针 26→0 失败、quota 行为探针 5/5、legacy 兼容实证 6/6、verify_pl004_accept 18/18、全量回归 0 异常（2026-08-23 完成）。
 
-### PL004.4 清理与兼容性（残留物物理删除）
-
-- [x] PL004.4.a config/user_config.json：物理删除 `"account_filter": "..."` 行（不留死键等运行时无视）
-- [x] PL004.4.b data/credentials/switch_log.json：文件直接删除（gitignore 内纯死数据，无代码再读写）
-- [x] PL004.4.c 凭据文件数组格式与追加式保存确认保留不动（go_quota.save_dashboard_credentials 同 workspaceId 覆盖/异账号追加——选择器的数据基础，已拍板第 3 条）
-- [x] PL004.4.d 兼容实证：带旧残留键的临时 user_config 跑一次 offscreen init（from_raw 逐键 raw.get() 天然容忍未知键，启动无错且其余配置正常生效）
-
-### PL004.5 回归脚本清理与新验收
-
-- [x] PL004.5.a 必删：`.temp/verify_pl001_accept.py` + `.temp/probe_pl001_*` 系列（锚定被删代码必 FAIL）
-- [x] PL004.5.b 逐一排查清理其他引用 intervals/account_filter/switch_log 的探针与验收脚本
-- [x] PL004.5.c `.temp/verify_5a3.py` 白名单移除失效条目（"保存账户过滤配置失败"等锚定点）；`.temp/run_all_verify.py` 清单同步移除已删脚本
-- [x] PL004.5.d 新建 `.temp/verify_pl004_accept.py` 反向断言：credential_store 无 switch_log 四函数/opencode_usage 各查询无 intervals 参数/exporter 无 account 标注/main_window 无 `_account_combo`/quota_account 切换持久化回环/单卡按选中 workspace_id 渲染/user_config 残留键已物理清除
-- [x] PL004.5.e 验证：run_all_verify.py 全量回归 0 异常 + IMPORT OK + offscreen 冒烟
-
-### PL004.6 文档同步与版本推进
-
-- [x] PL004.6.a README 分账号用量章节改写为"配额账户切换"说明（选谁看谁 + 凭据引导入口指引）
-- [x] PL004.6.b z.plan.md 本章节状态更新为已实施；y.problem.md 如有 PL001 关联条目同步标注退役
-- [x] PL004.6.c x.progress.md 本清单逐项勾选附日期与验证结果
-- [x] PL004.6.d 版本推进 ver 0.240 三处同步：base.json version 字段 + README 徽章 + x.progress 当前版本行
-- [x] PL004.6.e commit 草稿按 V2 规范给出（git add 清单 + message），由用户审阅执行
-
-## PL005 配额区"添加账户"常驻入口（依据 z.plan.md PL005 方案，2026-08-23 规划）
+## PL005 配额区"添加账户"常驻入口（依据 z.plan.md PL005 方案，2026-08-23 已实施，版本 ver 0.241）
 
 > 目标：已有有效凭据时提供随时可点的"添加账户"入口（现状引导卡仅在凭据全失效时显示，引入新账户无 UI 途径）
 > 已拍板：入口放配额区选择器旁常驻按钮 + QMenu 两路径复用既有引导流程；托盘零改动；添加后自动选中新账户
 > 硬限制：引导流程三件套（CDP 任务/手动对话框/并发防护）全部复用不建平行流程；\_on_guide_failed 显示条件修正必须与 show_guide 同源逻辑防双路径漂移
-> 版本归属：独立 **ver 0.241**（2026-08-23 用户定版，不并入 ver 0.240）
-> 完成情况：✅ 全部实施完成（2026-08-23）——probe_pl005_entry 10/10 PASS（幂等自清理）、全量回归 0 异常、IMPORT OK、凭据文件测后还原
 
-### PL005.1 入口按钮与菜单
+入口按钮与菜单（PL005.1）：ui.json 新键 quota_add_account_button + 选择器行尾 QPushButton 弹 QMenu 两项（文案复用 GUIDE_AUTO/MANUAL_BUTTON 不新增重复键）路由 _start_cdp_guide/_manual_guide；A0.6/A0.7 并发防护与按钮禁用对配额区入口同样生效（同一 _guide_active 状态）。
 
-- [x] PL005.1.a config/static/ui.json 新键 `quota_add_account_button`（"添加账户"）；ui/main_window.py 常量解包（QUOTA_ADD_ACCOUNT_BUTTON）（2026-08-23 完成）
-- [x] PL005.1.b `_build_quota_section` 选择器行尾加 QPushButton；点击弹 QMenu 两项（文案复用 GUIDE_AUTO_BUTTON/GUIDE_MANUAL_BUTTON 不新增重复键）；动作分别路由 `_start_cdp_guide`/`_manual_guide`（2026-08-23 完成）
-- [x] PL005.1.c 复用确认：A0.6/A0.7 引导并发防护标志与按钮禁用逻辑对配额区入口同样生效（同一 `_guide_active` 状态）（2026-08-23 完成）
+复用适配与闭环（PL005.2）：**关键修复**——_on_guide_failed 原无条件 show 引导卡（已有凭据时从配额区触发失败语义混乱），提取 _should_show_guide() 同源单点维护 failed 回调改按条件显示 / 添加后自动选中：一次性 pending 标志 _pending_quota_account，CDP 路径 _CdpGuideSignals.success 签名携带 workspace_id（带默认值向后兼容），_render_quota 重建选项后优先匹配 pending 选中并清除。
 
-### PL005.2 复用适配与添加后闭环
+验证与收尾（PL005.3）：probe_pl005_entry 10/10 PASS（幂等自清理+测后还原凭据文件）+ 全量回归 0 异常 + README 补"添加账户入口"说明 + 版本 ver 0.241 三处同步 + commit 草稿给出（2026-08-23 完成）。
 
-- [x] PL005.2.a **关键修复**：`_on_guide_failed` 无条件 `self._guide_frame.show()`——已有有效凭据时从配额区触发失败会把引导卡弹出（语义混乱）；提取 `_should_show_guide()` 私有方法（与 `_on_quota_ready.show_guide` 同源单点维护），failed 回调改按条件显示（2026-08-23 完成）
-- [x] PL005.2.b `_start_cdp_guide` 从非引导卡上下文触发适配确认（`_guide_frame.hide()` 幂等无害；定时刷新暂停/恢复不变）（2026-08-23 完成）
-- [x] PL005.2.c 手动填写路径确认保存后已调 refresh（现实现 L1149 ✅ 原样复用）（2026-08-23 完成）
-- [x] PL005.2.d 添加后自动选中：一次性 pending 标志 `_pending_quota_account`；手动路径直接携带 workspace_id；CDP 路径改 `_CdpGuideSignals.success` 信号签名携带 workspace_id（带默认值向后兼容）；`_render_quota` 重建选项后优先匹配 pending 选中并清除（失配静默丢弃回落既有逻辑）（2026-08-23 完成）
-
-### PL005.3 验证与收尾
-
-- [x] PL005.3.a 探针 probe_pl005_entry.py：按钮存在 + QMenu 两动作路由正确（offscreen 触发不崩）；手动路径 mock QInputDialog → 凭据数组追加（真实 save_dashboard_credentials 落盘验证）+ refresh 触发 + pending 自动选中生效（2026-08-23 完成：10/10 PASS，唯一 ID 幂等 + 测后自清理还原凭据文件）
-- [x] PL005.3.b 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源（2026-08-23 完成）
-- [x] PL005.3.c README 配额账户章节补"添加账户入口"说明；x.progress.md 本清单勾选附验证结果（2026-08-23 完成）
-- [x] PL005.3.d 版本归属定案 ver 0.241 三处同步（base.json/README 徽章/x.progress 版本行）+ V2 规范 commit 草稿给出（2026-08-23 完成）
-
-## K. 第16轮审计修复任务清单（依据 z.plan.md 附录 A016，2026-08-23 规划）
+## K. 第16轮审计修复任务清单（依据 z.plan.md 附录 A016，2026-08-23 已实施，版本 ver 0.242）
 
 > 范围：P 级 19 条（高 3/中 8/低 8）；观察项 26 条经用户复核全部维持豁免
 > 硬限制：只修 A016 清单条目；高严重度三条先行；每批完成后跑反向验收再全量回归
 
-### K0 P0 正确性（高严重度 3 条）
+P0 正确性高严重度（K0）：_render_quota_card 的 quota_chunk_color 补 theme_name 参（console 主题样式随主题）/ 添加账户菜单双入口 _guide_active 早退防重入（假池断言零任务提交+定时器不停）/ _rebuild_quota_account_combo 改"当前选中在 infos 则保持不动失配才回落"并修正 clear 前读 currentData 顺序。
 
-- [x] K0.1 main_window.py:1310-1312 `_render_quota_card` 的 `quota_chunk_color(percent)` 补第二参 `self._theme_name`（2026-08-23 完成：探针 console 主题断言样式随主题）
-- [x] K0.2 main_window.py:807-813 添加账户菜单重入防护——`_start_cdp_guide` 与 `_manual_guide` 入口均加 `if self._guide_active: return` 早退（2026-08-23 完成：假池断言零任务提交+定时器不停）
-- [x] K0.3 main_window.py:1264 `_rebuild_quota_account_combo` 改为当前选中在 infos 则保持不动、失配才回落持久化值/首项；连带修正 clear 前读 currentData 顺序（2026-08-23 完成：模拟"持久化 A→会话内切 B→重建"断言不被打回）
+P1 数据与防御一致性（K1）：opencode_data 失败快照不覆盖成功缓存（has_data 实质数据守卫+_mark_cached 标注副本）/ go_quota in-flight 分支返回全集逐条标注副本与节流分支对齐 / browser_creds CDP 响应 isinstance 校验先于 .get() 消费 / RSS published_at 补 or "" 兜底 / 选择器 userData 错位修复——渲染目标改按 combo 当前索引取，同 workspace 双 cookie 按索引区分不再恒匹配首项。
 
-### K1 P1 数据与防御一致性（中 5 条）
+P2 配置化（K2）：_NUMERIC_BASE_KEYS 补 data_fetch_interval_sec（25→26 键，反向断言差集为空+bool 伪装导入抛错）/ opencode_data 三处删 timeout=15 实参走 network 层 http_timeout 回退 / CACHE_TTL 死键采纳删除路线（常量+base.json 键+说明区一并删）。
 
-- [x] K1.1 opencode_data.py:249-250 失败快照不覆盖成功缓存——has_data 实质数据守卫（model_blocks/daily_usage/releases 任一非空才写缓存），失败且有旧缓存时返回 `_mark_cached` 标注副本；同步修正 :226 注释（2026-08-23 完成：探针断言旧快照保留+is_cached）
-- [x] K1.2 go_quota.py:408-418 in-flight 分支返回全集——遍历 `_last_quotas` 逐条 `_mark_cached` 标注副本（空列表维持单占位），与节流分支行为对齐（2026-08-23 完成：预置两条缓存断言返回 2 条均 is_cached）
-- [x] K1.3 browser_creds.py:509,518 CDP 响应 isinstance 校验——cookie_response/url_response 非 dict 时 warning+宽容返回 (None, None)，校验先于 .get() 消费（2026-08-23 完成：mock list 响应断言不抛 AttributeError）
-- [x] K1.4 opencode_data.py:361 RSS `published_at` 补 `or ""` 兜底（对齐 title/content 同函数内写法）（2026-08-23 完成：空 updated 元素探针断言为空串）
-- [x] K1.5 选择器 userData 错位修复：渲染目标改按 combo 当前索引取（_render_quota 用 infos[idx]、切换回调用 cached[index]，combo 顺序==infos 顺序），同 workspace 双 cookie 按索引区分不再恒匹配首项；持久化语义不变（2026-08-23 完成：双 cookie 探针断言切到失效项渲染其错误态且选择保持 index1）
+P3 清理与文档（K3）：main_window 删三孤儿属性+注释如实化 / 删 DataPageError 死类 / 两处函数内 import 提模块顶部 / PL004 死注释清理 / 说明区五处同步（opencode_data 重写九缺列补齐/main_window 重写补 13 缺失函数条目等）/ 版本行 ver 0.240→0.241 / MW-6 键集契约机械比对确认。
 
-### K2 P2 配置化（中 3 条）
+验证与收尾（K4）：新建 verify_k_accept 汇总反向验收串联 K0-K3 七个子脚本统一出口 7/7 PASS + 全量回归 0 异常 + 版本推进 ver 0.242 三处同步（审计修复第三位数字惯例）+ commit 草稿给出。
 
-- [x] K2.1 static_config.py `_NUMERIC_BASE_KEYS` 补 `data_fetch_interval_sec`（data_cache_ttl_sec 随 K2.3 删键不入白名单）；说明区计数 25→26 键——验证：verify 反向断言 base.json 数值键集与白名单差集为空 + bool 伪装导入抛 RuntimeError（2026-08-23 完成）
-- [x] K2.2 opencode_data.py 三处删 `timeout=15` 实参走 network 层 http_timeout 配置回退——验证：grep timeout=数字零残留 + mock 断言 http_get 实收 timeout=None 走默认（2026-08-23 完成）
-- [x] K2.3 CACHE_TTL 死键采纳删除路线：删 opencode_data 常量 + base.json `data_cache_ttl_sec` 键 + 说明区两处条目（当前无陈旧度需求，KISS）——验证：定义零残留 + 配置加载正常无副作用（2026-08-23 完成）
-
-### K3 P3 清理与文档（低 8 条）
-
-- [x] K3.1 main_window.py 删 `_quota_frame`/`_quota_status`/`_quota_reset` 三孤儿属性；注释改如实描述；`_build_quota_card` 去返回值——验证：grep 零引用 + IMPORT OK；连带更新 .temp 五个历史 verify 脚本的属性访问为 dict 式（2026-08-23 完成）
-- [x] K3.2 opencode_data.py 删 DataPageError 死类——验证：AST 类名零残留 + IMPORT OK（2026-08-23 完成）
-- [x] K3.3 opencode_data.py 两处函数内 import（json/xml.etree）提到模块顶部——验证：AST 扫描 FunctionDef 子节点零 Import（2026-08-23 完成）
-- [x] K3.4 PL004 死注释清理：go_quota "附指纹"→"附账户标注"；opencode_usage 删"，含账户时段过滤 PL001.4"——验证：grep 两短语零残留（2026-08-23 完成）
-- [x] K3.5 说明区四处同步：opencode_data 重写（函数名修正+九缺列函数补齐+DataPageError 条目移除+悬空括号修复）；go_quota `_last_quotas` 复数+fetch 多账户描述；pricing 补 PRICE_KEY_MAP 条目；main.py `_on_quota_updated` 多账户口径——验证：verify_k3_accept 说明区符号名真实性断言（2026-08-23 完成）
-- [x] K3.6 main_window.py 说明区重写：PIE_COLOR_*_DEFAULT 改名同步；_build_ui 页签装配现状；单卡渲染/选择器/添加账户/guide 条件五处失实更新；补 13 个缺失函数条目（2026-08-23 完成）
-- [x] K3.7 x.progress.md:4 版本行 ver 0.240 → ver 0.241——验证：三处字面值一致断言 PASS（2026-08-23 完成）
-- [x] K3.8 MW-6 连带确认：K1.5 索引化渲染已覆盖错位场景；ui.json/base.json 键集契约由 _UI_STRUCT_KEYS 与 K2.1 白名单机械比对兜底（2026-08-23 完成）
-
-### K4 验证与收尾
-
-- [x] K4.1 新建 .temp/verify_k_accept.py 汇总反向验收：串联 K0-K3 七个子脚本（探针+验收成对）统一出口——验证：7/7 PASS（2026-08-23 完成）
-- [x] K4.2 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源 ver 0.242（2026-08-23 完成）
-- [x] K4.3 版本推进 ver 0.242 三处同步（base.json/README 徽章/x.progress 版本行，按审计修复第三位数字惯例）+ V2 规范 commit 草稿给出（2026-08-23 完成）
-
-## L. 第17轮审计修复任务清单（依据 z.plan.md 附录 A017，2026-08-23 规划）
+## L. 第17轮审计修复任务清单（依据 z.plan.md 附录 A017，2026-08-23 已实施，版本 V0.2.4.3）
 
 > 范围：P 级 16 条（中 1 / 低 15，无高）；观察项 18 条经用户复核全部维持豁免
 > 重点：中级别饼图弧色需用户先裁定意图方向；多条为 A016/K 系列修复的边界补全
 > 硬限制：只修 A017 清单条目；每批完成后跑反向验收再全量回归
 
-### L0 展示语义裁定与修复（中 1 条，已裁定方案 A）
+展示语义裁定与修复（L0）：饼图弧色分级色改造——**已裁定方案 A（2026-08-23 用户确认）**，_RemainingPieChart 持有 theme 名 + set_used_percent 按 quota_chunk_color(percent, theme) 联动重算三档弧色与进度条一致，两处矛盾注释统一为"分级色圆弧"；探针断言 panel 主题 usage=90 弧色==quota_chunk_color(90,"panel")。
 
-- [x] L0.1 饼图弧色分级色改造（**已裁定方案 A，2026-08-23 用户确认**）：_RemainingPieChart 增加 theme 名持有（构造/set_colors 联动更新）+ set_used_percent 内按 `quota_chunk_color(percent, theme)` 联动重算弧色（<60% 绿/60-80% 黄/≥80% 红三档与进度条一致）；两处矛盾注释统一为"分级色圆弧"——验证：探针断言 panel 主题下 usage=90 时弧色==quota_chunk_color(90,"panel")=#a03030 且 ≠ quota_chunk_color(90)（2026-08-24 完成）
+数据与交互一致性（L1）：K0.2 补全——_start_cdp_guide 早退分支补状态栏提示 + 新增 _set_guide_actions_enabled 随引导态启停菜单动作 / K0.3 回落换源 load_config() 同源 / G1 失败占位项同步 append 进 _last_quotas 全集不再丢失败项 / K1.1 粒度声明补注释（per-source 待评估）/ B1 深度校验 (resp.get("result") or {}) 式+cookie isinstance 过滤 / O2 JSON null 兜底 (x or "") 对齐 RSS 口径 / G2 新增 _FETCH_STATE_LOCK 护 in-flight check-set 与复位路径（网络 IO 不持锁）/ error_stage 对齐——in-flight 全集副本删赋值行。
 
-### L1 数据与交互一致性（低 8 条）
+配置卫生（L2）：theme 死键双侧删除（ui.json button_labels 行 + _UI_STRUCT_KEYS 元组同步）。
 
-- [x] L1.1 K0.2 补全：main_window.py `_start_cdp_guide` 早退分支补状态栏提示（复用 ui.json in_flight 文案）+ 新增 `_set_guide_actions_enabled` 随引导态启停菜单动作（_start_cdp_guide 禁用 / _on_guide_success+failed 恢复）（2026-08-24 完成：假池断言动作禁用+提示出现+零重复提交）
-- [x] L1.2 K0.3 回落换源：main_window.py `_rebuild_quota_account_combo` 回落分支 `self._config.quota_account` → `load_config().quota_account`（与切换回调同源）——验证：结构断言；行为层面两实现等价（磁盘值恒跟随会话选择），探针以合法落定项断言（2026-08-24 完成）
-- [x] L1.3 G1 失败占位入缓存：go_quota.py fetch 循环 except 分支将占位错误项同步 append 进 `_last_quotas`（成功项照旧）——in-flight/节流期全集不再丢失败项——验证：探针一好一坏 mock 断言缓存含 2 条且坏项带 error（2026-08-24 完成）
-- [x] L1.4 K1.1 粒度声明：opencode_data.py 守卫注释补"单源失败空覆盖属已知取舍（per-source 合并待后续评估）"（2026-08-24 完成）
-- [x] L1.5 B1 深度校验：browser_creds.py 取值改 `(resp.get("result") or {})` 式 + cookie 循环 isinstance(cookie, dict) 过滤——验证：探针 result=null 响应断言不抛 AttributeError 返回 (None, None)（2026-08-24 完成）
-- [x] L1.6 O2 JSON null 兜底：opencode_data.py releases JSON 路径 tag_name/published_at/body 改 `(x or "")` 兜底显式 null（对齐 RSS 口径）——验证：探针 null 字段断言空串非 "None"（2026-08-24 完成）
-- [x] L1.7 G2 并发收敛：go_quota.py 新增 `_FETCH_STATE_LOCK = threading.Lock()` 护 in-flight check-set 与 finally 复位路径（网络 IO 不持锁保持即时返回语义）——验证：源码结构断言 + 行为 smoke（2026-08-24 完成）
-- [x] L1.8 error_stage 对齐：go_quota.py in-flight 全集副本删 error_stage 赋值行（对齐节流分支不设语义；ui 引导判断依赖 is_cached 已排除不受影响）——验证：结构断言 in-flight 段零 error_stage（2026-08-24 完成）
+清理与文档（L3）：注释失实修正 / 说明区补类型两行与常量六键 / pending 冗余补发——_on_load_error seq 匹配分支追加 _consume_pending / README 配置表同步（ver 快照删除/四主题描述/base.json 表补四键）/ 符号名修正 _R_OBJECT_PATTERN / opencode_usage 关联配置补列。
 
-### L2 配置卫生（低 1 条）
+验证与收尾（L4）：新建 verify_l_accept 反向验收 20 断言全 PASS + 全量回归 0 异常（连带适配 verify_k0_accept/k1_accept/5a3 三处过时断言）+ 版本推进三处同步并**启用四段式版本号规则 V0.2.4.3 形式（2026-08-24 用户指定）** + commit 草稿给出。
 
-- [x] L2.1 theme 死键双侧删除：ui.json button_labels 删 `"theme": "主题"` 行 + main_window.py _UI_STRUCT_KEYS 的 button_labels 元组同步删 `"theme"`——验证：verify 断言 ui.json 无该键且 IMPORT OK 契约通过（2026-08-24 完成）
-
-### L3 清理与文档（低 6 条）
-
-- [x] L3.1 注释失实修正：main_window.py `_render_quota` 函数头注释按 K0.3 现状重写（"失配回落持久化值，仍失配保持首项（不保证有效性）"）（2026-08-24 完成）
-- [x] L3.2 说明区补条目：main_window.py 类型清单补 _DataSignals/_DataPageTask 两行；常量清单补 USAGE_TAB_TITLE/DATA_PAGE_ERROR_TEMPLATE/THEME_LABELS/QUOTA_ACCOUNT_LABEL/QUOTA_ACCOUNT_UNKNOWN/QUOTA_ADD_ACCOUNT_BUTTON 六键——验证：说明区提及符号 grep 全存在（2026-08-24 完成）
-- [x] L3.3 pending 冗余补发：main_window.py _on_load_error seq 匹配分支追加 self._consume_pending()——验证：结构断言 error 路径消费 pending（2026-08-24 完成）
-- [x] L3.4 README 配置表同步：ver 快照删除/table_headers→data_table_headers/删 notify_message_fallback 行/palettes 描述更新为四主题/base.json 表补列 data_fetch_interval_sec/data_url/gh_releases_api_url/gh_releases_rss_url 四键（2026-08-24 完成）
-- [x] L3.5 符号名修正：opencode_data.py 说明区 _R_BLOCK_PATTERN → _R_OBJECT_PATTERN（2026-08-24 完成）
-- [x] L3.6 关联配置补列：opencode_usage.py 说明区补 base.json（db_default_path/table_limit_group/table_limit_day/subprocess_timeout/retry_count/retry_delay）与 ui.json（unknown_label）键列（2026-08-24 完成）
-
-### L4 验证与收尾
-
-- [x] L4.1 新建 .temp/verify_l_accept.py 反向验收 20 断言（L0.1 分级色/L1 组七项结构+行为/L2.1 双侧删除/L3 组五项）（2026-08-24 完成：20/20 PASS）
-- [x] L4.2 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + --version 单一来源；连带更新 verify_k0_accept/verify_k1_accept/verify_5a3 三处过时断言适配 L 系列新结构（2026-08-24 完成）
-- [x] L4.3 版本推进三处同步（base.json/README 徽章/x.progress 版本行）+ **2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式（用户指定）** + V2 规范 commit 草稿给出（2026-08-24 完成）
-
-## PL006 前后端接口层：AppService 门面 + 统一任务运行器（依据 z.plan.md PL006 方案，2026-08-24 规划）
+## PL006 前后端接口层：AppService 门面 + 统一任务运行器（依据 z.plan.md PL006 方案，2026-08-24 已实施，版本 V0.2.5.1）
 
 > 目标：建立 services/service.py 门面与 ui/task_runner.py 异步设施，main_window 与 modules 解耦——UI 只 import services 不再直接触碰任何 modules 符号；前端可整体替换而后端不动
 > 现状诊断：点对点直连——直接 import 五个 modules 的 8 类符号 + 自建 5 个 QRunnable 任务类 + 4 组 Signals 承载编排
@@ -493,34 +384,13 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 > 归属判定规则：替换前端时必然重写 = 归 ui/（TaskRunner）；可原样带走 = 归 services/（AppService）。多前端并存（ui/qt6 与 ui/qml 并列+main.py --frontend 分发）为远期形态，启用第二前端那天才搬迁
 > 版本归属：**V0.2.5.1**（2026-08-24 用户定版；四段式第三位=功能批次、第四位=批次内序号）
 
-### PL006.1 services/service.py 门面
+services 门面（PL006.1）：新建 services/service.py——ServiceError 中文业务错误基类 + AppService（resolve_db_path/get_usage 内聚 OpenCodeDB 全套原 _UsageTask.run 主体/get_quotas/get_data_page 直通/export_data 原 _ExportTask 主体/save_account/add_account_via_cdp CDP 五步编排与 _wait_for_login_cookie 整体迁入，失败抛中文 ServiceError）；UsageData dataclass 随迁；全程零 PyQt6 import AST 断言通过。
 
-- [x] PL006.1.a 新建 services/**init**.py（get_service 单例入口 re-export）与 services/service.py：ServiceError(Exception) 业务错误基类（message 中文）；AppService 类（2026-08-24 完成）
-- [x] PL006.1.b resolve_db_path() -> Path | None（find_db_path 包装）与 get_usage(db_path) -> UsageData：内聚 OpenCodeDB 打开/totals/by_* 循环/DIMENSIONS 推导/TABLE_LIMIT 分档/close 全套（原 _UsageTask.run 主体迁入；db_path None 抛 ServiceError）；UsageData dataclass 随迁 services（2026-08-24 完成：探针 ② 真实库等价 PASS）
-- [x] PL006.1.c get_quotas() -> list[GoQuotaInfo]（fetch_go_quota 直通）；get_data_page() -> ModelDataSnapshot（refresh_data_page 直通）（2026-08-24 完成）
-- [x] PL006.1.d export_data(db_path, out_dir) -> None（OpenCodeDB + export_all + close，原 _ExportTask.run:473-479 主体迁入；db_path None 抛 ServiceError）（2026-08-24 完成：探针 ③ ServiceError 断言）
-- [x] PL006.1.e save_account(ws, cookie)（save_dashboard_credentials 包装）；add_account_via_cdp(login_wait_seconds=None) -> tuple[str, str]：CDP 五步编排 + _wait_for_login_cookie 整体迁入，失败抛 ServiceError(中文消息)（2026-08-24 完成：s7/s9 场景全过）
-- [x] PL006.1.f 验证：Service 各方法行为等价断言 + 全程零 PyQt6 import 断言（AST 扫描 services/ 目录）（2026-08-25 完成：probe_pl006 ① 零 Qt []）
+Qt 异步设施（PL006.2）：ui/task_runner.py——TaskRunner(QObject) finished/failed 双信号构造注入 QThreadPool，run(fn, seq) 提交线程池异常转 failed(seq, str(exc))；**实测教训落地**：QRunnable wrapper worker 运行期被 GC 触发 0xC0000409 崩溃——_live_tasks 持执行引用 + _done_tasks deque(maxlen=16) 保完成引用 + setAutoDelete(False)，s4/s7/s9 全链路零崩溃。
 
-### PL006.2 ui/task_runner.py Qt 异步设施
+main_window 切换调用（PL006.3）：删四个数据任务类与对应 Signals 改 TaskRunner.run(service...) finished 载荷区分 / _CdpGuideTask 删除改 lambda 调 service.add_account_via_cdp 双语义回调承载 / import 区收敛删全部 from modules 编排行仅留 DTO 类型注解用途 / L3.3 pending 消费语义新信号体系下保持核对；offscreen 冒烟 + 历史脚本全部适配。
 
-- [x] PL006.2.a TaskRunner(QObject)：finished = pyqtSignal(int, object)/failed = pyqtSignal(int, str)；构造注入 QThreadPool——归属 ui/（随前端生灭，内部零业务逻辑）（2026-08-24 完成）
-- [x] PL006.2.b run(fn, *, seq)：fn 提交线程池，成功发 finished、异常发 failed(seq, str(exc))；ui.json 文案格式化留在 UI 层 handler（2026-08-24 完成）
-- [x] PL006.2.c **实测教训落地**：QRunnable wrapper 在 worker 运行期被 GC 触发 0xC0000409 崩溃——_live_tasks 持执行中引用 + _done_tasks deque(maxlen=16) 保完成引用防悬空；setAutoDelete(False) 由 Python 全权管理生命周期——验证：最小 TaskRunner 用例 + s4/s7/s9 全链路零崩溃（2026-08-25 完成）
-
-### PL006.3 main_window 切换调用
-
-- [x] PL006.3.a 删四个数据任务类（_UsageTask/_QuotaTask/_DataPageTask/_ExportTask）与对应 Signals，改 TaskRunner.run(service...)：usage_ready/quota_ready/data_ready 由 finished(object) 载荷区分，handler 逻辑不变；error/failed 由 failed 承载（2026-08-24 完成）
-- [x] PL006.3.b _CdpGuideTask 删除改 TaskRunner.run(lambda: service.add_account_via_cdp(...))：success/failed 双语义由 on_done(结果元组)/on_error 回调承载（workspace_id 经结果携带，pending 逻辑不变）（2026-08-24 完成）
-- [x] PL006.3.c import 区收敛：删全部 from modules... 编排行仅保留 DTO 类型注解用途 import 与 from services / from ui.task_runner；CDP 四常量随编排迁 services；MainWindow 可注入性保留（2026-08-24 完成：probe_pl006 ⑤ 八个编排符号零残留）
-- [x] L3.3 同步核对：_on_load_error 的 _consume_pending 在新信号体系下语义保持（2026-08-24 完成：verify_f_accept 补发断言适配 PASS）
-- [x] PL006.3.d 验证：offscreen GUI 冒烟全流程 + 全量回归 usage/export 相关历史脚本全部适配通过（s4/s7/s9/v0809/v1010/5a2/f/g/h）（2026-08-25 完成）
-
-### PL006.4 验证与收尾
-
-- [x] PL006.4.a 新建 .temp/verify_pl006_accept.py 反向验收：services/ 目录零 Qt 断言（AST 扫描）/行为等价/runner 双路径/modules import 白名单（仅 DTO 类型，运行时常量经 services 门面）（2026-08-24 完成，M1.3 升级为白名单口径）
-- [x] PL006.4.b 全量回归 0 异常 + IMPORT OK + offscreen 冒烟 + --version；run_all_verify 超时放宽 120→300 秒（批量环境 CDP mock 场景偶超旧阈值）（2026-08-25 完成）
-- [x] PL006.4.c README 项目结构段补 services/ 与 ui/task_runner 说明（L141/L151）+ x.progress 勾选 + commit 草稿 V0.2.5.1 已给出（2026-08-24 完成；仅本条自身勾选拖延至确认时补记）ss 勾选 + commit 草稿
+验证与收尾（PL006.4）：verify_pl006_accept 反向验收（services 零 Qt AST 断言/行为等价/runner 双路径/modules import 白名单口径）+ 全量回归 0 异常 + run_all_verify 超时放宽 120→300 秒（CDP mock 场景偶超）+ README 结构段补 services/task_runner 说明 + commit 草稿 V0.2.5.1 已给出。
 
 ## PL007 主题资源文件夹化：theme 与代码彻底解耦（依据 z.plan.md PL007 方案，2026-08-24 规划）
 
@@ -548,119 +418,35 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 - [x] PL007.3.b 全量回归 0 异常 + offscreen 冒烟四主题切换 + IMPORT OK——**2026-08-25** run_all_verify 43 脚本 0 异常（18 个历史脚本已适配 theme_loader/theme.json 新源）；offscreen 四主题 app 级 QSS 各 1653 字符与黄金基线一致
 - [x] PL007.3.c README 补自定义主题指引 + x.progress 勾选 + commit 草稿——**2026-08-25** README 结构树/配置参数表/自定义主题指引三处同步；版本推进 V0.2.5.2 三处一致
 
-## M. 第18轮审计修复任务清单（依据 z.plan.md 附录 A018，2026-08-25 规划）
+## M. 第18轮审计修复任务清单（依据 z.plan.md 附录 A018，2026-08-25 已实施，版本 V0.2.5.3）
 
 > 来源：第 18 轮全量审计（PL006 接口层重构 + PL007 主题文件夹化两批新代码连带）；P 级 21 条（中 3 / 低 18，无高），观察项 23 条全部维持豁免
 > 主线：中项三条 = 节流绕过挡板（A017 覆盖不全）/ domain null TypeError（A017 漏网）/ 引导失败签名失配（PL006 漏网）
 
-### M0 正确性与防御
+正确性与防御（M0）：go_quota 节流绕过 in-flight 挡板——整轮完成后一次性原子发布快照消除渐进写 / browser_creds domain null 改 (cookie.get("domain") or "") 防 TypeError / _on_guide_failed 签名补 seq 对齐其他 handler（emit 式端到端探针防直调绕过）/ _on_load_error 失配分支补消费 pending / Releases JSON 非 list 校验前置走 RSS 回退 / theme_loader 导入期 IO 包装 RuntimeError 中文提示 / E3.9 错误消息补主题名；probe_m0 8/8 PASS + verify_s7/l_accept 适配。
 
-- [x] M0.1 go_quota 节流绕过 in-flight 挡板 —— go_quota.py:353-361/:391-392/:444：改整轮完成后一次性提交快照（循环内只填 results，return 前 _last_quotas=results 单次更新 _last_success_at），节流分支前置感知 in-flight 标志；顺带修正 L1.7 注释"状态锁覆盖缓存读写"失实处；验证：并发探针（mock 两账户延迟差异，断言节流期返回完整列表或 in-flight 提示而非部分列表）
-- [x] M0.2 browser_creds domain null TypeError —— browser_creds.py:521-523：`OPENCODE_HOST in cookie.get("domain", "")` 改 `OPENCODE_HOST in (cookie.get("domain") or "")`；验证：probe 断言 domain=null 的 cookie 条目不抛 TypeError 且轮询继续
-- [x] M0.3 _on_guide_failed 签名失配 —— main_window.py:1008 签名改 `(self, seq: int, message: str) -> None`（seq 前缀对齐其他 handler，体内忽略 seq）；验证：offscreen 探针经 `guide_runner.failed.emit(1, "测试错误")` 端到端断言状态栏文本更新且无 TypeError（禁止直调绕过信号）
-- [x] M0.4 _on_load_error 失配不清 pending —— main_window.py:902-903 失配分支 return 前追加 `self._consume_pending()`（对齐 :804-808 匹配分支 G0.1 处理）；验证：probe 模拟 refresh#1 失败 seq 失配后断言 _usage_pending 已消费
-- [x] M0.5 Releases JSON 非 list 校验前置 —— opencode_data.py:328 后补 `if not isinstance(data, list): raise ValueError(...)`（或直接 return []）使限速回退决策前置、日志可读；验证：probe mock dict 响应断言不抛 TypeError 且走 RSS 回退
-- [x] M0.6 theme_loader 导入期 IO 包装 —— theme_loader.py:19 base.qss read_text 与 :105 iterdir 包 try（FileNotFoundError/OSError/UnicodeDecodeError → RuntimeError 中文提示，口径对齐 _load_theme）；验证：临时改名 base.qss 重导入断言 RuntimeError 中文消息
-- [x] M0.7 E3.9 消息缺主题名 —— theme_loader.py:_build_theme 增加 name 参数（:126 构建循环传 name），消息改为 f"主题 {name} 调色板 {key} 值必须是字符串…"；验证：probe 改坏 panel palette 值断言消息含 "panel"
+去重与架构收敛（M1）：UsageData 本地死类删除统一 import 自 services / DIMENSIONS 单点导出全项目仅 service.py 一处定义 / ERROR_STAGE 与 QUOTA_WINDOW_KEYS 门面导出且 verify_pl006_accept 升级为 modules import 白名单口径 / opencode_data 移植 go_quota 同款标志+锁 in-flight 去重；probe_m1m2 7/7 PASS。
 
-> **2026-08-25 完成（M0 组）**：`probe_m0.py` 8/8 PASS（修复前 FAIL 即反向验收证据，TDD 闭环）+ IMPORT OK + offscreen 冒烟 + 全量回归 62 脚本仅 3 历史版本债（verify_s12/s9/v1010_1 期望 `V0.2.4.3`，属 PL007 版本推进遗留，与 M0 无关不在本组范围）；`verify_s7.py`（`_on_guide_failed` 加 seq 参）、`verify_l_accept.py`（L1.3 占位项经 results 进入缓存全集）已适配 M0 实现
+配置化（M2）：no_db 提示文案回归 ui.json 单源删硬编码 / 节流提示外置 go_quota_error_messages.throttled_template 两处模板化。
 
-### M1 去重与架构收敛
+清理（M3）：TABLE_LIMIT 死常量与 _CdpGuideSignals 死类删除 / PL007 文档残留七处批次替换（grep 零 themes.py 残留）/ main_window 说明区补三条目+task_runner 补说明区 / CDP_WAIT_TIMEOUT 死常量激活 / README 双主题表述修正四主题；probe_m3 9/9 PASS + verify_v1010_3/v4a3 适配。
 
-- [x] M1.1 UsageData 本地死类删除 —— 删 main_window.py:302-307 本地 @dataclass 定义（:55 import 生效）；说明区 :1287-1288 表述同步为"import 自 services"；验证：AST/grep 断言 main_window 无 class UsageData 且 `mw.UsageData is services.service.UsageData`
-- [x] M1.2 DIMENSIONS 单点导出 —— services/service.py 对 DIMENSIONS 加 re-export（**init** 同步），main_window.py:108 改 from services 导入删本地字面量；验证：grep 断言全项目 DIMENSIONS 定义仅 service.py 一处
-- [x] M1.3 ERROR_STAGE/QUOTA_WINDOW_KEYS 门面导出 + verify 升级 —— services re-export ERROR_STAGE_*/QUOTA_WINDOW_KEYS，main_window.py:46-49 改从 services 导入；verify_pl006_accept.py:61-63 断言升级为"modules import 白名单比对"（仅允许 DTO 类型注解符号）；x.progress PL006.4.a"UI 零 modules import"措辞同步为白名单口径；验证：升级后 verify_pl006_accept 全 PASS
-- [x] M1.4 opencode_data in-flight 去重 —— 移植 go_quota D0.4/L1.7 同款标志+锁（约 15 行：_DATA_FETCH_LOCK + _data_in_flight + finally 复位），或最低限度注释显式声明不做取舍（二选一，倾向前者与配额链路对称）；验证：probe 并发双调 refresh_data_page 断言仅一次网络层调用
+验证与收尾（M4）：AGENTS/x.progress 导入验证命令更新（theme_loader/services/task_runner）+ 新建 verify_m_accept 端到端信号断言 5 断言 + 全量回归 63 脚本 0 失败 + 四主题冒烟全 OK。**版本推进决策（用户修订）**：M 批次虽为审计整改但用户要求推进，整体发布版本 V0.2.5.2 → **V0.2.5.3**（PL007 主题文件夹化一并纳入，commit `fix: V0.2.5.3` 已由用户执行）。
 
-### M2 配置化
-
-- [x] M2.1 no_db 文案回归 ui.json 单源 —— service.py:94 改 raise ServiceError(str(_SC.ui["status_messages"]["no_db_found"]))、:112 改 no_db_export 键，删除硬编码；验证：grep 断言 service.py 无裸中文 db 文案 + probe 断言 db_path=None 时 message 含环境变量提示
-- [x] M2.2 节流提示文案外置 —— ui.json go_quota_error_messages 组新增 throttled_template 键，go_quota.py:359 与 opencode_data.py:66 两处 f-string 改读模板 .format(seconds=N)；验证：probe 断言两处文案随 ui.json 变更
-
-> **2026-08-25 完成（M1+M2 组）**：`probe_m1m2.py` 7/7 PASS（修复前 FAIL 即反向验收证据）+ `verify_pl006_accept.py` 升级为 modules import 白名单后 0 失败 + IMPORT OK + offscreen 冒烟 + 全量回归 62 脚本仅 3 历史版本债（verify_s12/s9/v1010_1 期望 V0.2.4.3，属 PL007 版本推进遗留，非本组范围）；x.progress PL006.4.a 措辞已同步白名单口径
-
-### M3 清理
-
-- [x] M3.1 TABLE_LIMIT 死常量删除 —— 删 main_window.py:74-75 两常量及 :1261 说明区条目；验证：grep 全文零引用 + IMPORT OK
-- [x] M3.2 _CdpGuideSignals 死类清理 —— 删 main_window.py:385-390 类定义，清理 :11 QObject/:13 QRunnable 未使用 import 名（核对无其他使用点后再删）；验证：grep 零残留 + IMPORT OK
-- [x] M3.3 PL007 文档残留七处批次替换 —— system_tray.py:57,105,120 / main.py:116,139 / config/settings.py:26-27 / main_window.py:681 注释统一改为 theme_loader/theme.json display_name 口径；验证：grep 全项目零 "ui.themes|themes.py|theme_labels" 注释残留（.temp 除外）
-- [x] M3.4 main_window 说明区补条目 —— 说明区补 _usage_job/_consume_pending/_set_guide_actions_enabled 三函数条目 + _RemainingPieChart 方法级条目；验证：人工核对覆盖全部函数清单
-- [x] M3.5 task_runner.py 补模块说明区 —— 文件末尾补 `# ===== ui/task_runner.py 模块说明 =====` 区块（TaskRunner/_FnTask/引用管理机制/设计理由）；验证：grep 断言存在
-- [x] M3.6 CDP_WAIT_TIMEOUT 死常量激活 —— service.py:150 裸读改用 :37 常量 `timeout=CDP_WAIT_TIMEOUT`；说明区 :192 常量清单补 CDP_WAIT_TIMEOUT 条目；验证：grep 断言常量有消费点 + 说明区含条目
-- [x] M3.7 README 双主题表述修正 —— README.md:42 改四主题表述（与 :109 一致）；验证：grep README 零"双主题"
-
-> **2026-08-25 完成（M3 组）**：`probe_m3.py` 9/9 PASS（修复前 FAIL 即反向验收证据）+ 全量回归 62 脚本 **0 失败** + IMPORT OK + offscreen 冒烟通过；适配 `verify_v1010_3.py`（TABLE_LIMIT 改从 services 导入）与 `verify_v4a3.py`（C14 断言改为检查 services 说明区）
-
-### M4 验证与收尾
-
-- [x] M4.1 导入验证命令更新 —— AGENTS.md:8 与 x.progress.md:15 运行验证命令替换 ui.themes 为 ui.theme_loader 并补 services.service/ui.task_runner；验证：新命令执行输出 IMPORT OK（真实覆盖加载器契约链）
-- [x] M4.2 guide failed 端到端信号断言固化 —— 在 M0.3 探针基础上将 emit 式断言并入 verify_l_accept 或新建 verify_m_accept 汇总脚本，防同类签名失配再逃逸；验证：汇总脚本 PASS
-- [x] M4.3 全量回归 + 收尾 —— run_all_verify 0 异常 + IMPORT OK + offscreen 四主题冒烟 + 反向验收（M0 各条删键/坏输入触发断言）；x.progress 勾选 + 版本推进决策 + commit 草稿
-
-> **2026-08-25 完成（M4 组）**：M4.1 两份导入命令已替换 `ui.themes`→`ui.theme_loader` 并补 `services.service/ui.task_runner`，新命令 IMPORT OK；M4.2 新建 `verify_m_accept.py`（5 断言全 PASS，含真实 TaskRunner.failed 信号 emit 端到端）；M4.3 反向验收 `probe_m0.py` 全 PASS + 全量回归 63 脚本 **0 失败** + IMPORT OK + 四主题（light/dark/console/panel）冒烟全 OK。
-> **版本推进决策（用户 2026-08-25 修订）**：M 批次虽为 A018 审计整改（缺陷清理），但用户要求推进版本号，故整体发布版本由 V0.2.5.2 提升至 **V0.2.5.3**（PL007 主题资源文件夹化 + M 批次整改一并纳入）。
-> **commit 草稿（待用户执行，AI 不执行 git 写操作）**：
->
-> ```
-> fix: V0.2.5.3，审计整改（正确性与防御/架构收敛/配置化/清理/收尾）
-> - 正确性与防御：配额刷新节流绕过、凭据 domain 为空崩溃、引导失败信号签名失配、加载错误未清待补发、Releases 非列表崩溃、主题加载器导入期异常包装、主题错误消息补全主题名
-> - 架构收敛：删除未使用类与重复维度定义、收敛模块门面导出、用量数据获取在途去重
-> - 配置化：无数据库提示文案与节流提示外置 ui.json
-> - 清理：删除表格行数上限死常量与废弃信号类、修正主题文档残留、补充模块说明区、激活 CDP 等待超时常量、修正 README 主题表述
-> - 收尾：导入验证命令更新、引导失败信号端到端验收脚本、全量回归零异常
-> - 版本推进 V0.2.5.2 → V0.2.5.3（base.json/README 徽章/x.progress 三处一致）
-> ```
-
-## N. 第19轮审计修复任务清单（依据 z.plan.md 附录 A019，2026-08-25 规划）
+## N. 第19轮审计修复任务清单（依据 z.plan.md 附录 A019，2026-08-25 已实施，版本 V0.2.5.4）
 
 > 来源：第 19 轮全量审计（A018 整改 M 批次完成后的连带复盘）；P 级 11 条（中 6 / 低 5，无高），观察项 14 条全部维持豁免
 > 目标：逻辑边界防御（缓存兜底提示/解包守卫/文案外置/锁原子性），无功能性重构
 
-### N0 正确性（防御性崩溃类，类别②）
+正确性（N0）：_on_guide_done 载荷解包守卫——非二元组降级状态栏提示不抛 ValueError（消息外置 status_messages.guide_data_format_error）/ data_page _format_cell 三分支 isinstance 类型守卫防上游结构变更渲染崩溃。
 
-- [x] N0.1 main_window.py:975 引导成功载荷解包守卫 —— `_on_guide_done` 中 `result` 解包前加 `if not (isinstance(result, tuple) and len(result) == 2): self._status_bar.showMessage("凭据数据格式异常"); return`；验证：probe 传非二元组断言不抛 ValueError 且状态栏提示
-- [x] N0.2 data_page.py:175-185 _format_cell 类型守卫 —— `total_t/ratio/share` 分支加 `if not isinstance(value,(int,float)): return str(value)`；`models` 分支加 `if not isinstance(value, dict): return str(value)`；验证：probe 传非数值/非 dict 断言渲染不抛异常
+去重与收敛（N1）：节流标注逻辑抽公共——新建 utils/cache_util.py 共享 mark_cached(obj, message, *, error_field, list_field)，opencode_data/go_quota 删本地 _mark_cached 改引共享并精简冗余导入；连带适配 verify_k1_accept/k3_accept/s10；probe_n0 9/9 + probe_n1 7/7 PASS。
 
-### N1 去重与收敛（类别④）
+配置化（N2）：opencode_data 三处面向用户文案外置 ui.json 新增 data_page_messages 组 / pricing UA 版本号改 utils.logger.VERSION 单点导出替换 _SC.base 直读。
 
-- [x] N1.1 opencode_data.py:67 + go_quota.py:350/:487 节流标注逻辑抽公共 —— utils 新增 `throttle_and_mark` 或在 opencode_data 统一引用 go_quota 的 `_throttled_*`/`_mark_cached`（评估不超抽象阈值）；验证：重构后两模块节流路径行为不变（probe 命中缓存标注文案一致）
+清理与规范（N3）：main.py 缓存兜底超阈路径亦弹预警气泡（标注缓存来源保持去重语义）/ go_quota+opencode_data 缓存发布移入锁内与在途标志复位同段原子可见 / 删冗余 import urllib.error / main_window 说明区补两 handler 条目 / data_page 空结果单表占位反馈（落地为单表占位而非全表 _populate_placeholder 避免覆盖兄弟表）/ system_tray 注释路径残留修正；probe_n2/probe_n3 TDD 全 PASS，verify_l_accept/v1010_1 随实现演进适配。
 
-> **2026-08-25 完成（N0+N1 组）**：`probe_n0.py` 9/9 PASS（修复前 FAIL 即反向验收证据）+ `probe_n1.py` 7/7 PASS；全量回归 63 脚本 **0 失败** + IMPORT OK + offscreen 冒烟通过。
-> N1.1 实现：新建 `utils/cache_util.py`（共享 `mark_cached(obj, message, *, error_field="error", list_field=None)`），opencode_data/go_quota 删本地 `_mark_cached`、改引共享函数（两模块 import 区加 `from utils.cache_util import mark_cached`、移除冗余 `replace` 导入、说明区同步）；N0.1 守卫消息外置 `status_messages.guide_data_format_error`（verify_5a3 文案外置守则不回退）。
-> 连带适配：verify_k1_accept（跨行正则匹配 mark_cached）、verify_k3_accept（mark_cached 列入导入白名单）、verify_s10（D11 改调 gq.mark_cached）。
-
-### N2 配置化（类别③⑪）
-
-- [x] N2.1 opencode_data.py:236/:269/:251 面向用户文案外置 ui.json —— 新增 `data_page_messages`（in_flight/fallback_suffix/block_missing 三键），三处改读 `_SC.ui["data_page_messages"][...]`；验证：probe 断言三处文案来自 ui.json 且缺键兜底
-- [x] N2.2 pricing.py:269 版本号单点导出 —— `from utils.logger import VERSION` 替换 `_SC.base['version']`；验证：probe 断言 pricing 读取与 logger.VERSION 同源
-
-### N3 清理与规范（类别⑥⑧⑩⑬）
-
-- [x] N3.1 main.py:51-94 配额预警缓存兜底路径弹气泡 —— `:91-94` else 分支内 `if info.overall_used_percent >= QUOTA_DANGER_PERCENT and not _notified_danger:` 亦弹气泡（消息标注缓存来源），保持 `_notified_danger` 复位语义；验证：probe 模拟全缓存超阈断言气泡触发
-- [x] N3.2 go_quota.py:478-479 + opencode_data.py:270-271 缓存发布持锁 —— 将 `_last_quotas/_last_success_at`（go_quota）与 `_last_snapshot/_last_success_at`（data）发布移入 `with 锁:` 块内与标志复位同段；验证：probe 并发两线程断言缓存标注时间戳与快照一致（理论级，需验证）
-- [x] N3.3 opencode_data.py:8 冗余 import 清理 —— 删除 `import urllib.error`（无 `urllib.error.X` 引用）；验证：IMPORT OK + 全量回归 0 失败
-- [x] N3.4 main_window.py 说明区补条目 —— MainWindow 方法清单（~:1303）补 `_on_quota_failed`（:865）/`_on_export_done`（:1019）两条目；验证：probe 断言说明区含两符号
-- [x] N3.5 data_page.py:130-168 空结果占位反馈 —— `_populate_table` 遇 `rows==[]` 调用 `_populate_placeholder`；验证：probe 断言空列表时表显示占位文案
-- [x] N3.6 system_tray.py:57 注释路径残留 —— 注释 `themes.quota_chunk_color` → `ui.theme_loader.quota_chunk_color`；验证：grep 断言零 `themes.quota_chunk_color` 残留
-
-**N2/N3 完成小结（2026-08-25）**：TDD 先行（`.temp/probe_n2.py` / `.temp/probe_n3.py`，修复前 FAIL、修复后全 PASS）；N3.5 落地为「单表空结果占位」而非调用全表 `_populate_placeholder`，避免批量设值时覆盖同批已填充的兄弟表（语义更正确，仍满足「空结果有占位反馈」验收）；verify_l_accept（L1.3/L1.7 改为适配 `captured[0]` 锁内发布）与 verify_v1010_1（H7 改为适配单点 `VERSION`）随实现演进适配；全量回归 63 脚本 0 失败 + IMPORT OK + offscreen 冒烟 OK。
-
-### N4 验证与收尾
-
-- [x] N4.1 全量回归 + 收尾 —— run_all_verify 0 异常 + IMPORT OK + offscreen 四主题冒烟 + 反向验收（N0-N3 各条坏输入/删键触发断言）；x.progress 勾选 + commit 草稿（版本推进 V0.2.5.4，此批随下次提交）
-
-> **版本推进决策（N 批次）**：第 19 轮审计整改（N 系列）完成后用户要求继续推进，发布版本由 V0.2.5.3 提升至 **V0.2.5.4**（N 批次整改纳入本次提交；M 批次已随 `fix: V0.2.5.3` 提交，不在本次范围）。
-> **commit 草稿（待用户执行，AI 不执行 git 写操作）**：
->
-> ```
-> fix: V0.2.5.4，审计整改（正确性防御/并发收敛/配置化/清理）
-> - 正确性与防御：配额结果元组解包守卫、数据页单元格类型守卫、缓存兜底超阈弹预警气泡
-> - 防御加固：数据页空结果占位反馈、缓存标记逻辑抽共享 helper（utils.cache_util）
-> - 并发收敛：配额与数据页缓存发布移入锁内，与在途标志复位同段原子可见
-> - 配置化：数据页面向用户文案外置 ui.json、定价 UA 版本号单点导出 utils.logger.VERSION
-> - 清理：删除冗余 import、修正托盘注释路径残留、补充主窗口说明区方法条目
-> - 收尾：审计报告归档与修复清单勾选、版本推进 V0.2.5.3 → V0.2.5.4 三处一致
-> ```
+验证与收尾（N4）：全量回归 63 脚本 0 失败 + IMPORT OK + offscreen 四主题冒烟 + 反向验收。**版本推进决策**：N 批次完成后用户要求继续推进，V0.2.5.3 → **V0.2.5.4**（commit `fix: V0.2.5.4` 已由用户执行）。
 
 ## O. 第20轮审计修复任务清单（依据 z.plan.md 附录 A020，2026-08-26 规划）
 
@@ -727,3 +513,31 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 > - 规范：八处模块说明区失实修正与方法条目补全、登录等待验证前复查截止时间
 > - 版本推进 V0.2.5.4 → V0.2.5.5（base.json/README 徽章/x.progress 三处一致）
 > ```
+
+## WTH001. 观察项可修正任务清单（依据 z.plan.md「Watch 系列」Watch001 批次，2026-08-26 规划）
+
+> 来源：第 16-20 轮观察项三方分级——69 条中 33 条永久豁免 + 24 条条件豁免已并入 z.plan.md
+> 「观察项豁免定案清单」①②两级；本清单为剩余 12 条可直接修正项。
+> 编号规则：WTH001 为本批次代号，批内子项 .a-.l 与 z.plan.md Watch001.a-l 一一对应；
+> .m 为批次收尾。后续新观察批次递增 WTH002…
+
+### 修正组（对应 Watch001.a-l）
+
+- [x] WTH001.a _quota_card dict frame/title 键零读取（死键） —— 删除两键及写入处（先确认全仓零消费）；验证：grep 零引用 + IMPORT OK
+- [x] WTH001.b 时序解析数字正则收紧 —— `[\d.]+` 改 `\d+(?:\.\d+)?`；验证：probe 构造 "1.2.3" aria-label 断言跳过该条不丢整图
+- [x] WTH001.c stack 扫描窗口魔数补注释 —— 6000 处补量纲注释（字符数窗口防超窗静默丢行）；验证：grep 注释在位
+- [x] WTH001.d subprocess_timeout cast 统一 —— opencode_usage/browser_creds 两处统一 int()；验证：IMPORT OK + 全量回归
+- [x] WTH001.e services 导入路径统一 —— 混用形式机械归一为 from services.service import X；验证：grep 零混用 + IMPORT OK
+- [x] WTH001.f THEME_LABELS fallback 死分支处置 —— M3 改名后重新定位确认不可达后删分支；验证：IMPORT OK + 四主题冒烟
+- [x] WTH001.g windows.py 顶层解包风格 —— 内联 get_static_config 改顶层 _SC 解包；验证：IMPORT OK
+- [x] WTH001.h retry 计数口径注释澄清 —— retries 尝试总轮次语义注明；验证：注释与实现一致性核对
+- [x] WTH001.i CLI --estimate help 补声明 —— help 文案补注生效范围；验证：--help 输出含说明
+- [x] WTH001.j "≥80%" 注释符号化 —— 改"≥ QUOTA_DANGER_PERCENT"表述；验证：grep 全仓零残留
+- [x] WTH001.k AGENTS verify 计数动态化 —— 写死计数改"全部 verify_*.py 脚本"；验证：AGENTS.md 无具体计数残留
+- [x] WTH001.l zip 数量不齐补 warning —— releases 双源数量不一致记日志；验证：probe mock 不齐断言 warning
+
+### 收尾组
+
+- [x] WTH001.m 全量回归 + 收尾 —— run_all_verify 0 异常 + IMPORT OK + offscreen 四主题冒烟；x.progress 勾选 + commit 草稿（git 由用户执行）
+
+**WTH001 完成小结（2026-08-26）**：TDD 先行（`.temp/probe_wth.py` 15 断言，修复前 15 FAIL）；实施要点——a 死键删除（card dict 仅留渲染消费键）、b 正则收紧 `\d+(?:\.\d+)?`、c 6000 补字符数窗口量纲注释、d 两模块统一 int()、e services 导入归并 from services.service 形式、f THEME_LABELS 直接下标访问（C0.6 契约保证可达，删不可达 fallback）、g windows.py 顶层 _SC 解包、h retries 总尝试轮次口径澄清、i --estimate help 注明仅总览生效、j 全仓 ≥80% 快照注释符号化为 QUOTA_DANGER_PERCENT 表述、k AGENTS 写死计数改"数量随批次增长"、l zip 双列表数量不齐 warning 告警；**教训记录**：f 条 edit 替换曾致 for 循环体缩进丢失（probe 仅文本断言未 import 未捕获，全量回归 IMPORT 阶段炸出）——已修复并确认 probe 后续批次应含至少一项 import 级冒烟断言；验证：全量回归 64 脚本 0 失败 + IMPORT OK + offscreen 四主题冒烟全 OK。本批随文档整理（A020 归档/豁免定案合并/双文件压缩）一并提交。

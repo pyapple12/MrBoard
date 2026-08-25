@@ -18,13 +18,12 @@
 
 ### ① 永久豁免（不再讨论）
 
-- **外部约束**：browser_creds --remote-allow-origins=\*（Chrome 137+ 无此参数 CDP 必 403）/ DASHBOARD 请求参数硬编码 / CDP 探测族 3 固定值不入配置
+- **外部约束**：browser_creds --remote-allow-origins=\*（Chrome 137+ 无此参数 CDP 必 403）/ DASHBOARD 请求参数硬编码 / CDP 探测族 3 固定值不入配置 / UA Chrome/126 版本号时效（2026-08-26 归并，A017——跟随 Chrome 升级手改，非代码缺陷）
 - **数据/数学常量**：BUNDLED_PRICES 数据快照 / COST_COMPARE_DIGITS 浮点容差 / \_EPOCH_MS/\_DAY_MS 数学基准 / $ 硬编码（OpenCode 计费固定 USD）
-- **设计定案**：retry 默认值语义分离 / retry 参数类型不校验（内部 API 调用方可控）/ 双份 themes 解析（各防护独立）/ toggle_theme 不即时持久化（退出即存设计）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）/ file_utils 缓存无业务写入方（C1）/ themes QUOTA_COLOR 常量名缩写（指代明确非失实）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ logger 注释措辞（字面仍成立）/ 说明区契约列举省略 dialog 组（已校验在位，叙述省略）/ 估算忽略 reasoning token（设计定案，w.study.md 记录，仅估算回退路径）/ 托盘不可用时 notify 无效调用（Qt 静默忽略无副作用）
-- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）/ ORDER BY 无索引（**外部库只读不可建索引**，仅 CLI 路径毫秒级）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ \_show_columns_menu 每次 new QMenu（父挂载自动回收）
-- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）/ 连点启动 N 个 QuotaTask（go_quota 节流兜底）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）
-- **外观**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ PIE_FONT_SIZE / 托盘几何
-- **2026-08-13 新增定案（profile 正则）**：\_profile_dirs 前缀匹配宽容为**刻意设计**——startswith("Profile") 兼容 Chrome 未来命名（官方命名 "Profile 1" 带空格，69 版起）；精确化收益（消除不可见毫秒级解析）< 规则依赖风险（未来命名变更致漏扫、凭据探测失效）；本机无 Profile 目录为验证盲区；误匹配目录已被单浏览器 try 兜底（无崩溃路径）
+- **设计定案**：retry 默认值语义分离（A019「retry 默认值与 base.json 不一致」观察项命中本条，2026-08-26 记账）/ retry 参数类型不校验（内部 API 调用方可控）/ 双份 themes 解析（各防护独立）/ toggle_theme 不即时持久化（退出即存设计）/ logger LOG_LEVEL 静默回退（B2 断言固化）/ convert 下划线字面量（B1 断言固化）/ restoreGeometry 静默回退（宽容策略一致）/ 本地覆盖缺字段按免费估算（B4 说明区记录）/ file_utils 缓存无业务写入方（C1）/ themes QUOTA_COLOR 常量名缩写（指代明确非失实）/ system_tray MENU_LABELS 依赖导入顺序（无可达路径）/ 浏览器: 文案硬编码（单次使用无调参场景）/ logger 注释措辞（字面仍成立）/ 说明区契约列举省略 dialog 组（已校验在位，叙述省略）/ 估算忽略 reasoning token（设计定案，w.study.md 记录，仅估算回退路径）/ 托盘不可用时 notify 无效调用（Qt 静默忽略无副作用）/ 配额选择器索引取目标同构不抽共享（2026-08-26 归并，A017+A019 已裁定抽象收益<成本）/ 托盘色固定 light palette 与 colors 双源并存（PL003.1.e 托盘无主题语义）/ Edge-only 用户 CDP 前置体验（产品范围定案仅支持 Chrome）/ CDP source 中文硬编码（单次内部诊断文案）/ http_get 不强制 UA（责任分散调用方取舍）/ formatter 参数单实现 YAGNI / go_quota/data 缓存存储差异 error vs errors（两模块数据形态不同）/ _wait_for_login_cookie worker 归属已核实（阻塞 sleep 仅存在于 QThreadPool worker）/ 配置契约键集人工维护（P23 契约层定案直接覆盖——显式声明+导入期校验为健康标准）/ 空数组块判真（Python truthy 有意依赖）/ export 任务 seq 统一签名代价 / has_loaded 公开属性 YAGNI 封装 / used_percent getter 供探针断言（删除致验收脚本失效）/ x.progress "29 键"历史措辞出入（历史文档 append-only 不回改）/ load_config 裸调缺口（四处调用点 try 全覆盖已核实闭环）/ _profile_dirs 前缀匹配宽容为刻意设计（2026-08-13 定案——startswith("Profile") 兼容 Chrome 官方命名及未来变更；精确化收益<规则依赖风险，本机无 Profile 目录属验证盲区；误匹配已被单浏览器 try 兜底）
+- **性能可接受**：每 profile 整库复制（一次性引导流程）/ exporter 查询全量驻留（单次导出）/ network 每次 get_static_config（单例查找零 IO）/ ORDER BY 无索引（**外部库只读不可建索引**，仅 CLI 路径毫秒级）/ toggle 每次全量文件 IO（低频非热点）/ system_tray 每次重建 QPixmap（刷新间隔受限）/ \_show_columns_menu 每次 new QMenu（父挂载自动回收；O3.2 已补 deleteLater 加固）/ pending 双渲染幂等微瑕（2026-08-26 归并，A016）/ \_apply_theme 构建期双重调用（幂等无害冗余）/ pricing \_load_cached_prices TTL 失效重复读盘
+- **并发理论**：go_quota 模块级缓存无锁（worker 串行）/ static_config 无锁单例（import 期）/ browser_creds 模块级无锁（B0.8 已停定时器）/ ws.recv 不按 id 匹配（未 enable domain）/ sqlite_utils 线程契约（同线程消费）/ 导出无防重入（原子写保完整性）/ 连点启动 N 个 QuotaTask（go_quota 节流兜底）/ go_quota in-flight stage 与 UI 引导卡交互（已核对闭环）/ go_quota 模块级缓存无锁理论竞态定时手动叠加（2026-08-26 归并，A016）/ in-flight check-set 字节码间隔极小（后果上限多拉一轮，A017）/ save_config 并发理论竞态（UI 单线程顺序触发，A017）/ 凭据 TTL 缓存 check-set 无锁（生产方受 in-flight 去重约束，A020）/ load_price_map 无锁并发双拉（write_json 原子替换最终一致，A020）/ get_service 单例无锁（AppService 无状态双初始化无害，A020）/ _live_tasks 无上限（固定 runner 数约束不可达，A018）/ Windows terminate 即 TerminateProcess 等价 kill 无需升级（A020）
+- **外观**：main_window 绘制细节（饼图角度/内缩/截断/内联 QSS）/ system_tray 图标几何（比例）/ paintEvent 无显式 end（Qt 析构自动）/ PIE_FONT_SIZE / 托盘几何 / 选择器 workspace_id[:8] 截断（2026-08-26 归并，A016）/ 页签 index==1 魔法数字（addTab 顺序注释固定，A017）/ errors[:2] 诊断截断惯例（A017）/ rstrip 数值展示规整（A019）/ CLI fetched_at UTC 输出诊断口径（A018）
 - **已修复记账**（历史记录防重复报告）：hidden_columns 非法 id 回写（D0.15）/ go_quota html 局部遮蔽（D0.14）/ parse_time_arg ISO 时区偏移（CLI 自测转文档）/ estimate 全表扫描（D0.11）/ write_json mkstemp 位置（D0.12）/ --version 在 PyQt import 后（D0.13）/ min_ts=0（E0.4）/ CREDS_CACHE_TTL（E2.2）/ refresh 连点（F0.2）/ UsageRow 契约（F0.3）/ UsageSummary 契约（G0.2）/ H0.3 fdopen 泄漏（I3.4 记账，原② 段条目移除）
 
 ### ② 条件豁免（触发条件变化时重新评估）
@@ -46,6 +45,30 @@
 - go_quota CLI quota_window_labels 容器无校验（触发：ui.json 键类型契约批次排期）
 - colors 键族契约化（触发：全量根键契约化决策同上）
 - RETRY_NETWORK_ERRORS HTTPError 语义（触发：调用方分类时序变更——当前已确证安全）
+- 写缓存路径 GUI 线程假设（触发：写入路径迁至非 UI 线程）（2026-08-26 归并，A016）
+- 凭据保存读改写非原子（触发：新增并发写凭据入口——当前 UI 主线程顺序执行物理不可达；若触发后果为丢失凭据条目，届时优先 service 层串行化）（2026-08-26 归并，A020）
+- _manual_guide 模态期间定时刷新未暂停（触发：引导期间刷新错位复现）（2026-08-26 归并，A016）
+- combo 失配脏值残留（触发：账户增删时序错位复现）（2026-08-26 归并，A016）
+- 双 cookie findData 取首条（触发：多 cookie 共存场景出现）（2026-08-26 归并，A017）
+- QInputDialog authCookie 明文回显（触发：安全要求提升——可选 Password 模式，涉"核对粘贴内容"UX 取舍需用户拍板）（2026-08-26 归并，A017）
+- 时序排序无年份跨年理论错序（触发：跨年数据+排序异常复现）（2026-08-26 归并，A016）
+- _time_clause 无前缀列名依赖 session 表结构（触发：session 表 schema 变更）（2026-08-26 归并，A016）
+- themes 残留检测正则花括号误报（触发：palette 值含花括号）（2026-08-26 归并，A016+A019）
+- to_int 浮点截断（触发：出现小数 token 输入）（2026-08-26 归并，A019）
+- 三源全空不断流节流失效（触发：断网恢复期网络开销成为问题——per-source 合并评估）（2026-08-26 归并，A020）
+- quota_chunk_color 非数值裸 TypeError（触发：调用链变更传入非数值）（2026-08-26 归并，A018）
+- save_account 空值落盘下游过滤（触发：下游过滤被移除）（2026-08-26 归并，A018）
+- login_wait_seconds 负值文案无入口（触发：负值配置）（2026-08-26 归并，A018）
+- CDP 端口 TOCTOU（触发：端口冲突高频环境）（2026-08-26 归并，A016）
+- CDP cookie domain 子串过滤（触发：连接非自启/远程调试实例——若触发存在取到他域 cookie 可能）（2026-08-26 归并，A020）
+- CSV 公式注入（触发：导出文件对外分发场景——Excel 打开启用编辑可执行公式）（2026-08-26 归并，A020）
+- retry nan/inf 理论路径（触发：json 手写 NaN 字面量）（2026-08-26 归并，A020）
+- sqlite_utils UNC 路径 URI 解析失败（触发：网络盘路径支持需求）（2026-08-26 归并，A020）
+- 退出 QThreadPool waitForDone 阻塞（触发：退出卡顿复现）（2026-08-26 归并，A018）
+- 解密失败旧凭据缓慢膨胀（触发：凭据文件体积异常增长——清理涉凭据生命周期策略需谨慎）（2026-08-26 归并，A020）
+- ServiceError 分类退化 YAGNI（触发：前端替换 QML/Web 需求出现）（2026-08-26 归并，A018）
+- Releases 拉 5 取 3 数量语义双处（触发：数量语义变更需求）（2026-08-26 归并，A018+A020）
+- file_utils 缓存键大小写（触发：路径大小写混用场景）（2026-08-26 归并，A017）
 
 ### ③ 价值权衡（未来批次按需排期，决策记录）
 
@@ -468,274 +491,46 @@ mrboard/
 
 ## PL004. 用量纯净视图回归：切换日志移除 + 配额单卡选择器实施方案（2026-08-23）
 
-> 来源：人测反馈"接下来做 UI 与内容呈现完善"的前置收敛 + 2026-08-23 多轮对齐拍板。
-> 背景根因：opencode.db 消息 JSON 无任何账号维度字段（实测顶层键仅 agent/cost/mode/
-> modelID/parentID/path/providerID/role/time/tokens/variant），且多账号消息混写同一本地库
-> ——PL001 时间窗近似方案对"并行使用"物理不可分、对"串行切换"存在采样漏检，实用价值
-> 有限；用户诉求回归"整体 tokens"纯净视图，配额侧改为"选谁看谁"的单卡交互。
-> 状态：✅ 已实施（2026-08-23，版本 ver 0.240）
+> 来源：人测反馈"UI 与内容呈现完善"前置收敛 + 2026-08-23 多轮对齐拍板。
+> 背景根因：opencode.db 消息 JSON 无任何账号维度字段且多账号消息混写同一本地库——PL001 时间窗近似方案对"并行使用"物理不可分、对"串行切换"存在采样漏检，实用价值有限。
+> 状态：✅ 已实施（2026-08-23，版本 ver 0.240）；原始方案全文见 git 提交 c4e6db9
 
-### 目标形态
-
-| 区域            | 现状                                               | 目标                                              |
-| --------------- | -------------------------------------------------- | ------------------------------------------------- |
-| tokens 用量统计 | 明细区账户时段下拉过滤 + 导出标注列 + 后台切换日志 | 纯净单视图（全量统计，无任何账户概念）            |
-| Go 配额展示     | 多卡并列（每凭据一张卡）                           | 单卡 + 账号选择器下拉（选谁显示谁），选择持久化   |
-| 凭据管理        | CDP 引导 / 手动填写；数组格式异账号追加            | **原样保留**（选择器的数据基础，不动）            |
-| 托盘预警        | 取所有有效账户中用量最高者驱动                     | **原样保留**（只依赖 infos 列表，不依赖卡片形态） |
-
-### 任务分解
-
-#### PL004.1 删 A：切换日志体系（时间点记录）
-
-- credential_store.py：删除 `SWITCH_LOG_FILENAME` 常量（:23）、`load_switch_log` /
-  `save_switch_log` / `detect_credential_switch` 三函数（:111-182）及说明区对应条目
-  （:214-235 相关行）；连带删除 `credential_fingerprint`（:103）——唯一消费者为切换日志
-  与无 UI 消费的 GoQuotaInfo.fingerprint 字段
-- go_quota.py：删除 `SWITCH_LOG_FILE` 常量（:50）、`record_credential_switch` 钩子
-  （:103-112）、fetch 循环内调用点（:458-459 含 PL001.3 注释）、`GoQuotaInfo.fingerprint`
-  字段定义（:140）与两处赋值（:396-408/:478）、说明区条目（:560/:570）
-- main.py：删除 import（:15）与启动时调用（:38）
-- ui/main_window.py：删除 `SWITCH_LOG_FILE` / `load_switch_log` import（:50/:65）
-- 验证：IMPORT OK + offscreen init + 定向探针（被删符号 AttributeError 即 PASS）
-
-#### PL004.2 删 B：时段截取链（intervals 参数 + 账户下拉 + 导出标注列）
-
-- opencode*usage.py：删除 `intervals` 形参全链——totals（:230/:235/:272）、各 by*\*
-  （:297-443 约 8 处签名与透传）、`_time_clause` 区间分支（:460-489 仅删 intervals 部分）、
-  其余查询（:510/:554）、CLI `--account` 参数（:650-654）与切换日志解析块（:659-683）；
-  import L18-19 一并删。**硬性注意**：since/until 形参是 `--since` 时间过滤，与账户无关，
-  **严禁误删**
-- exporter.py：删除 `account_intervals` / `account_label` 形参（:34-35）、六处查询传参
-  （:40-65）、标注列写入块（:69-77 row["account"] 与 CSV_COLUMNS + ("account",)）、
-  说明区条目（:132/:135）
-- ui/main*window.py：删除账户下拉三常量（:98-100 ACCOUNT_ALL_LABEL/COMBO_TEMPLATE/
-  DATE_FORMAT）、`_UsageTask.intervals` 字段与传参（:363/:380/:386）、
-  `\_ExportTask.account*\*`（:474-475/:487-488）、`self.\_account_intervals`初始化（:737）、
-  下拉构建与装配（:898-901/:930）、三方法整体`\_rebuild_account_combo`/`\_sync_account_intervals`/`\_on_account_changed`（:948-1019）、任务赋值点
-  （:1042/:1274-1277）
-- settings.py：删除 `account_filter` 字段（:40）、to_dict 输出（:49）、from_raw 解析块
-  （:77-79）
-- config/static/ui.json：删除 `account_filter_all_label` / `account_combo_template` /
-  `account_label_date_format` 三键
-- 验证：IMPORT OK + 全量回归（预期 pl001 系列脚本 FAIL，属预期涟漪，见 PL004.5）
-
-#### PL004.3 配额区改造：单卡 + 账号选择器 + 选择记忆
-
-- 数据层**零改动**：`fetch_go_quota` 保持全量轮询返回 `list[GoQuotaInfo]`——60s 节流、
-  in-flight 去重、缓存兜底、占位错误项机制原样；这是"切换选择零延迟"的数据基础
-  （选中项数据已在缓存列表，切下拉不发网络请求）
-- 卡片结构回归单张：`_build_quota_section` 删除 `_quota_cards` 动态列表容器与
-  `_build_quota_card(primary=True)` 兼容主卡模式（PL001.9 结构），恢复单个 `_quota_card`
-  dict；`_render_quota` 改为按选中 workspace_id 从 infos 取项渲染单卡，
-  失配（已删凭据/尚未刷出）回落首个有效项、全无效渲染 infos[0] 错误态
-- 新增账号选择器：配额区顶部加一行 QLabel + QComboBox（userData = workspace_id，
-  自然 ID 与凭据判重同源；标签文案外置 ui.json 新键 `quota_account_label`）；
-  选项以每次刷新的 infos 为准重建（blockSignals 防回环），错误占位项照常入列
-  （选中它显示该账号的错误文字，与其他账号互不影响）
-- 选择记忆：settings.py 新增 `quota_account: str = ""` 字段（空 = 首个有效项）+
-  to_dict 输出 + from_raw 解析（strip 宽容）；切换回调立即 save_config（失败仅 warning
-  降级，与 E0.3/D0.10 同式）；启动恢复 blockSignals 包裹 setCurrentIndex
-- 托盘零改动：main.py `_on_quota_updated` 取"所有有效账户中 overall_used_percent 最高者"
-  驱动图标/预警的逻辑不动（多账号时仍按最紧的预警，保守语义合理）
-- 验证：offscreen init + 探针断言（切换下拉 → 渲染项变化 + quota_account 落盘 +
-  重启恢复；infos 失配回落路径）
-
-#### PL004.4 清理与兼容性（残留物物理删除）
-
-- config/user_config.json：物理删除 `"account_filter": "..."` 行（不留死键等运行时无视）
-- data/credentials/switch_log.json：文件直接删除（gitignore 内纯死数据，无代码再读写）
-- 凭据文件数组格式与追加式保存（go_quota.save_dashboard_credentials 同 workspaceId
-  覆盖/异账号追加）**确认保留不动**——配额选择器的数据基础
-- 验证：带旧残留键的临时 user_config 跑一次 offscreen init（from_raw 逐键 raw.get()
-  天然容忍未知键，实证启动无错、其余配置正常生效）
-
-#### PL004.5 回归脚本清理与新验收
-
-- 必删（锚定被删代码必 FAIL）：`.temp/verify_pl001_accept.py`、`.temp/probe_pl001_*`
-  系列、其他引用 intervals/account_filter/switch_log 的探针逐一排查清理
-- 同步修：`.temp/verify_5a3.py` 白名单移除"保存账户过滤配置失败"条目及同类锚定点；
-  `.temp/run_all_verify.py` 清单移除已删脚本
-- 新建 `.temp/verify_pl004_accept.py` 反向断言：credential_store 无 switch_log 四函数 /
-  opencode_usage 各查询无 intervals 参数 / exporter 无 account 标注 / main_window 无
-  \_account_combo / quota_account 切换持久化回环 / 单卡按选中 workspace_id 渲染 /
-  user_config 残留键已物理清除
-- 验证：run_all_verify.py 全量回归 0 异常
-
-#### PL004.6 文档同步与版本推进
-
-- README：分账号用量章节改写为"配额账户切换"说明（选谁看谁 + 凭据引导入口指引）
-- z.plan.md：本章节状态更新为已实施；y.problem.md 如有 PL001 关联条目同步标注退役
-- x.progress.md：新增 PL004 任务清单（与本章任务分解一一对应，完成后勾选附验证结果）
-- 版本推进：base.json version → ver 0.240（已定版）+ README 徽章 +
-  x.progress 当前版本行三处同步；commit 草稿按 V2 规范给出
-
-### 技术要点与硬限制
-
-- 根因约束（不再回退）：opencode.db 消息无账号字段 + 多账号混写同库——时间窗近似方案
-  退役后**不再以任何形式重新引入**用量侧账户区分；若未来官方提供账号维度数据再立项
-- 账户标识统一用 workspace_id（自然 ID 可读、凭据判重同源）；指纹函数随切换日志退役，
-  不留兼容层
-- since/until 参数链与账户无关（--since 过滤），删除 intervals 时严禁连带误伤
-- 托盘预警语义（最紧有效账户）独立于卡片形态，本次零改动
-- 配额选择器选项来源 = infos（实际拉到的账户列表），不是凭据文件原文——解密失败的
-  条目自然不出现在下拉里，避免"选了却永远加载不出"
-
-### 工作量估算
-
-| 部分               | 内容      | 估算                                             |
-| ------------------ | --------- | ------------------------------------------------ |
-| 删 A + 删 B        | PL004.1-2 | 1~1.5 小时（intervals 链约 15 处签名，机械但深） |
-| 单卡化 + 选择器    | PL004.3   | 1~1.5 小时                                       |
-| 清理 + 脚本 + 收尾 | PL004.4-6 | 1 小时                                           |
-| 合计               |           | **半天以内**                                     |
-
-### 已拍板决策（2026-08-23 记录在案）
-
-1. 删除范围？ - A（切换日志）+ B（时段截取/账户下拉/导出标注列）全删，用量回归纯净单视图
-2. 配额区形态？ - 多卡并列改单卡 + 账号选择器下拉，"选谁显示谁"，选择持久化（quota_account）
-3. 凭据数组格式与追加式保存？ - 保留不动（选择器的数据基础；删则选择器退化为反复重抓凭据）
-4. 残留物处理？ - user_config.json 的 account_filter 行与 switch_log.json 文件均物理删除，
-   不留死键死文件
-5. 托盘预警？ - 零改动，维持"最紧有效账户"保守语义
-6. 版本号？ - 定版 **ver 0.240**（2026-08-23 用户指定）
+- **目标形态**：tokens 用量回归纯净单视图（删账户时段下拉/导出标注列/后台切换日志，全量统计无任何账户概念）；Go 配额改"单卡 + 账号选择器下拉选谁显示谁 + 选择持久化"；凭据管理与托盘预警**原样保留**
+- **实施结果（六部分去向）**：
+  - 删 A 切换日志体系：credential_store/go_quota/main/main_window 四处 SWITCH_LOG 常量、load/save/detect 三函数、指纹链（credential_fingerprint 与 GoQuotaInfo.fingerprint——无 UI 消费者）、钩子调用点及说明区条目 → **保留**；定向探针被删符号 AttributeError 即 PASS
+  - 删 B 时段截取链：opencode_usage intervals 形参全链与 CLI --account 参数及解析块 / exporter account_intervals+account_label 形参与 CSV 标注列 / main_window 账户下拉三常量+三方法+_UsageTask/_ExportTask 字段 / settings.account_filter 三件套 / ui.json 三键 → **保留**（since/until 为 --since 时间过滤与账户无关，原样保留严禁误删）
+  - 配额区改造：数据层 fetch_go_quota 全量轮询零改动（60s 节流/in-flight 去重/缓存兜底原样——切换零延迟的数据基础）+ 卡片回归单张按选中 workspace_id 渲染（失配回落首个有效项，全无效渲染错误态）+ 选择器行 userData=workspace_id、标签外置 quota_account_label、选项按刷新 infos 重建 blockSignals 防回环 + quota_account 字段三件套切换即存失败 warning 降级 → **保留**
+  - 清理与兼容：user_config account_filter 行与 switch_log.json 物理删除不留死键死文件；带旧残留键临时配置 offscreen 启动实证无错 → **保留**
+  - 回归脚本清理与新验收：verify_pl001_accept/probe_pl001 系列删除 + verify_5a3/run_all_verify 白名单同步 + 新建 verify_pl004_accept 反向断言（无 switch_log 函数/无 intervals/无 account 标注/单卡按选中渲染等）→ **保留**
+  - 文档同步与版本推进：README 改写"配额账户切换"说明 + 版本 ver 0.240 三处一致 → **保留**
+- **技术要点（历史存档）**：时间窗近似方案退役后不再以任何形式重新引入用量侧账户区分（未来官方提供账号维度数据再立项）/ 账户标识统一 workspace_id 不留兼容层 / 托盘预警语义独立于卡片形态本次零改动 / 选择器选项来源=infos 实拉列表而非凭据原文（解密失败条目自然不出现避免选了加载不出）
+- **决策记录（历史存档）**：A+B 全删纯净视图 / 单卡+选择器持久化 / 凭据数组追加式保存保留（删则选择器退化反复重抓凭据）/ 残留物物理删除 / 托盘零改动维持最紧有效账户保守语义 / 定版 ver 0.240
 
 ## PL005. 配额区"添加账户"常驻入口实施方案（2026-08-23）
 
-> 来源：PL004 实施后缺口盘点（2026-08-23）——引导卡片仅在"所有账户均无凭据/凭据失效"
-> 时显示（main_window \_on_quota_ready 的 show_guide 条件），已有有效凭据时想引入新账户
-> **没有任何 UI 入口**（托盘菜单仅刷新/退出；明细区按钮行无凭据项），唯一途径是删凭据文件
-> 让引导卡重现（丢失已存账户）。
-> 状态：📌 方案已确认，待实施
+> 来源：PL004 实施后缺口盘点——引导卡仅在全部账户凭据失效时显示，已有有效凭据时引入新账户没有任何 UI 途径（唯一途径是删凭据文件，丢失已存账户）。
+> 状态：✅ 已实施（2026-08-23，版本 ver 0.241 独立定版）；原始方案全文见 git 提交 cf48728
 
-### 目标形态
-
-| 项           | 现状                   | 目标                                                 |
-| ------------ | ---------------------- | ---------------------------------------------------- |
-| 添加账户入口 | 仅凭据缺失时引导卡可达 | 配额区选择器旁**常驻"添加账户"按钮**，随时可点       |
-| 点击行为     | ——                     | 弹菜单两条路径：一键自动获取（CDP）/ 手动填写        |
-| 添加后体验   | ——                     | 凭据追加 → 自动刷新 → 选择器出现新账号并**自动选中** |
-| 托盘         | 刷新/退出              | 零改动（窗口常驻可达，避免托盘菜单膨胀——KISS）       |
-
-### 任务分解
-
-#### PL005.1 入口按钮与菜单
-
-- ui.json 新键 `quota_add_account_button`（"添加账户"）；main_window 常量解包同式
-- `_build_quota_section` 选择器行尾加 QPushButton；点击弹 QMenu 两项，文案复用既有
-  GUIDE_AUTO_BUTTON / GUIDE_MANUAL_BUTTON（不新增重复键）；动作分别路由
-  `_start_cdp_guide` / `_manual_guide`（既有引导流程与 A0.6/A0.7 并发防护原样复用）
-
-#### PL005.2 复用适配与添加后闭环
-
-- `_start_cdp_guide` 从非引导卡上下文触发适配：`_guide_frame.hide()` 幂等无害确认；
-  **关键修复**：`_on_guide_failed` 无条件 `self._guide_frame.show()`（:1174）——已有有效
-  凭据时从配额区触发失败会把引导卡弹出（界面语义混乱），改为按 show_guide 同款条件判断
-  （全部账户凭据类错误且无缓存才显示）
-- 手动填写路径确认：`_manual_guide` 保存后已调 refresh ✅ 原样复用
-- 添加后自动选中新账户：一次性 pending 标志 `_pending_quota_account`；
-  - 手动路径直接携带 workspace_id；
-  - CDP 路径改 `_CdpGuideSignals.success` 信号签名携带 workspace_id（任务内已抓到），
-    `_on_guide_success` 写入 pending；
-  - `_render_quota` 重建选项后优先匹配 pending 选中并清除标志（匹配失败静默丢弃，
-    回落既有选中逻辑）
-
-#### PL005.3 验证与收尾
-
-- 探针 probe_pl005_entry.py：按钮存在 + QMenu 两动作路由正确（offscreen 触发不崩）；
-  手动路径 mock QInputDialog 输入 → 凭据数组追加 + refresh 触发 + pending 自动选中生效
-  （行为级 mock 允许，结构断言用真实 save_dashboard_credentials 落盘验证）
-- 全量回归 run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟
-- README 配额账户章节补"添加账户入口"说明；x.progress.md 勾选附验证结果
-- 版本归属决策（并入未提交的 ver 0.240 或独立 ver 0.241，待用户定）+ commit 草稿
-
-### 技术要点与硬限制
-
-- 引导流程三件套（CDP 后台任务/手动对话框/并发防护标志）全部复用，不新建平行流程；
-  新代码只有入口按钮、菜单路由、pending 选中、failed 显示条件修正四块
-- `_on_guide_failed` 的显示条件修正必须与 `_on_quota_ready.show_guide` 同源逻辑，
-  防双路径漂移（提取为 `_should_show_guide()` 私有方法单点维护）
-- CDP 信号签名变更向后兼容（workspace_id 参数带默认值），旧消费方不破
-- 凭据写入仍统一走 save_dashboard_credentials（DPAPI 加密 + 异账号追加），零新写路径
-
-### 工作量估算
-
-| 部分      | 内容    | 估算                           |
-| --------- | ------- | ------------------------------ |
-| 入口+菜单 | PL005.1 | 20 分钟                        |
-| 适配+闭环 | PL005.2 | 30 分钟（failed 条件修正为主） |
-| 验证收尾  | PL005.3 | 30 分钟                        |
-| 合计      |         | **1~1.5 小时**                 |
-
-### 已拍板决策（2026-08-23 记录在案）
-
-1. 入口位置？ - 配额区选择器旁常驻"添加账户"按钮 + QMenu 两路径；托盘零改动
-2. 添加后体验？ - 自动刷新并自动选中新账户（pending 标志机制）
-3. 版本号？ - 独立 **ver 0.241**（2026-08-23 用户指定，不并入 ver 0.240）
+- **目标形态**：配额区选择器旁常驻"添加账户"按钮随时可点 + QMenu 两路径（一键 CDP 自动获取/手动填写）+ 添加后自动刷新并自动选中新账户（pending 标志机制）；托盘零改动避免菜单膨胀
+- **实施结果（三部分去向）**：
+  - 入口按钮与菜单：ui.json 新键 quota_add_account_button + 选择器行尾 QPushButton 弹 QMenu 两项（文案复用 GUIDE_AUTO/MANUAL_BUTTON 不新增重复键）路由既有 _start_cdp_guide/_manual_guide → **保留**
+  - 复用适配与闭环：**关键修复**——_on_guide_failed 原无条件 show 引导卡（已有有效凭据时从配额区触发失败界面语义混乱），提取 \_should_show_guide() 同源单点维护改按条件显示 / 添加后自动选中：一次性 pending 标志 _pending_quota_account，CDP 路径信号签名携带 workspace_id（带默认值向后兼容），\_render_quota 重建选项后优先匹配 pending 并清除 / 引导流程三件套全复用零平行流程，凭据写入统一走 save_dashboard_credentials 零新写路径 → **保留**
+  - 验证与收尾：probe_pl005_entry 行为级探针（真实 save_dashboard_credentials 落盘验证）+ 全量回归 0 异常 + README 补说明 + 版本三处同步 → **保留**
+- **决策记录（历史存档）**：入口位置配额区常驻按钮+QMenu 两路径托盘零改动 / 自动刷新自动选中 pending 机制 / 独立 ver 0.241 不并入 0.240
 
 ## 附录 A016：全量代码审计报告（第16轮，2026-08-23）
 
 > 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读；重点覆盖 PL001-PL005 五个版本新增/删除代码
 > 结果：**P 级 19 条（高 3 / 中 8 / 低 8）/ 参考级观察项 26 条（用户复核全部维持豁免）**
-> 状态：✅ 已修复（2026-08-23，K 系列 22 条全部完成，版本 ver 0.242；汇总反向验收 verify_k_accept 7/7 + 全量回归 0 异常）
+> 状态：✅ 已修复（2026-08-23，K 系列 22 条全部完成，版本 ver 0.242；汇总反向验收 verify_k_accept 7/7 + 全量回归 0 异常；任务清单见 x.progress.md K 系列）
 
-### 零、上轮修复复核清单
-
-| 上轮条目                               | 现状   | 证据                  |
-| -------------------------------------- | ------ | --------------------- |
-| J0.a parse_time_arg 相对时长上界       | ✅仍在 | opencode_usage.py:571 |
-| J0.b pricing local key 小写归一        | ✅仍在 | pricing.py:258-259    |
-| J3 main.py 说明区 QUOTA_DANGER_PERCENT | ✅仍在 | main.py:116-117       |
-| J3 file_utils 说明区 get_project_root  | ✅仍在 | file_utils.py:77-81   |
-
-零回退零漏改；PL001-PL005 新演进产生新问题见下。
-
-### 一、P0-P3 修复清单
-
-**高（确定性复现）：**
-
-| 文件:行号                           | 类型 | 描述                                                                                                                  | 建议                                                                    | 性质               | 影响面           |
-| ----------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------ | ---------------- |
-| ui/main_window.py:1310-1312         | ①⑬   | `_render_quota_card` 调 `quota_chunk_color(percent)` 未传 theme_name——非 light 主题下每次配额刷新进度条色重置回 light | 补第二参 `self._theme_name`                                             | 新增（PL003 遗漏） | UI 交互          |
-| ui/main_window.py:807-813,1145-1155 | ②⑬   | 添加账户菜单绕过引导互斥：无 `_guide_active` 重入防护、按钮不禁用——可双 CDP 并发、手动填写与 worker 并发写凭据        | 入口重入早退；菜单动作随 `_guide_active` 禁用                           | 新增（PL005）      | UI 交互/凭据安全 |
-| ui/main_window.py:1264（根因:723）  | ①    | `_rebuild_quota_account_combo` 用 `self._config` 一次性快照——会话内切换账户被下次刷新静默打回启动快照账户             | `_rebuild` 优先保持当前选中（在 infos 则不动），失配才回落持久化值/首项 | 新增（PL004）      | UI 交互          |
-
-**中：**
-
-| 文件:行号                                  | 类型 | 描述                                                                                                                 | 建议                                       | 性质               | 影响面          |
-| ------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------ | --------------- |
-| modules/opencode_data.py:249-250           | ①⑬   | 失败快照无条件替换上次成功缓存并续期时间戳（断网刷新丢旧数据），与 ：226 注释"保留上次快照"不符                      | 仅含实质数据才写缓存，否则保留旧快照标错误 | 新增（PL002）      | 显示层/数据管线 |
-| config/static/static_config.py:47-73       | ③⑫   | 数值白名单缺 `data_fetch_interval_sec`/`data_cache_ttl_sec` 两键（27 键实收 25，H0.4 契约第二次漏网）                | 白名单补两键+说明区计数同步                | 新增（PL002）      | 配置体系        |
-| modules/opencode_data.py:234,327,349       | ③⑫   | 三处 `http_get(timeout=15)` 硬编码绕过 network 层 http_timeout 配置回退                                              | 删实参走配置回退                           | 新增（PL002）      | 配置体系        |
-| modules/opencode_data.py:24 + base.json:36 | ⑤⑫   | CACHE_TTL 定义后零引用，"缓存 TTL"语义未实现，base.json 键无效                                                       | 实现 TTL 或删常量删键                      | 新增（PL002）      | 配置体系        |
-| modules/go_quota.py:408-418                | ⑬    | in-flight 分支经 \_fallback 只返回单条首条副本——多账户 infos 缩水为 1 条选择器闪缩丢项；节流分支却返回全集行为不一致 | in-flight 分支返回全集标注副本对齐节流分支 | 新增（PL001.8 起） | UI 交互         |
-| ui/main_window.py:1434,1480-1502           | ⑥    | 说明区 5 处失实 + 13 个新函数缺条目（\_should_show_guide/\_rebuild_quota_account_combo 等）                          | 按 PL004/PL005 后现状重写                  | 新增               | 文档            |
-| x.progress.md:4                            | ⑥    | 版本行仍 ver 0.240 与 :525"三处同步完成"勾选矛盾（实际 0.241）                                                       | 改 ver 0.241                               | 新增               | 文档            |
-
-**低：**
-
-| 文件:行号                                                             | 类型    | 描述                                                                                             | 建议                                  | 性质                 | 影响面   |
-| --------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------ | ------------------------------------- | -------------------- | -------- |
-| ui/main_window.py:871-875                                             | ⑤       | `_quota_frame`/`_quota_status`/`_quota_reset` 三属性零消费孤儿；:869 注释失实；:821 返回值冗余   | 删三属性修注释                        | 新增（PL004 残留）   | 清理     |
-| modules/opencode_data.py:43-51                                        | ⑤       | DataPageError 类零引用空壳                                                                       | 删除                                  | 新增（PL002）        | 清理     |
-| modules/opencode_data.py:328,347                                      | ④⑥      | 两处函数内 import 标准库（json/xml.etree）非重依赖豁免口径                                       | 提到模块顶部                          | 新增（PL002）        | 规范     |
-| modules/go_quota.py:370; opencode_usage.py:522                        | ⑥       | PL004 死注释："附指纹"/"含账户时段过滤 PL001.4"（所指代码已删）                                  | 改文案                                | 新增（PL004 漏网）   | 文档     |
-| modules/opencode_data.py:415; go_quota.py:532,563; pricing.py:312-319 | ⑥       | 说明区四处失实/缺列（函数名错+九函数缺列/\_last_quotas 单数/fetch 描述旧/缺 PRICE_KEY_MAP 条目） | 同步现状                              | 新增                 | 文档     |
-| modules/browser_creds.py:509,518                                      | ②       | CDP 响应 JSON 合法非 dict 时 .get() AttributeError 逃逸 modules 层（ui 兜底防崩但英文报错）      | isinstance 校验并入宽容路径           | 遗留（E11 同型漏网） | 引导流程 |
-| main.py:129-131                                                       | ⑥       | 说明区 \_on_quota_updated 仍单账户时代口径                                                       | 补多账户口径一句                      | 新增                 | 文档     |
-| modules/opencode_data.py:361                                          | ②       | RSS published_at 无 or "" 兜底（title/content 均有），None 显示字面量 "None"                     | 补兜底                                | 新增（PL002）        | 显示层   |
-| ui/main_window.py:1240-1263                                           | ②需验证 | 同 workspace 双 cookie 凭据时 combo userData 重复选中错位                                        | userData 用索引或按 workspace_id 去重 | 新增，需验证         | UI 交互  |
-
-### 二、参考级观察项（26 条，用户复核全部维持豁免）
-
-并发类：模块级缓存无锁纯理论竞态（需验证定时/手动叠加）；\_manual_guide 模态期间定时刷新未暂停；\_json_cache 无锁（现调用方均 use_cache=False）；写缓存路径 GUI 线程假设。
-展示类：选择器 workspace_id[:8] 截断；懒加载空 rows 占位消失；dark 主题托盘色固定 light palette（PL003.1.e 明示豁免）；pending 双渲染幂等微瑕；combo 失配脏值残留。
-解析类：zip 数量不齐静默截断；时序排序无年份跨年理论错序（需验证）；\_time_clause 无前缀列名依赖 session 表结构；themes 残留检测正则花括号误报。
-其他：logger 非法 level 静默回退 INFO；retry 计数口径歧义；settings themes 空数组三级回落不可达；ui.json 数值键无 H0.4 式契约（可选增强）；subprocess_timeout 一 float 一 int；CHROME_UA/\_BROWSER_UA 同串双定义；CDP 端口 TOCTOU；Edge-only 用户 CDP 前置体验；CLI --estimate 仅 total 生效 help 未声明。
-
-### 三、亮点
-
-A015 四条修复历经五个功能版本零回退；PL004 大删除结构性清零（约 15 处签名/四函数/字段级删除无一漏网）；ui.json 56 键/base.json 39 键双向零死键（data_cache_ttl_sec 一键例外已列 P 级）；themes 注册制契约校验顺序正确；\_should_show_guide 提取语义等价（布尔吸收律验证）。
+- **上轮复核（J 系列 4 项）**：4/4 全部在位零回退零漏改；PL001-PL005 新演进产生新问题见下
+- **P0-P3（19 条）**：
+  - 高（3 条确定性复现）：\_render_quota_card 的 quota_chunk_color 未传 theme_name——非 light 主题刷新进度条色重置回 light / 添加账户菜单绕过引导互斥（无 _guide_active 重入防护、按钮不禁用，可双 CDP 并发写凭据）/ \_rebuild_quota_account_combo 用 self._config 一次性快照——会话内切换账户被下次刷新静默打回启动快照账户
+  - 中（8 条）：opencode_data 失败快照无条件替换成功缓存丢旧数据 / 数值白名单缺两键 H0.4 第二次漏网 / 三处 http_get(timeout=15) 绕过配置 / CACHE_TTL 死键语义未实现 / in-flight 分支经 _fallback 只返回单条致选择器闪缩丢项 / 说明区 5 处失实+13 函数缺条目 / 版本行 ver 0.240 与实际 0.241 矛盾
+  - 低（8 条）：三孤儿属性+注释失实 / DataPageError 零引用空壳 / 两处函数内 import / PL004 死注释两条 / 说明区四处失实缺列 / CDP 响应非 dict AttributeError 逃逸 / 单账户时代口径 / RSS published_at 无兜底 / 双 cookie userData 错位（需验证）
+- **参考级观察项 26 条**（用户复核全部维持豁免；2026-08-26 已归并入豁免定案清单与 Watch001）
+- **亮点**：A015 四条修复历经五个功能版本零回退；PL004 大删除结构性清零无一漏网；ui.json/base.json 双向零死键；themes 注册制契约校验顺序正确；_should_show_guide 提取语义等价（布尔吸收律验证）
 
 ---
 
@@ -743,157 +538,29 @@ A015 四条修复历经五个功能版本零回退；PL004 大删除结构性清
 
 > 范围：全部 19 个 .py + 3 个 JSON；三路并行代理全文审读；重点覆盖 A016/K 系列 22 条修复代码的完整性与自身缺陷
 > 结果：**P 级 16 条（中 1 / 低 15，无高）/ 参考级观察项 18 条合并维持豁免（用户复核确认）**
-> 状态：✅ 已修复（2026-08-24，L 系列 19 条全部完成，版本 V0.2.4.3——自本版起启用四段式版本号；反向验收 verify_l_accept 20/20 + 汇总 verify_k_accept 7/7 + 全量回归 0 异常）
+> 状态：✅ 已修复（2026-08-24，L 系列 19 条全部完成，版本 V0.2.4.3——自本版起启用四段式版本号；反向验收 verify_l_accept 20/20 + 汇总 verify_k_accept 7/7 + 全量回归 0 异常；任务清单见 x.progress.md L 系列）
 
-### 零、上轮修复复核清单
-
-| 上轮条目                      | 现状                                                        | 证据                     |
-| ----------------------------- | ----------------------------------------------------------- | ------------------------ |
-| K0.1 chunk 两参               | ✅仍在（5 处调用点零漏网）                                  | main_window.py:1323 等   |
-| K0.2 引导互斥早退             | ⚠️部分实现（入口早退在位；菜单禁用+静默反馈缺失→本轮 L1.1） | main_window.py:1147/1163 |
-| K0.3 选择器重建               | ⚠️主场景已修（回落分支残留快照源→本轮 L1.2）                | main_window.py:1264/1277 |
-| K1.1 失败保缓存               | ✅仍在（粒度边界→本轮 L1.4）                                | opencode_data.py:242     |
-| K1.2 in-flight 全集           | ✅仍在（残余缩水→本轮 L1.3）                                | go_quota.py:408-430      |
-| K1.3 isinstance 校验          | ✅顶层在位（深层缺口→本轮 L1.5）                            | browser_creds.py:508-512 |
-| K1.4 published_at 兜底        | ⚠️RSS 在位（JSON 同字段漏网→本轮 L1.6）                     | opencode_data.py:333     |
-| K1.5 索引化渲染               | ✅完整（窗口期错位经时序证明不存在）                        | main_window.py:1248/1298 |
-| K2.1-K2.3 白名单/timeout/死键 | ✅全部在位（26 键差集为零）                                 | static_config.py:71 等   |
-| K3.x 清理与说明区             | ✅在位（两处小漏网→本轮 L3 组）                             | 各文件                   |
-
-### 一、P0-P3 修复清单
-
-**中：**
-
-| 文件:行号                             | 类型    | 描述                                                                                                                                                                          | 建议                                                                                                                                                            | 性质                              | 影响面          |
-| ------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | --------------- |
-| ui/main_window.py:510-542,1348        | ①⑥      | **饼图弧色恒绿**：\_arc_color 仅以 quota_chunk_color(0,...)（OK 绿）赋值，渲染不联动弧色——高用量账户进度条红色而饼图弧仍绿；:490 注释"双色圆弧"与 :520"分级色圆弧"自相矛盾    | **已裁定方案 A（分级色，2026-08-23 用户确认）**：控件持有 theme 名 + set_used_percent 内按 quota_chunk_color(percent, theme) 联动弧色三档变色；两处矛盾注释统一 | 遗留（P16 起）                    | UI 展示一致性   |
-| **低：**                              |
-| 文件:行号                             | 类型    | 描述                                                                                                                                                                          | 建议                                                                                                                                                            | 性质                              | 影响面          |
-| ------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------                                                                                              | --------------------------------- | --------------- |
-| ui/main_window.py:805-813,1147        | ②⑬      | K0.2 部分实现：菜单动作引导期间未禁用且早退静默 return 无反馈                                                                                                                 | \_guide_active 切换时同步 setEnabled 菜单动作；至少早退补状态栏提示                                                                                             | A016 修复自身缺陷（部分采纳）     | UX              |
-| ui/main_window.py:1277                | ①需验证 | K0.3 回落分支仍读启动快照 self.\_config.quota_account（会话内切 B 后若 B 中途消失回落到 A；可达性窄）                                                                         | 回落改 load_config().quota_account 或切换回调回写 self.\_config                                                                                                 | A016 修复自身缺陷                 | UI 交互（边缘） |
-| ui.json:90 + main_window.py:260       | ⑤⑫      | button_labels.theme 死键被契约反向固化（删键反触发 RuntimeError）                                                                                                             | ui.json 与 \_UI_STRUCT_KEYS 两处一体删除                                                                                                                        | 遗留（PL003.2 漏网）              | 配置卫生        |
-| modules/go_quota.py:408-467           | ①⑬      | 失败占位项不入缓存（仅成功项 append）——部分账户失败时 in-flight/节流期"全集"缩为 M<N 条选择器闪缩丢失败项                                                                     | 占位项同样入缓存或缓存整份 results 快照                                                                                                                         | A016 修复自身缺陷（守卫范围不足） | 配额选择器      |
-| modules/browser_creds.py:514,523      | ②       | isinstance 只到顶层：result 键值为 null 时默认 {} 不生效链式 .get() 可抛 AttributeError；cookie 元素非 dict 未过滤                                                            | (resp.get("result") or {}) 取值式 + 循环内 isinstance 过滤                                                                                                      | A016 修复自身缺陷（校验深度）     | 引导流程        |
-| modules/opencode_data.py:240-248      | ①⑬      | has_data 整体守卫下单源失败空覆盖：Releases 失败宽容返回 [] 但整体有数据 → 空 releases 覆盖缓存（官方动态从有变空）                                                           | per-source 合并失败源沿用旧字段，最低限度 :240 注释声明取舍                                                                                                     | 遗留边界                          | 数据页官方动态  |
-| modules/opencode_data.py:333          | ①②      | JSON 路径 release.get("published_at","") 遇显式 null 得 "None" 字面量（tag_name 同式；body 已有 or ""）——K1.4 同型漏网另一路径                                                | 改 str(release.get("published_at") or "")                                                                                                                       | A016 修复自身缺陷                 | 官方动态列表    |
-| ui/main_window.py:1234                | ⑥       | \_render_quota 函数头注释失实："失配回落首个有效项"K0.3 后不可达（实际回落持久化值→保持首项不保证有效性）                                                                     | 按 K0.3 现状重写该句                                                                                                                                            | A016 修复自身缺陷                 | 文档            |
-| ui/main_window.py:1466-1477,1441-1459 | ⑥       | 说明区类型清单缺 _DataSignals/\_DataPageTask；常量清单缺 USAGE_TAB_TITLE/THEME_LABELS/QUOTA_ACCOUNT_\* 六键                                                                   | 补条目                                                                                                                                                          | 遗留+A016 未完全覆盖              | 文档            |
-| ui/main_window.py:1111-1116           | ⑧⑨      | error 路径 seq 失配直接 return 不清 \_usage_pending → 残留至下次成功后冗余补发一次全维度查询                                                                                  | seq 匹配分支追加 \_consume_pending()                                                                                                                            | 遗留（F0.2 边角）                 | 性能微小        |
-| README.md:165-187                     | ⑥       | 配置参数表多处失实："ver 0.203"快照腐化/table_headers 键名错（实为 data_table_headers）/已删键 notify_message_fallback 仍在列/palettes 描述过时/base.json 表漏列 PL002 四新键 | 文档批次统一同步                                                                                                                                                | 新增                              | 文档            |
-| modules/opencode_data.py:402          | ⑥       | 说明区 \_R_BLOCK_PATTERN 常量名失实（实际 \_R_OBJECT_PATTERN）——K3.5 重写漏网符号名                                                                                           | 改真实名                                                                                                                                                        | 新增                              | 文档            |
-| modules/opencode_usage.py:744         | ⑥       | 说明区"关联配置"缺 base.json/ui.json 键列                                                                                                                                     | 补列                                                                                                                                                            | 遗留                              | 文档            |
-| modules/go_quota.py:358 vs 412-419    | ①轻⑪    | in-flight 副本强制 ERROR_STAGE_NETWORK、节流副本不设——同为缓存语义元数据不一致（UI 当前无行为差异）                                                                           | 对齐其一                                                                                                                                                        | A016 修复引入（无害现状）         | 无直接影响      |
-| modules/go_quota.py:396,428,440       | ⑧       | \_fetch_in_flight check-then-set 与缓存读写均在 QThreadPool 池线程（手动+定时叠加可真并发偶发重复拉取一轮），对照 usage 任务主线程标志模式不一致                              | threading.Lock 包裹状态段或对齐 usage 主线程模式                                                                                                                | 升级为低正式项（证据确凿后果轻）  | 配额刷新链路    |
-
-### 二、参考级观察项（18 条合并，用户复核全部维持豁免）
-
-并发细目（check-set 字节码间隔极小/后果上限多拉一轮）、双 cookie findData 取首条（save 覆盖语义使 UI 无法自然产生）、QInputDialog authCookie 明文回显、索引取目标同构逻辑两份、页签 index==1 魔法数字、errors[:2] 截断、\_apply_theme 构建期双重调用、colors 嵌套子键无契约、formatter 参数单实现、CDP source 中文硬编码、ui.json 数值标量无 H0.4 式契约、save_config 并发理论竞态、file_utils 缓存键大小写、logger 非法 level 静默回退、retry 计数口径、空数组块判真、\_quota_card dict frame/title 键零读取、UA 值外观。
-
-### 三、亮点
-
-A016 的 K 系列 22 条历经全文深挖**零回退**，三条高严重度修复主体质量扎实（K0.1 五处调用点零漏网、K1.5 两端对齐且窗口期错位经时序证明不存在、pending 生命周期闭环成立）；白名单 26 键机械比对零差集；版本三处一致 ver 0.242；新发现问题集中于"修复建议部分采纳"与"重写未同步注释"，无崩溃级/数据级回归。
+- **上轮复核（K 系列 22 条）**：主体在位零回退；四处部分实现/边界缺口升级为本轮 L 条目（K0.2 菜单禁用+静默反馈缺失→L1.1、K0.3 回落残留快照源→L1.2、K1.1 粒度边界→L1.4、K1.2 残余缩水→L1.3、K1.3 深层缺口→L1.5、K1.4 JSON 同字段漏网→L1.6、K3 两处小漏网→L3 组）
+- **P0-P3（16 条）**：
+  - 中（1 条）：饼图弧色恒绿——_arc_color 仅以 quota_chunk_color(0,...) 赋值渲染不联动，高用量账户进度条红而饼图弧仍绿且两处注释自相矛盾；**已裁定方案 A 分级色（用户确认）**控件持 theme 名按百分比联动三档变色
+  - 低（15 条）：K0.2 部分实现菜单未禁用早退静默 / K0.3 回落分支读启动快照 / theme 死键被契约反向固化 / 失败占位项不入缓存全集缩水 / isinstance 只到顶层 result null 链式 .get() 可抛 / 单源失败空覆盖 Releases 从有变空 / JSON published_at 显式 null 得 "None" 字面量 / _render_quota 注释失实 / 说明区类型常量清单缺项 / error 路径 seq 失配不清 pending 冗余补发 / README 配置参数表多处失实 / _R_BLOCK_PATTERN 符号名失实 / opencode_usage 关联配置缺列 / in-flight 副本 error_stage 与节流分支不一致 / _fetch_in_flight check-then-set 池线程并发模式不一致
+- **参考级观察项 18 条合并**（用户复核全部维持豁免；2026-08-26 已归并入豁免定案清单与 Watch001）
+- **亮点**：A016 的 K 系列 22 条历经全文深挖零回退，三条高严重度修复主体质量扎实；白名单 26 键机械比对零差集；版本三处一致 ver 0.242；新发现问题集中于"修复建议部分采纳"与"重写未同步注释"，无崩溃级/数据级回归
 
 ## PL006. 前后端接口层：AppService 门面 + 统一任务运行器实施方案（2026-08-24）
 
-> 来源：架构演进讨论（2026-08-24）——UI 作为前端、modules 功能实现作为后端，两者当前为
-> "点对点直连"无正式接口；目标建立接口层使前端可整体替换（含远期 QML 评估）而后端不动。
-> 现状诊断：main_window 直接 import 五个 modules 的 8 类符号，并自建 5 个 QRunnable 任务类
-> （\_UsageTask/\_QuotaTask/\_DataPageTask/\_ExportTask/\_CdpGuideTask）+ 4 组 Signals 承载编排；
-> 后端函数签名任何变更都会引发 UI 层大面积连带修改（PL001-PL005 历次连带即证据）。
-> 状态：📌 方案已确认，待实施
+> 来源：架构演进讨论——UI 作为前端、modules 作为后端，当前"点对点直连"无正式接口（main_window 直接 import 五个 modules 的 8 类符号 + 自建 5 个 QRunnable 任务类 + 4 组 Signals，后端签名任何变更引发 UI 大面积连带修改）。
+> 状态：✅ 已实施（2026-08-24/25，版本 V0.2.5.1）；原始方案全文见 git 提交 b562ad1
 
-### 架构设计
-
-```
-services/                  ← 纯 Python 后端门面（零 Qt——换前端时原样带走）
-├── __init__.py            ← get_service() 单例入口 re-export
-└── service.py             ← AppService + ServiceError：粗粒度方法聚合全部后端编排
-
-ui/
-├── task_runner.py         ← TaskRunner(QObject)：Qt 异步设施（线程池 + 信号回传）
-├── main_window.py         ← from services import get_service；不再 import 任何 modules
-└── ...                    ← 换前端 = 整个 ui/ 替换，task_runner 随之重写（内部零业务，成本≈0）
-```
-
-**归属判定规则**（A017 讨论定案）：一段代码是否归 ui/，看它**替换前端时是否必然重写**。
-必然重写 = 归 ui/（TaskRunner 符合——Web 前端的异步设施是队列/WebSocket 而非 QThreadPool）；
-可原样带走 = 归 services/（AppService 符合）。多前端并存形态（ui/qt6/ 与 ui/qml/ 并列 +
-main.py --frontend 分发）为远期目标，**启用第二前端那天才执行结构搬迁**（YAGNI，现在不做）。
-
-**三条纪律**：
-
-1. **Service 纯 Python 零 Qt**——保持 modules 可测试性，QML/Web 前端未来可直接复用；
-   services/ 目录零 PyQt6 import 可机械断言（对齐白名单机械比对思路）
-2. **DTO 第一版直接透传 modules dataclass**（UsageData/list[GoQuotaInfo]/ModelDataSnapshot）——
-   类型共享属弱耦合可接受；独立 DTO 层留待 QML 迁移需要可序列化结构时再建（避免无谓样板）
-3. **UI 只 import services，不再直接 import 任何 modules 符号**（browser_creds 的 CDP 编排
-   整体迁入 Service）
-
-### 任务分解
-
-#### PL006.1 services/service.py 门面
-
-- AppService 单例（get_service()），方法聚合现散落 main_window 的编排逻辑：
-  - `resolve_db_path() -> Path | None`（find_db_path 包装）
-  - `get_usage(db_path: Path | None) -> UsageData`（内聚 OpenCodeDB 打开/totals/by\_\* 循环/
-    DIMENSIONS 推导/TABLE_LIMIT 分档/close 全套，原 \_UsageTask.run 主体）
-  - `get_quotas() -> list[GoQuotaInfo]`（= fetch_go_quota 直通）
-  - `get_data_page() -> ModelDataSnapshot`（= refresh_data_page 直通）
-  - `export_data(db_path, out_dir) -> None`（OpenCodeDB + export_all，原 \_ExportTask.run 主体）
-  - `save_account(ws, cookie)`（= save_dashboard_credentials）
-  - `add_account_via_cdp(login_wait_seconds=None) -> tuple[str, str]`（CDP 五步编排 +
-    \_wait_for_login_cookie 整体迁入，返回 (auth_cookie, workspace_id)，失败抛 ServiceError）
-- ServiceError(Exception)：业务错误基类（message 中文），UI catch 后按各自模板格式化
-- services/**init**.py re-export get_service（消费方 from services import get_service）
-
-#### PL006.2 ui/task_runner.py Qt 异步设施
-
-- TaskRunner(QObject)：`finished = pyqtSignal(int, object)` / `failed = pyqtSignal(int, str)`
-- `run(fn: Callable[[], Any], *, seq: int = 0)`：fn 提交 QThreadPool，成功发 finished(seq, 结果)、
-  异常发 failed(seq, str(exc))
-- 定位说明：随前端生灭的异步传输设施（内部零业务逻辑）；ui.json 文案格式化留在 UI 层
-  （failed 载荷为原始异常串，模板归属展示层）
-
-#### PL006.3 main_window 切换调用
-
-- 四个数据任务类删除，改 TaskRunner.run(service.get_usage/. get_quotas / .get_data_page /
-  lambda: service.export_data(...))；五组 Signals 收敛为 runner 一组（usage_ready/quota_ready/
-  data_ready 由 finished(object) 载荷区分，handler 不变）
-- \_CdpGuideTask 删除，改 TaskRunner.run(lambda: service.add_account_via_cdp(...))，
-  success/failed 双语义由 on_done/on_error 回调承载（workspace_id 经结果元组携带）
-- import 区收敛：删除全部 `from modules...` 行，仅保留 `from services import get_service`
-  与 `from ui.task_runner import TaskRunner`
-- MainWindow 可注入性保留（quota_fetcher/db_path 注入参数改为注入 service 或 stub 函数）
-
-#### PL006.4 验证与收尾
-
-- 探针：Service 各方法行为等价断言（对照迁移前输出）；TaskRunner 成功/异常双路径；
-  offscreen GUI 冒烟全流程
-- 全量回归 0 异常（重点盯 usage/export 相关历史脚本）
-- README 项目结构段补 services/ 与 ui/task_runner 说明
-
-### 技术要点与硬限制
-
-- services/ 目录零 PyQt6 import（含类型注解）——AST 机械断言纳入验收
-- in-flight/pending 等 UI 侧去重标志留在 main_window（它们是交互语义非业务逻辑）
-- \_wait_for_login_cookie 迁入 Service 时其内部 fetch_dashboard_usage 依赖随迁
-- 渐进可回滚：PL006 为纯重构行为不变，任一步回归不过即可回退 git
-- 多前端并存（ui/qt6/ 与 ui/qml/ 并列 + main.py --frontend 分发）不在本批实施——启用第二
-  前端那天执行结构搬迁，届时 services/ 无需任何改动
-
-### 工作量估算
-
-| 部分             | 内容      | 估算        |
-| ---------------- | --------- | ----------- |
-| Service+Runner   | PL006.1-2 | 半天        |
-| main_window 切换 | PL006.3   | 半天        |
-| 验证收尾         | PL006.4   | 2 小时      |
-| 合计             |           | **约 1 天** |
-
-### 已拍板决策（2026-08-24 记录在案）
-
-1. 版本号？ - 定版 **V0.2.5.1**（2026-08-24 用户指定；四段式第三位=功能批次、第四位=批次内序号）
+- **架构设计**：services/ 纯 Python 后端门面（零 Qt 换前端时原样带走）+ ui/task_runner.py Qt 异步设施；归属判定规则 = 替换前端时必然重写归 ui/、可原样带走归 services/；多前端并存为远期目标启用第二前端那天才搬迁（YAGNI）
+- **三条纪律**：Service 纯 Python 零 Qt（AST 机械断言）/ DTO 第一版直接透传 modules dataclass（独立层留待 QML 可序列化需求）/ UI 只 import services 不再 import 任何 modules 符号
+- **实施结果（四部分去向）**：
+  - services/service.py 门面：ServiceError 中文业务错误基类 + AppService 聚合 resolve_db_path/get_usage（原 _UsageTask.run 主体）/get_quotas/get_data_page/export_data（原 _ExportTask 主体）/save_account/add_account_via_cdp（CDP 五步编排 + _wait_for_login_cookie 整体迁入）→ **保留**
+  - ui/task_runner.py：TaskRunner(QObject) finished(int, object)/failed(int, str) 双信号 + run(fn, seq) 提交 QThreadPool；ui.json 文案格式化留在 UI 层 → **保留**（PL006.2.c 实测教训落地：_live_tasks/_done_tasks deque 保引用防 wrapper GC 崩溃）
+  - main_window 切换调用：四个数据任务类与 _CdpGuideTask 删除改 TaskRunner.run(service...)，五组 Signals 收敛为一组 finished 载荷区分；import 区删全部 from modules 编排行 → **保留**（M1.3 升级为白名单口径）
+  - 验证与收尾：verify_pl006_accept 反向验收（services 零 Qt AST 断言/行为等价/modules 白名单）+ 全量回归 0 异常 + README 结构段补说明 → **保留**
+- **技术要点（历史存档）**：in-flight/pending 等 UI 侧去重标志是交互语义留 main_window / 渐进可回滚纯重构行为不变
+- **决策记录（历史存档）**：定版 V0.2.5.1（四段式第三位=功能批次、第四位=批次内序号）
 
 ## PL007. 主题资源文件夹化：theme 与代码彻底解耦实施方案（2026-08-24）
 
@@ -950,7 +617,7 @@ ui/
 - 导出 API 同名同签名（get_theme/quota_chunk_color/THEME_NAMES/DEFAULT_THEME_NAME/
   QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK）
 - 消费方 import 行替换：from ui.themes → from ui.theme_loader（main_window/system_tray/settings）
-- settings.py THEMES 白名单引用 _SC.ui["themes"] 不变 ✅
+- settings.py THEMES 白名单引用 \_SC.ui["themes"] 不变 ✅
 
 #### PL007.3 验证与收尾
 
@@ -986,67 +653,14 @@ ui/
 > 范围：main.py + modules×7 + services×1 + ui×5 + utils×7 + config×4 + JSON 资源×8；三路并行代理全文审读 + git 双提交回归比对 + AST 机械扫描 + offscreen 实测
 > 重点：PL006 接口层重构（b562ad1）与 PL007 主题文件夹化（8dfe5d4）两批新代码连带
 > 结果：**P 级 21 条（中 3 / 低 18，无高）/ 参考级观察项 23 条全部维持豁免（用户复核确认）**
-> 状态：📌 待修复（M 系列任务清单见 x.progress.md）
+> 状态：✅ 已修复（2026-08-25，M 系列 21 条全部完成，版本 V0.2.5.3；probe_m0/m1m2/m3 反向验收全 PASS + verify_m_accept 端到端 + 全量回归 63 脚本 0 失败；任务清单见 x.progress.md M 系列）
 
-### 零、上轮修复复核清单
-
-| 上轮条目                                | 现状                       | 证据                           |
-| --------------------------------------- | -------------------------- | ------------------------------ |
-| L1.1 菜单禁用+早退反馈                  | ✅在位（启停对称完整）     | main_window.py:932-936/943-953 |
-| L1.2 回落 load_config                   | ✅在位                     | main_window.py:1095            |
-| L1.3 占位项入缓存                       | ✅在位                     | go_quota.py:463-473            |
-| L1.5 CDP 深层校验                       | ⚠️在位但漏网一处→本轮中项② | browser_creds.py:508-535       |
-| L1.6 published_at/tag_name 兜底         | ✅三键齐                   | opencode_data.py:334-338       |
-| L1.7 状态锁                             | ⚠️在位但覆盖不全→本轮中项① | go_quota.py:401,413,477        |
-| L2.1 饼图分级色联动                     | ✅在位（双触发点）         | main_window.py:340/346/349-353 |
-| L2.x theme 死键删除                     | ✅无回归                   | ui.json button_labels          |
-| L3.3 pending 消费                       | ⚠️半修复→本轮低项          | main_window.py:902-903         |
-| ERROR_STAGE 对齐/说明区/README 参数表等 | ✅全部在位                 | 各文件                         |
-
-### 一、P0-P3 修复清单
-
-**中：**
-
-| 文件:行号                                      | 类型 | 描述                                                                                                                                                                                                                                                                                                   | 建议                                                                                                                                                       | 性质                          | 影响面       |
-| ---------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------ |
-| modules/go_quota.py:353-361,391-392,444 vs 413 | ①⑧   | **节流分支绕过 in-flight 挡板**：线程 B 刷新中每完成一账户即更新 _last_success_at 并渐进写缓存，线程 A 在 :410 先命中节流拿到只有部分账户的列表，提示误导为"距上次刷新不足 60 秒"——K1.2/L1.3 反复修的"选择器闪缩"残余通道，L1.7 锁只护标志未护缓存读写                                                 | (a) 节流检查感知 in-flight；或 (b) 整轮完成后一次性提交快照（循环内只填 results，return 前 _last_quotas=results 单次更新时间戳），顺带修正 L1.7 注释失实处 | A017 修复自身缺陷（覆盖不全） | 配额选择器   |
-| modules/browser_creds.py:521-523               | ②⑬   | **CDP cookie 的 domain 显式 null 时 TypeError**：.get("domain","") 默认值仅键缺失时生效，null 返回 None → in None 抛 TypeError；该行在 try 块外异常逃逸打断登录轮询并外显英文原文（name/value 均已防护唯 domain 漏网）                                                                                 | 改 OPENCODE_HOST in (cookie.get("domain") or "")，一行闭合                                                                                                 | A017 修复自身缺陷（漏网）     | 引导流程     |
-| ui/main_window.py:1008（连接 :483）            | ①⑪⑬  | **\_on_guide_failed(self, message) 与 TaskRunner.failed(int,str) 签名失配**：PL006 统一信号加 seq 后唯此 handler 未同步——offscreen 实测 PyQt6 位置截断使 message=7(int)，showMessage 抛 TypeError，任何一次引导失败状态栏都不显示原因且 stderr 打 traceback；漏测根因：verify 全部直调方法绕过信号机制 | 签名改 (self, seq, message)；verify 补经信号 emit 的端到端断言                                                                                             | 新增（PL006 重构漏网）        | 引导反馈链路 |
-
-**低：**
-
-| 文件:行号                                                                                      | 类型 | 描述                                                                                                                                                                                                      | 建议                                                                       | 性质                        | 影响面               |
-| ---------------------------------------------------------------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------- | -------------------- |
-| ui/main_window.py:902-903                                                                      | ①⑧⑬  | _on_load_error seq 失配分支直接 return 不清 _usage_pending（匹配分支 :804-808 已消费）——悬挂至下个刷新周期才冗余补发全维度查询                                                                            | 失配分支改 self._consume_pending(); return                                 | A017 整改半成品（遗留残余） | 用量刷新链路         |
-| ui/main_window.py:302-307（关联 :55/:1287）                                                    | ④⑤⑥  | 本地 UsageData 死类遮蔽 services import：实测两类身份不等，import 失效、注解指向影子类、DTO 双源漂移风险；说明区宣称与现状矛盾                                                                            | 删本地类让 import 生效                                                     | 新增（PL006 残留）          | 类型体系             |
-| ui/main_window.py:74-75,1261                                                                   | ⑤    | TABLE_LIMIT_GROUP/DAY 迁 services 后死常量（全文零使用）+ 说明区仍列                                                                                                                                      | 删除常量及条目                                                             | 新增（PL006 残留）          | 代码卫生             |
-| ui/main_window.py:385-390,11,13                                                                | ⑤    | _CdpGuideSignals 死类（全项目零引用）连带 QObject/QRunnable 未使用 import                                                                                                                                 | 删类清 import                                                              | 新增（PL006 残留）          | 代码卫生             |
-| system_tray.py:57,105,120 + main.py:116,139 + config/settings.py:26-27 + ui/main_window.py:681 | ⑥    | PL007 文档残留批次（同一根因七处合并）：注释/说明区仍写已删除的 ui.themes/ui/themes.py/theme_labels，现口径为 theme_loader 与 theme.json display_name                                                     | 一批次统一替换                                                             | 新增（PL007 连带漏网）      | 文档                 |
-| ui/main_window.py:1258-1349                                                                    | ⑥    | 说明区缺 PL006 新函数条目：_usage_job/_consume_pending/_set_guide_actions_enabled；_RemainingPieChart 无方法条目                                                                                          | 补条目                                                                     | 新增（PL006 漏网）          | 文档                 |
-| ui/task_runner.py（全文）                                                                      | ⑥    | 缺文件末尾 # ===== 模块说明区（硬规范）                                                                                                                                                                   | 补说明区                                                                   | 新增（PL006 漏网）          | 文档                 |
-| services/service.py:94,112                                                                     | ③⑥   | db 缺失文案硬编码且缩水：迁移前读 ui.json no_db_found（含环境变量自救提示），现硬编码丢提示；:112 与 ui.json no_db_export 双处维护——说明区自我豁免不成立（UI 直接展示 message）                           | ServiceError 读 \_SC.ui["status_messages"] 对应键                          | 新增（PL006 迁移偏差）      | 错误提示             |
-| modules/go_quota.py:359 + modules/opencode_data.py:66                                          | ③⑪   | 节流提示 f-string 硬编码两处，同族 no_credentials/in_flight 已外置 go_quota_error_messages——同组不同轨                                                                                                    | 并入该组模板共用                                                           | 新增                        | 配置一致性           |
-| modules/opencode_data.py:215-250                                                               | ⑧⑪   | refresh_data_page 无 in-flight 去重（自称"对齐 go_quota 同式"只对齐一半）：双击刷新并发打三源接口白耗 GitHub 匿名限额，_last_snapshot 最后完成者胜旧覆新                                                  | 移植 D0.4/L1.7 标志+锁，或注释显式声明取舍                                 | 新增                        | 数据页刷新           |
-| modules/opencode_data.py:327-329                                                               | ②    | GitHub API 限速返回 dict 时 data[:_RELEASE_LIMIT] 抛 TypeError 回退 RSS——限速期每轮浪费一次注定失败的 JSON 请求，失败原因仅 debug 日志                                                                    | 补 isinstance(data, list) 校验前置回退                                     | 新增                        | 数据页官方动态       |
-| services/service.py:30 ↔ ui/main_window.py:108                                                 | ④    | DIMENSIONS 六维元组双份字面量（service 编排用 + main_window 契约校验/下拉构建用），加维度三点同步                                                                                                         | 由 services 导出 DIMENSIONS 单点                                           | 新增（PL006 收敛未竟）      | 跨模块               |
-| ui/main_window.py:46-49,881,615 + .temp/verify_pl006_accept.py:61-63                           | ⑪⑥   | PL006 纪律 3 偏差：ERROR_STAGE_*/QUOTA_WINDOW_KEYS 以运行时逻辑用途直取 modules（非 DTO 注解），豁免注释覆盖不了；verify ③ 仅断言两个编排 import 字符串，x.progress"UI 零 modules import"表述宽于实际断言 | services 再导出这批常量（或判断函数下沉）；verify 升级白名单断言；措辞同步 | 新增（PL006 边界裁量）      | 架构纪律             |
-| services/service.py:37,150,192                                                                 | ⑤⑥   | CDP_WAIT_TIMEOUT 常量定义后零使用（:150 裸读 base.json），且说明区常量清单漏列该符号——死代码与硬编码直读并存                                                                                              | :150 改用常量并补说明区条目                                                | 新增（PL006 迁移漏替换）    | 代码卫生             |
-| AGENTS.md:8 + x.progress.md:15                                                                 | ⑥    | 导入验证命令假阳性：命令仍含 ui.themes（被 namespace package 机制解析为空模块静默假通过），缺 ui.theme_loader/services.service/ui.task_runner——IMPORT OK 对 PL007 加载器契约链零覆盖                      | 替换并补新层模块名                                                         | 新增（PL006/PL007 连带）    | 回归验证链路         |
-| ui/theme_loader.py:19,105                                                                      | ②⑬   | 导入期 IO 失败形态不一致：base.qss 缺失抛裸 FileNotFoundError/UnicodeDecodeError，themes 目录整体缺失裸 OSError——对比 _load_theme 的中文契约 RuntimeError，违背自身声明的契约风格统一诊断                 | try 包装或 is_file 预检，消息对齐 _load_theme 口径                         | 新增（PL007）               | 可诊断性（打包场景） |
-| ui/theme_loader.py:82-84                                                                       | ②    | E3.9 契约错误消息缺主题名前缀，四主题手改坏任一 palette 无法定位来源文件，与 _load_theme 消息风格不一                                                                                                     | _build_theme 增加 name 参数注入消息                                        | 新增（PL007）               | 多主题诊断           |
-| README.md:42                                                                                   | ⑥    | 特性段"浅色/深色双主题一键切换"与 :109 四主题表述自相矛盾（PL007.3.c 只同步了结构树/配置表/指引三处）                                                                                                     | 改四主题表述                                                               | 新增（PL007 漏网）          | 文档                 |
-
-### 二、参考级观察项（23 条合并，用户复核全部维持豁免）
-
-ServiceError 分类退化（YAGNI 待 QML 诉求）、Chrome UA 字符串双份、SUBPROCESS_TIMEOUT float/int 风格、解密失败旧凭据缓慢膨胀、services 导入路径混用、Releases 拉 5 取 3、login_wait_seconds 负值文案无入口、save_account 空值落盘下游过滤、CLI fetched_at UTC 输出、quota_chunk_color 非数值裸 TypeError（调用点 int 保证）、get_static_config 无锁竞态不可达、"≥80%" 注释快照、AGENTS verify 计数漂移、退出时 QThreadPool waitForDone 阻塞（非回归需验证）、export 任务无消费者 seq、has_loaded 跨对象写公开属性、_live_tasks 无上限不可达、THEME_LABELS fallback 不可达、load_config 裸调缺口不可达、A017 已豁免 18 项维持、x.progress "29 键"措辞出入。
-
-### 三、亮点
-
-- 上轮 L 系列 19 条**零回退**（两处覆盖缺口升级为本轮正式项）；A016→A017→L 三代修复链完整
-- PL006 门面迁移语义逐行等价验证通过（\_wait_for_login_cookie/get_usage/CDP 五步编排），services 零 PyQt6 机械断言达成，except ServiceError: raise 较迁移前更正确
-- PL007 本体扎实：四主题 palette 30 键机械核对完全一致、base.qss 占位符 ⊆ palette 零残留、C0.6/E3.9/A3.5 契约链文件源适配完整保留
-- 机械扫描干净：函数内 import/嵌套 def 零命中；utils 公共工具零重复实现；SQL mode=ro、DPAPI 对称、原子写、白名单 26 键双向零差集
-- 本轮问题集中于新批次文档/说明区连带漏改与重构残尾，无运行时崩溃级缺陷、无安全项
+- **上轮复核（L 系列 19 条）**：零回退（两处覆盖缺口升级为本轮正式项）；L1.5 漏网一处、L1.7 锁覆盖不全、L3.3 半修复升级为正式项
+- **P0-P3（21 条）**：
+  - 中（3 条）：节流分支绕过 in-flight 挡板——线程 B 刷新中渐进写缓存致线程 A 节流期拿到部分列表（K1.2/L1.3"选择器闪缩"残余通道）/ CDP cookie domain 显式 null 时 TypeError 在 try 块外逃逸打断登录轮询 / _on_guide_failed 与 TaskRunner.failed(int,str) 签名失配——PyQt6 位置截断使 message=int 抛 TypeError，引导失败原因永不显示（漏测根因：verify 全部直调绕过信号机制）
+  - 低（18 条）：_on_load_error 失配不清 pending / UsageData 本地死类遮蔽 services import / TABLE_LIMIT 死常量 / _CdpGuideSignals 死类连带未使用 import / PL007 文档残留七处同根因合并 / 说明区缺 PL006 新函数条目 / task_runner 缺说明区 / db 缺失文案硬编码且缩水丢自救提示 / 节流提示 f-string 两处硬编码同组不同轨 / refresh_data_page 无 in-flight 去重白耗 GitHub 限额旧覆新 / GitHub API 限速 dict 时 TypeError 浪费注定失败请求 / DIMENSIONS 六维元组双份 / ERROR_STAGE 直取 modules 违反纪律 3 且 verify 断言宽于实际 / CDP_WAIT_TIMEOUT 死常量裸读 base.json 并存 / 导入验证命令假阳性含 ui.themes 零覆盖加载器契约链 / theme_loader 导入期 IO 形态不一致违背自宣契约风格 / E3.9 消息缺主题名无法定位 / README 双主题表述矛盾
+- **参考级观察项 23 条合并**（用户复核全部维持豁免；2026-08-26 已归并入豁免定案清单与 Watch001）
+- **亮点**：上轮 L 系列 19 条零回退，A016→A017→L 三代修复链完整；PL006 门面迁移语义逐行等价验证通过、services 零 PyQt6 机械断言达成；PL007 四主题 palette 30 键机械核对一致、契约链文件源适配完整保留；机械扫描干净无崩溃级缺陷无安全项
 
 ---
 
@@ -1055,61 +669,14 @@ ServiceError 分类退化（YAGNI 待 QML 诉求）、Chrome UA 字符串双份�
 > 范围：main.py + modules×7 + services×1 + ui×5 + utils×7 + config×4 + JSON 资源×8；三路并行代理全文审读 + 关键修复 grep 复核 + 重点段落人工核实
 > 重点：A018（第18轮）21 条 P 级整改（M0-M4）的回归复核 + 新批次代码连带新问题的全量通读
 > 结果：**P 级 11 条（中 6 / 低 5，无高）/ 参考级观察项 14 条全部维持豁免（用户复核确认）/ 0 安全项 / 0 确定性崩溃级缺陷**
-> 状态：📌 待修复（N 系列任务清单见 x.progress.md）
+> 状态：✅ 已修复（2026-08-26，N 系列 11 条全部完成，版本 V0.2.5.4；probe_n0 9/9 + probe_n1 7/7 + probe_n2/probe_n3 TDD 全 PASS + 全量回归 63 脚本 0 失败；任务清单见 x.progress.md N 系列）
 
-### 零、上轮（A018）修复复核清单
-
-| 上轮条目                           | 现状                          | 证据                                                                                                                                                                                                                                                              |
-| ---------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A018 全部 21 条 P 级（M0-M4 修复） | ✅全部在位，无回退/无引入回归 | go_quota:478 原子发布 / browser_creds:522 / main_window:991 签名 / opencode_data:357 列表校验 / task_runner:61 说明区 / main_window:887 失配清 pending / 全仓零 `ui\.themes\|themes\.py\|theme_labels` 残留 / AGENTS:8+x.progress:15 导入命令已含 theme_loader 等 |
-| 经核实排除的误报                   | —                             | main_window.py:707-724 中 :724 `quota_runner.run` 缩进在 `if/else` 之外，无 db 时配额仍加载；原代理"无 db 跳配额"不成立，已排除                                                                                                                                   |
-
-### 一、P0-P3 修复清单
-
-**中（6 条）**
-
-| 文件:行号                                                      | 类型 | 描述                                                                                                                                                                    | 建议                                                                                                                                                        | 性质                                                       | 影响面              |
-| -------------------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------- |
-| main.py:51-94                                                  | ⑬    | 配额预警气泡仅在 `info.error is None` 分支弹；全部账户为缓存兜底（`is_cached` 且 `error` 置位）超阈值时走 `else`（:91-94）仅改托盘色不弹气泡，违背"有提示"主线          | 超阈值通知与 `error is None` 解耦：缓存兜底路径下 `overall_used_percent>=QUOTA_DANGER_PERCENT` 同样弹气泡（标注缓存来源），保持 `_notified_danger` 复位语义 | 遗留                                                       | 配额预警            |
-| ui/main_window.py:975                                          | ②    | `_on_guide_done` 中 `auth_cookie, workspace_id = result` 对 finished 信号载荷直接解包无类型/长度校验；services 契约变更返回非二元组时主线程抛 ValueError 致 GUI 崩溃    | 先 `isinstance(result, tuple) and len==2` 再解包，否则降级状态栏提示                                                                                        | 新增（需验证可达性）                                       | 凭据引导成功路径    |
-| ui/data_page.py:175-185                                        | ②    | `_format_cell` 对 `total_t/ratio/share` 直接 `f"{value:.1f}"`、对 `models` 直接 `value.items()`，无 isinstance 守卫；上游快照结构变更（非数值/非 dict）渲染期抛异常崩溃 | 格式化前做类型守卫，非预期类型兜底空串/`str(value)`，与 `_populate_table` 缺字段兜底一致                                                                    | 新增（需验证可达性）                                       | 数据页渲染          |
-| modules/opencode_data.py:236/:269/:251                         | ③    | 面向用户文案硬编码未外置 ui.json：`:236` 进行中提示、`:269` 失败兜底后缀"（显示缓存数据）"、`:251` 数据块缺失诊断——与 M2.2 外置口径不一致                               | 提取至 ui.json（并入 `go_quota_error_messages` 或新增 `data_page_error_messages` 组），统一缓存标注模板                                                     | 新增                                                       | 状态栏/缓存标注文案 |
-| modules/go_quota.py:478-479 + modules/opencode_data.py:270-271 | ⑧    | 缓存发布（`_last_quotas/_last_snapshot` 与 `_last_success_at`）在状态锁之外；并发读节流分支可能观察到新快照+旧时间戳，缓存标注/节流判定瞬时错乱                         | 发布移入 `with 锁:` 块内与标志复位同段，保证原子可见                                                                                                        | 新增（理论级：GIL 下引用赋值为原子，仅极小时间窗，需验证） | 缓存标注/节流窗口   |
-| modules/opencode_data.py:67 + modules/go_quota.py:350/:487     | ④    | 节流+浅拷贝标注逻辑（`_throttled_*`/`_mark_cached`）两模块近同构、注释自认"对齐 go_quota 同式"                                                                          | 抽 `utils` 层 `throttle_and_mark` 共享（评估不超抽象阈值）                                                                                                  | 遗留/设计权衡                                              | 缓存兜底复用        |
-
-**低（5 条）**
-
-| 文件:行号                          | 类型 | 描述                                                                                                                       | 建议                                       | 性质 | 影响面               |
-| ---------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---- | -------------------- |
-| modules/opencode_data.py:8         | ⑥    | `import urllib.error` 无 `urllib.error.X` 引用，冗余 import                                                                | 删除该行                                   | 新增 | import 整洁          |
-| modules/pricing.py:269             | ⑪    | 读 User-Agent 版本用 `_SC.base['version']` 直读，未复用 `utils.logger.VERSION` 单点导出（R4/D1 版本单点约定）              | 改 `from utils.logger import VERSION`      | 新增 | 版本号来源一致性     |
-| ui/main_window.py（说明区 ~:1303） | ⑥    | 模块说明区 MainWindow 方法清单漏列 `_on_quota_failed`（:865）与 `_on_export_done`（:1019），与 M3.4 同类失实               | 补入两条目                                 | 新增 | 文档一致性           |
-| ui/data_page.py:130-168            | ⑩    | `_populate_table` 遇 `rows==[]` 仅 `setRowCount(0)` 清空不回退占位，空态无视觉反馈                                         | 空结果时调用 `_populate_placeholder`       | 新增 | 数据页空结果可观测性 |
-| ui/system_tray.py:57               | ⑥    | 注释"阈值/分级复用 themes.quota_chunk_color"指向不存在模块路径，实际 `ui.theme_loader.quota_chunk_color`（PL007 语义残留） | 注释改 `ui.theme_loader.quota_chunk_color` | 新增 | 文档误导性           |
-
-### 二、参考级观察项（14 条，全部维持豁免，用户复核确认）
-
-1. utils/convert.py:7-19 `to_int` 浮点截断（`int(float())` 得 1）—— 无可达小数输入路径，豁免（精度边界）
-2. config/static/static_config.py:47-80 数值键白名单覆盖缺口（漏登新键不拦截）—— 有注释依据（H0.4），文档化同步清单即可
-3. utils/retry.py:13-22 默认 `retries=3/delay=1.0` 与 base.json `retry_count=2` 不一致 —— 泛型工具默认，调用方应传配置值（需 modules 组回归确认调用点）
-4. utils/convert.py:52-54 `round_cost digits=4` 默认 —— 通用 util 默认口径，非用户可调参数，豁免
-5. utils/logger.py / config/settings.py 静态键缺失即导入期崩溃 —— 项目"结构性错误 fail-loud"既定策略，非宽容解析对象，豁免
-6. services/service.py:64-83 `_wait_for_login_cookie` 阻塞 sleep 须严格在 QThreadPool worker（不可 UI 线程）—— 转 ui 组已核实，不判
-7. modules/pricing.py:210 `_load_cached_prices` TTL 失效重复读盘 —— 性能小损，非正确性
-8. go_quota/data 缓存存储差异（go_quota 用 `error` 字段、data 用 `errors` 列表）—— 设计口径不一，非 bug
-9. ui/system_tray.py:79,85 `ICON_SIZE//16`/`//8` 几何比例硬编码 —— 相对 ICON_SIZE 不变量，豁免
-10. ui/main_window.py:351 饼图内边距 `adjusted(3,3,-3,-3)` 硬编码 —— 纯绘制几何留白，豁免
-11. ui/main_window.py:343 `used_percent` getter 仅测试访问器 —— 有注释依据，豁免
-12. ui/data_page.py:182-184 `rstrip("0").rstrip(".")` 规整 —— 数值展示策略，豁免
-13. ui/theme_loader.py:92 `re.findall(r"\{[a-zA-Z_]+\}",...)` 残留占位符检测 —— 当前值为颜色串无可达触发，豁免
-14. 豁免清单无遗漏（含上述 13 项）
-
-### 三、亮点
-
-- **A018 全部 21 条 P 级修复（M0-M4）零回退**，三路代理独立 grep 确认；审计整改闭环完整
-- 全量回归 63 脚本 **0 失败** + IMPORT OK + 四主题（light/dark/console/panel）冒烟全 OK
-- 异步引用持有（`_live_tasks`）+ 引导失败信号端到端（`verify_m_accept.py`）经实测验证
-- 本轮新发现问题集中于逻辑边界（缓存兜底提示/解包防御/文案外置），**无安全项、无确定性崩溃级缺陷**
+- **上轮复核（A018 全部 21 条 M0-M4 修复）**：✅全部在位零回退零引入回归（go_quota 原子发布/browser_creds domain/main_window 签名/Releases 列表校验/task_runner 说明区/失配清 pending/文档残留零残留/导入命令更新）；一处误报经核实排除（quota_runner.run 缩进在 if/else 之外，无 db 时配额仍加载）
+- **P0-P3（11 条）**：
+  - 中（6 条）：配额预警气泡仅成功分支弹——缓存兜底超阈走 else 仅改托盘色违背"有提示"主线 / _on_guide_done 载荷直接解包无类型长度校验（契约变更时主线程 ValueError）/ _format_cell 三分支无 isinstance 守卫渲染期崩溃 / opencode_data 三处面向用户文案硬编码与 M2.2 外置口径不一致 / 缓存发布在状态锁外并发可观察新快照+旧时间戳瞬时错乱（理论级）/ 节流+浅拷贝标注逻辑两模块近同构
+  - 低（5 条）：opencode_data 冗余 import urllib.error / pricing UA 版本号 _SC.base 直读未复用 logger.VERSION 单点 / 说明区漏 _on_quota_failed/_on_export_done 两方法条目 / data_page 空 rows 无视觉反馈 / system_tray 注释 themes.quota_chunk_color 路径残留
+- **参考级观察项 14 条**（全部维持豁免；2026-08-26 已归并入豁免定案清单与 Watch001）
+- **亮点**：A018 全部 21 条 P 级修复零回退三路独立 grep 确认，审计整改闭环完整；全量回归 63 脚本 0 失败 + 四主题冒烟全 OK；异步引用持有与引导失败信号端到端经实测验证；本轮新发现问题集中于逻辑边界，无安全项无确定性崩溃级缺陷
 
 ## 附录 A020：全量代码审计报告（第20轮，2026-08-26）
 
@@ -1139,60 +706,41 @@ ServiceError 分类退化（YAGNI 待 QML 诉求）、Chrome UA 字符串双份�
 | 文件:行号                                        | 类型 | 描述                                                                                                                                                                                                                                                  | 建议                                                                                                                  | 性质                                        | 影响面            |
 | ------------------------------------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------- |
 | ui/data_page.py:158                              | ①⑬   | N3.5 占位分支 `setHorizontalHeaderLabels(英文键名)` 覆盖 `__init__:101/:111` 中文表头，且正常分支不重设 → 任一表出现空结果后该表表头永久变为英文键名（直到重启），确定复现                                                                            | 占位分支删除 setColumnCount/setHorizontalHeaderLabels 两行（列结构 **init** 已固定），仅保留 setRowCount(1)+占位 item | 新增（N3.5 连带）                           | 显示层/数据页     |
-| ui/main_window.py:977-979                        | ①⑧   | N0.1 守卫命中只 showMessage+return，跳过正常/失败路径共有恢复序列（按钮启用、_guide_active=False、_refresh_timer 重启）→ 触发即半死锁：自动刷新永停、引导入口全禁；当前上游契约恒成立（理论可达 ≤中）                                                 | 守卫分支复用 _on_guide_failed 恢复序列后再提示                                                                        | 新增（N0.1 连带）                           | 凭据引导/UI 交互  |
+| ui/main_window.py:977-979                        | ①⑧   | N0.1 守卫命中只 showMessage+return，跳过正常/失败路径共有恢复序列（按钮启用、\_guide_active=False、\_refresh_timer 重启）→ 触发即半死锁：自动刷新永停、引导入口全禁；当前上游契约恒成立（理论可达 ≤中）                                               | 守卫分支复用 \_on_guide_failed 恢复序列后再提示                                                                       | 新增（N0.1 连带）                           | 凭据引导/UI 交互  |
 | main.py:73、:104                                 | ②    | format 兜底 except (KeyError,ValueError,IndexError) 漏 AttributeError（`"{used.x}".format(used=80)` 实证抛 AttributeError）——模板含未知属性占位符时异常逃逸，PyQt6 槽内未捕获异常 abort 进程，突破 P24"任何损坏都兜得住"防线；:104 为 N3.1 复制扩散点 | except 元组补 AttributeError；随低-1 helper 抽取一并单点化                                                            | 成功路径遗留+缓存路径新增                   | GUI 进程稳定性    |
 | ui/main_window.py:192-211                        | ③②   | B0.6/C0.8 契约 status_messages 必需键集（18 键）未纳入 N0.1 新消费键 guide_data_format_error（:978 消费）→ 删键导入期不拦截，运行时恰在防御路径抛 KeyError（槽内 abort）：防御代码自身成崩溃点                                                        | required 元组补 "guide_data_format_error"                                                                             | 新增（N0.1 连带）                           | 配置体系/契约防线 |
 | utils/logger.py:55                               | ②    | getattr(logging, LOG_LEVEL, ...)：log_level 手改为小写（"info" 等）命中 logging 模块级函数对象（hasattr 实证），setLevel 抛 TypeError 且该行在 try 外 → 启动即崩裸异常无中文提示                                                                      | 显式级别映射 logging.getLevelNamesMapping().get(LOG_LEVEL.upper(), INFO) 或移入 try                                   | 遗留                                        | 启动/日志         |
-| config/static/static_config.py:75-77             | ②⑬   | H0.4 数值键白名单只查"存在时的类型"，键缺失放行（实证删 http_timeout 导入期无报错，崩溃后移 network.py:24 裸 KeyError）；字符串键完全无存在性校验                                                                                                     | 白名单循环补 if _v is None: raise RuntimeError                                                                        | 遗留                                        | 配置体系          |
+| config/static/static_config.py:75-77             | ②⑬   | H0.4 数值键白名单只查"存在时的类型"，键缺失放行（实证删 http_timeout 导入期无报错，崩溃后移 network.py:24 裸 KeyError）；字符串键完全无存在性校验                                                                                                     | 白名单循环补 if \_v is None: raise RuntimeError                                                                       | 遗留                                        | 配置体系          |
 | modules/opencode_data.py:256、:260 + main.py:109 | ③    | 三处用户可见文案硬编码未外置："数据页拉取失败：{exc}"、"官方动态拉取失败：{exc}"（与 N2.1 外置 fetch_failed 同语义不同源）、"（缓存数据）"（与 cached_prefix/cache_suffix 措辞三足鼎立）                                                              | 前两者外置 data_page_messages 补 {error} 模板键；缓存后缀复用 cache_suffix 统一措辞                                   | 新增发现（N2.1/N3.1 口径不齐）              | 数据页/托盘预警   |
 | modules/opencode_data.py:237                     | ⑬⑧   | in-flight 去重且无缓存返回裸快照（is_cached=False/errors 空/三源空），UI 无法区分进行中与失败；对照 go_quota:430-437 同场景返回带 in_flight 文案占位项，行为分叉                                                                                      | 该快照追加 errors=[data_page_messages.in_flight]                                                                      | 遗留（M1.4 起）                             | 数据页            |
-| ui/main_window.py:245-249                        | ③    | 契约双缺口：go_quota_error_messages required 漏 throttled_template（go_quota:362/opencode_data:74 裸读）；N1.1 新增 data_page_messages 整组不在任何契约（opencode_data:234/253/269 裸读）                                                             | required 补第三键；data_page_messages 四键照 F0.1 式样入 _UI_STRUCT_KEYS                                              | 部分（throttled 遗留/data_page 组新增连带） | 配置体系/契约防线 |
+| ui/main_window.py:245-249                        | ③    | 契约双缺口：go_quota_error_messages required 漏 throttled_template（go_quota:362/opencode_data:74 裸读）；N1.1 新增 data_page_messages 整组不在任何契约（opencode_data:234/253/269 裸读）                                                             | required 补第三键；data_page_messages 四键照 F0.1 式样入 \_UI_STRUCT_KEYS                                             | 部分（throttled 遗留/data_page 组新增连带） | 配置体系/契约防线 |
 
 **低（10 条）**
 
-| 文件:行号                                          | 类型 | 描述                                                                                                                                  | 建议                                                   | 性质 |
-| -------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ---- |
-| main.py:96-114                                     | ④    | N3.1 整段复制成功路径气泡逻辑约 15 行，fallback 文案两份逐字相同（亦为中-3 扩散根源）                                                 | 提取 _danger_notify(tray, info, suffix) 两路共用       | 新增 |
-| modules/opencode_data.py:258(:409)                 | ⑤    | fetch_github_releases(force) 参数函数体从未读取，唯一调用传 force=True 无效果                                                         | 删参数及实参                                           | 遗留 |
-| ui/main_window.py:1163-1179                        | ⑨    | _show_columns_menu 每次 new QMenu+9 QAction popup 后局部 wrapper 被 GC、C++ 对象滞留 children → 常驻应用累积泄漏                      | aboutToHide.connect(menu.deleteLater) 或单实例复用     | 遗留 |
-| ui/main_window.py:207 + ui.json:134                | ⑫⑤   | usage_failed_template 全仓唯一 .py 引用是其自身契约行（死键）；_on_load_error 直显原始异常串不走模板                                  | _on_load_error 改走模板统一口径（推荐）或删键+删契约行 | 遗留 |
-| ui/theme_loader.py:111-114                         | ⑤    | is_dir 检查不可达死分支（其前 :101 循环经 _load_theme 对缺失目录必先抛），M0.6 设计意图失效                                           | 检查上移到循环前恢复设计价值，或删除并修注释           | 遗留 |
-| ui/theme_loader.py:24、:62                         | ⑥②   | read_text 遇非 UTF-8 资源裸抛 UnicodeDecodeError，违背 M0.6/A3.5 导入期 IO 失败转 RuntimeError 自宣口径                               | 包 try 转 RuntimeError（消息含路径）                   | 遗留 |
-| ui/data_page.py:172-177                            | ④②   | _populate_placeholder 未设 NoEditTriggers（启动空态占位格可编辑）；editTriggers/alternatingRowColors 两分支每次重复设置               | 表格静态属性收敛 **init** 单点一次                     | 遗留 |
-| services/service.py:95-122                         | ⑬    | get_usage/export_data 对坏库 sqlite3.Error 不转 ServiceError，UI 直显英文异常串，与其他入口中文口径不一                               | 转 ServiceError                                        | 遗留 |
-| services/service.py:64-84                          | ⑨⑥   | 登录等待单轮周期（CDP≤10s+验证重试链最长约 50s）远超 deadline 检查粒度，总等待显著超 login_wait_seconds，超时提示"{minutes} 分钟"失真 | deadline 检查下沉至验证步骤前，或注释声明              | 遗留 |
-| modules/go_quota.py:26-29 ↔ opencode_data.py:36-39 | ④⑫   | CHROME_UA/_BROWSER_UA 逐字符相同的 UA 字符串双处维护                                                                                  | 收敛 utils/network 单点导出                            | 遗留 |
+| 文件:行号                                          | 类型 | 描述                                                                                                                                  | 建议                                                    | 性质 |
+| -------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ---- |
+| main.py:96-114                                     | ④    | N3.1 整段复制成功路径气泡逻辑约 15 行，fallback 文案两份逐字相同（亦为中-3 扩散根源）                                                 | 提取 \_danger_notify(tray, info, suffix) 两路共用       | 新增 |
+| modules/opencode_data.py:258(:409)                 | ⑤    | fetch_github_releases(force) 参数函数体从未读取，唯一调用传 force=True 无效果                                                         | 删参数及实参                                            | 遗留 |
+| ui/main_window.py:1163-1179                        | ⑨    | \_show_columns_menu 每次 new QMenu+9 QAction popup 后局部 wrapper 被 GC、C++ 对象滞留 children → 常驻应用累积泄漏                     | aboutToHide.connect(menu.deleteLater) 或单实例复用      | 遗留 |
+| ui/main_window.py:207 + ui.json:134                | ⑫⑤   | usage_failed_template 全仓唯一 .py 引用是其自身契约行（死键）；\_on_load_error 直显原始异常串不走模板                                 | \_on_load_error 改走模板统一口径（推荐）或删键+删契约行 | 遗留 |
+| ui/theme_loader.py:111-114                         | ⑤    | is_dir 检查不可达死分支（其前 :101 循环经 \_load_theme 对缺失目录必先抛），M0.6 设计意图失效                                          | 检查上移到循环前恢复设计价值，或删除并修注释            | 遗留 |
+| ui/theme_loader.py:24、:62                         | ⑥②   | read_text 遇非 UTF-8 资源裸抛 UnicodeDecodeError，违背 M0.6/A3.5 导入期 IO 失败转 RuntimeError 自宣口径                               | 包 try 转 RuntimeError（消息含路径）                    | 遗留 |
+| ui/data_page.py:172-177                            | ④②   | \_populate_placeholder 未设 NoEditTriggers（启动空态占位格可编辑）；editTriggers/alternatingRowColors 两分支每次重复设置              | 表格静态属性收敛 **init** 单点一次                      | 遗留 |
+| services/service.py:95-122                         | ⑬    | get_usage/export_data 对坏库 sqlite3.Error 不转 ServiceError，UI 直显英文异常串，与其他入口中文口径不一                               | 转 ServiceError                                         | 遗留 |
+| services/service.py:64-84                          | ⑨⑥   | 登录等待单轮周期（CDP≤10s+验证重试链最长约 50s）远超 deadline 检查粒度，总等待显著超 login_wait_seconds，超时提示"{minutes} 分钟"失真 | deadline 检查下沉至验证步骤前，或注释声明               | 遗留 |
+| modules/go_quota.py:26-29 ↔ opencode_data.py:36-39 | ④⑫   | CHROME_UA/\_BROWSER_UA 逐字符相同的 UA 字符串双处维护                                                                                 | 收敛 utils/network 单点导出                             | 遗留 |
 
 **文档（3 条）**
 
-| 位置                                   | 类型 | 描述                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 说明区失实/缺漏批（八处合并）          | ⑥    | main.py:149-152 未同步缓存分支气泡；utils/logger.py:97-99 _setup_handlers 缩进挂错层级；go_quota.py:583 "_build_info 更新缓存"与 M0.1 原子发布矛盾；opencode_usage.py:746 关联配置多列 retry_count/delay、:722 写死"10s"；services/service.py:196-198 残句排版错乱；browser_creds.py:582/:674 "对外公开供 main_window 调用(R13)"实无外部消费方；ui/main_window.py 方法清单漏 _build_cards/:520、_build_guide_card/:626、_build_detail_section/:648、_sorted_hidden_columns/:1227 且 _on_guide_done 条目未反映 N0.1 守卫；ui/task_runner.py 说明区漏 _task_done/_FnTask.**init**/.run 条目 |
-| modules/browser_creds.py:232-234、:277 | ⑥    | `_with_copied_db(...) or ([], False)`：查询成功返回 falsy 元组时走 or 分支属巧合等价，未来结构变化即成 bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| modules/pricing.py:291                 | ⑥    | 局部变量 pricing 与模块语义同名遮蔽（go_quota D0.14 同类已改名先例）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 位置                                   | 类型 | 描述                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 说明区失实/缺漏批（八处合并）          | ⑥    | main.py:149-152 未同步缓存分支气泡；utils/logger.py:97-99 \_setup_handlers 缩进挂错层级；go_quota.py:583 "\_build_info 更新缓存"与 M0.1 原子发布矛盾；opencode_usage.py:746 关联配置多列 retry_count/delay、:722 写死"10s"；services/service.py:196-198 残句排版错乱；browser_creds.py:582/:674 "对外公开供 main_window 调用(R13)"实无外部消费方；ui/main_window.py 方法清单漏 \_build_cards/:520、\_build_guide_card/:626、\_build_detail_section/:648、\_sorted_hidden_columns/:1227 且 \_on_guide_done 条目未反映 N0.1 守卫；ui/task_runner.py 说明区漏 \_task_done/\_FnTask.**init**/.run 条目 |
+| modules/browser_creds.py:232-234、:277 | ⑥    | `_with_copied_db(...) or ([], False)`：查询成功返回 falsy 元组时走 or 分支属巧合等价，未来结构变化即成 bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| modules/pricing.py:291                 | ⑥    | 局部变量 pricing 与模块语义同名遮蔽（go_quota D0.14 同类已改名先例）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### 二、参考级观察项（全部维持豁免，用户 2026-08-26 复核确认）
 
-1. retry.py:28-30 nan/inf 经 json.loads 可入参数致 int()/sleep() 抛错 —— 需手写 NaN 字面量无可达常规路径（纯理论，需验证）
-2. sqlite_utils.py:11-12 UNC 路径 URI 转义解析失败 —— 调用方全本机盘路径不可达（需验证）
-3. file_utils.py:36/72 read_json 缓存对象引用可被污染 —— 调用方全显式 use_cache=False，C1 已裁定
-4. windows.py:15 内联 get_static_config 未按顶层解包风格 —— 单例等价纯风格
-5. network.py http_get 不强制 UA 责任分散调用方 —— 设计取舍非缺陷
-6. opencode_data.py:322 stack 扫描窗口魔数 6000 无注释 —— 内部算法参数命中豁免条件①，建议补量纲注释
-7. opencode_data.py:265-277 三源全空不断流节流失效 —— A017/L1.4 已声明取舍待评估
-8. opencode_data.py:321 正则 [\d.]+ 放行畸形数字丢整图 —— 有 errors 兜底降级不崩
-9. go_quota.py:70-100 凭据保存读改写非原子 —— UI 顺序执行无可达并发（需验证）
-10. browser_creds.py:90-101 凭据 TTL 缓存 check-set 无锁 —— 生产方受 in-flight 去重约束近乎不可达
-11. browser_creds.py:521-523 CDP cookie domain 子串过滤 —— 本机自启 Chrome 无跨域注入路径（需验证）
-12. browser_creds.py:551-556 terminate 后 wait 超时未升级 kill —— Windows 语义下几乎不可达
-13. exporter.py:88-91 CSV 公式注入 —— 本机自用攻击链牵强（需验证）
-14. pricing.py:108-131 load_price_map 无锁并发双拉 —— 低频链路 write_json 原子替换最终一致
-15. service.py:183-188 get_service 单例无锁 —— AppService 无状态双初始化无害
-16. SUBPROCESS_TIMEOUT float/int cast 不一致（usage:33↔browser_creds:61）—— 数值等价风格噪音
-17. gh api per_page=5 vs _RELEASE_LIMIT=3 双处数量语义 —— 拉 5 截 3 现状自洽
-18. ui.json colors 与主题 palette.chunk_ok 双源并存 —— PL003.1.e 注释明示托盘无主题语义；其余 UI 几何/魔法数字（index==1、errors[:2] 等）外观惯例豁免；A019 #9-#13 原样维持无回退
-
-死键专项：AST 级扫描 base.json 39 键 + ui.json 56 键，除 usage_failed_template（见低-4）外死键为 0。
+> 2026-08-26 归并：本章条目经三方分级后已并入「观察项豁免定案清单」（33 条永久 + 24 条条件，见本文件头部）与「观察项可修正批次方案」Watch001（12 条可直接修正，见本文件末尾），正文删除避免双处维护；历史数量以本行为准（原 18 条合并 + 死键专项一句——usage_failed_template 死键已随 O3.3 接入消费方消除）。
 
 ### 三、亮点
 
@@ -1200,3 +748,27 @@ ServiceError 分类退化（YAGNI 待 QML 诉求）、Chrome UA 字符串双份�
 - convert.py 数值防护完备（nan/inf/bool/溢出四级拦截）；sqlite_utils mode=ro 与 URI 转义正确；file_utils 原子写 fd 泄漏闭环
 - settings.py from_dict 宽容解析（bool 排除/clamp/themes 白名单）符合错误策略范本
 - 本轮核心发现集中于 N 整改连带效应（表头覆盖/守卫状态机/契约漏同步），方向正确、一次收尾批次可闭环
+
+## 观察项可修正批次方案 Watch001（2026-08-26 定稿）
+
+> 来源：第 16-20 轮观察项三方分级（69 条 = 33 永久豁免 + 24 条件豁免 + 12 可直接修正）；
+> 33/24 已并入「观察项豁免定案清单」①②两级，本节为可直接修正项的实施方案。
+> 编号规则：Watch001 为本批次号，批内子项 .a-.l 字母序号；后续新批次递增 Watch002…
+> 状态：📌 待修复（WTH001.a-l 任务清单见 x.progress.md，一一对应）
+
+| 编号       | 内容                                           | 来源           | 修法                                                                 | 验证                                               |
+| ---------- | ---------------------------------------------- | -------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
+| Watch001.a | \_quota_card dict frame/title 键零读取（死键） | A017           | 删除两键及写入处（先确认全仓零消费）                                 | grep 零引用 + IMPORT OK                            |
+| Watch001.b | [\d.]+ 正则放行畸形数字丢整图                  | A020           | 时序解析数字正则收紧为 \d+(?:\.\d+)?                                 | probe 构造 "1.2.3" aria-label 断言跳过该条不丢整图 |
+| Watch001.c | stack 扫描窗口魔数 6000 无注释                 | A020           | 补一行量纲注释（字符数窗口防 markup 变更超窗静默丢行）               | grep 注释在位                                      |
+| Watch001.d | subprocess_timeout float/int cast 不一致       | A016+A018+A020 | opencode_usage/browser_creds 两处统一 int()                          | IMPORT OK + 全量回归                               |
+| Watch001.e | services 导入路径混用                          | A018           | 全仓统一 from services.service import X 形式                         | grep 零混用 + IMPORT OK                            |
+| Watch001.f | THEME_LABELS fallback 不可达死分支             | A018           | M3 改名 THEME_DISPLAY_NAMES 后原描述过时——重新定位确认不可达后删分支 | IMPORT OK + 四主题冒烟                             |
+| Watch001.g | windows.py 内联 get_static_config 解包风格     | A020           | 改顶层 \_SC = get_static_config() 解包（对齐全项目约定）             | IMPORT OK                                          |
+| Watch001.h | retry 计数口径注释歧义                         | A016+A017      | retry.py 计数语义注释澄清（retries 为尝试总轮次口径注明）            | 注释与实现一致性核对                               |
+| Watch001.i | CLI --estimate 仅 total 生效 help 未声明       | A016           | argparse help 文案补注生效范围（定位实际参数名后措辞）               | --help 输出含说明                                  |
+| Watch001.j | "≥80%" 注释快照失准                            | A018           | 相关注释改"≥ QUOTA_DANGER_PERCENT"符号表述                           | grep 全仓零 "≥80%" 残留                            |
+| Watch001.k | AGENTS verify 脚本计数漂移                     | A018           | AGENTS.md 写死的脚本计数改动态表述"全部 verify\_\*.py 脚本"          | AGENTS.md 无具体计数残留                           |
+| Watch001.l | zip 数量不齐静默截断                           | A016           | releases 双源合并处补 warning 日志（数量不一致时记录）               | probe mock 不齐断言 warning                        |
+
+> 收尾：Watch001.a-l 完成后执行全量回归 + IMPORT OK + offscreen 冒烟（对应 x.progress WTH001.m）。

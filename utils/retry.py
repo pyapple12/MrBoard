@@ -21,6 +21,8 @@ def retry_call(
     **kwargs: Any,
 ) -> Any:
     # 执行 func 并捕获指定异常时按指数退避重试，重试耗尽后抛出最后一次异常
+    # （WTH001.h 口径澄清：retries 为**总尝试轮次**（含首次成功机会），非"失败后
+    #   再重试次数"——retries=1 即仅尝试一次不重试）
     # （6A.2 D5：负值参数 clamp——retries<0 会空循环触发 assert，delay/backoff 负值
     #   time.sleep 抛 ValueError；H3.2 注释修正：backoff 取 max(1.0, ...) 使
     #   0 < backoff < 1 的递减退避意图也被归一为 ≥1.0——项目内调用均传正退避，

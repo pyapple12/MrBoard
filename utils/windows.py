@@ -8,11 +8,14 @@ except ImportError:  # 打包环境缺依赖时降级为 None（调用方判空�
 from config.static.static_config import get_static_config
 from utils.logger import get_logger
 
+# WTH001.g：静态配置解包对齐全项目顶层 _SC 约定（原内联调用风格偏离）
+_SC = get_static_config()
+
 logger = get_logger(__name__)  # R4：统一日志入口（原 logging.getLogger 直取，5A.2）
 
 # DPAPI 加密描述串（CryptProtectData 的 description 参数；6A.3 H4：从 base.json
 # app_name 派生消除双源——改名后旧凭据解密失败的风险需知悉，描述串仅用于标记）
-DPAPI_DESCRIPTION = str(get_static_config().base["app_name"])
+DPAPI_DESCRIPTION = str(_SC.base["app_name"])
 
 # win32crypt 可用性标记（加载时固化；测试可通过 mock 本模块 win32crypt 模拟缺失）
 WIN32CRYPT_AVAILABLE = win32crypt is not None
