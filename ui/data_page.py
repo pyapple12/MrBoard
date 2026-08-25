@@ -151,6 +151,15 @@ class DataPage(QWidget):
         formatter: Callable[[str, Any], str],
     ) -> None:
         # 通用表格填充：行数同步 + 逐格格式化（缺字段兜底空串）
+        if not rows:
+            # N3.5：空结果单行占位（避免空白表格，提示尚未获取数据）
+            table.setRowCount(1)
+            table.setColumnCount(max(len(column_ids), 1))
+            table.setHorizontalHeaderLabels(list(column_ids) or [""])
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.setAlternatingRowColors(True)
+            table.setItem(0, 0, QTableWidgetItem(DATA_EMPTY_TEXT))
+            return
         table.setRowCount(len(rows))
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
@@ -173,10 +182,16 @@ class DataPage(QWidget):
         if value is None:
             return ""
         if column_id == "total_t":
+            if not isinstance(value, (int, float)):
+                return str(value)
             return f"{value:.1f}T"
         if column_id in ("ratio", "share"):
+            if not isinstance(value, (int, float)):
+                return str(value)
             return f"{value:.1f}%"
         if column_id == "models":
+            if not isinstance(value, dict):
+                return str(value)
             top = sorted(value.items(), key=lambda pair: pair[1], reverse=True)[:4]
             return " · ".join(f"{name} {pct:.1f}%" for name, pct in top)
         if isinstance(value, float):

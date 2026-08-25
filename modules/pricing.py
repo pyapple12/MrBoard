@@ -8,7 +8,7 @@ from typing import Any
 from config.static.static_config import get_static_config
 from utils.convert import to_float, to_optional_float
 from utils.file_utils import get_project_root, read_json, write_json
-from utils.logger import get_logger
+from utils.logger import VERSION, get_logger
 from utils.network import RETRY_NETWORK_ERRORS, http_get
 from utils.retry import retry_call
 
@@ -266,7 +266,7 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
         body = retry_call(
             http_get,
             MODELS_DEV_URL,
-            headers={"User-Agent": f"myboard/{_SC.base['version']}"},
+            headers={"User-Agent": f"myboard/{VERSION}"},
             retries=RETRY_COUNT,
             exceptions=RETRY_NETWORK_ERRORS,
             delay=RETRY_DELAY,

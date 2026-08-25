@@ -972,6 +972,11 @@ class MainWindow(QMainWindow):
         # 引导成功（A017/PL006.3：TaskRunner finished 载荷为 (auth_cookie, workspace_id)
         # 元组——凭据已在 Service 内落盘）：提示并立即刷新配额；
         # PL005.2：记录 pending workspace_id，刷新回来后选择器自动选中新账户
+        # N0.1：载荷契约守卫——finished 信号载荷须为二元组，上游契约变更返回非二元组
+        # 时直接解包会抛 ValueError 致 GUI 崩溃，降级为状态栏提示而非崩溃
+        if not (isinstance(result, tuple) and len(result) == 2):
+            self._status_bar.showMessage(STATUS_MESSAGES["guide_data_format_error"])
+            return
         auth_cookie, workspace_id = result
         message = GUIDE_MESSAGES["creds_saved_template"].format(
             workspace_id=workspace_id[:16]
@@ -1300,7 +1305,8 @@ class MainWindow(QMainWindow):
 #       （F0.2/G3.4：usage 任务在途时仅置 pending 补发标志并只启动配额任务）
 #     _apply_theme：主题应用（QApplication.setStyleSheet + chunk/饼图动态色重着色）；
 #       _theme_combo/_on_theme_changed：主题下拉切换即存（PL003.2）
-#     _on_usage_ready/_on_quota_ready/_on_load_error：结果渲染；失败仅状态栏提示，
+#     _on_usage_ready/_on_quota_ready/_on_load_error/_on_quota_failed/_on_export_done：
+#       结果渲染；失败仅状态栏提示，
 #       保留旧 view（成功后视图才替换）；配额缓存/错误仅状态栏警告不弹窗；
 #       引导卡显示条件单点维护于 _should_show_guide（全部账户凭据类错误且无缓存
 #       且非引导进行中，A0.16/K3.6 口径同步）

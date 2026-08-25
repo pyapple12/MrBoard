@@ -6,13 +6,14 @@ import re
 import threading
 import time
 import urllib.error
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from config.static.static_config import get_static_config
 from modules import browser_creds, credential_store
+from utils.cache_util import mark_cached
 from utils.file_utils import get_project_root, read_json, write_json
 from utils.logger import get_logger
 from utils.network import RETRY_NETWORK_ERRORS, http_get
@@ -356,7 +357,7 @@ def _throttled_cache(force: bool) -> list["GoQuotaInfo"] | None:
         and time.time() - _last_success_at < MIN_FETCH_INTERVAL
     ):
         return [
-            _mark_cached(
+            mark_cached(
                 item,
                 str(_SC.ui["go_quota_error_messages"]["throttled_template"]).format(
                     seconds=MIN_FETCH_INTERVAL
@@ -424,7 +425,7 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
             if _last_quotas:
                 marked_list = []
                 for cached_info in _last_quotas:
-                    marked_list.append(_mark_cached(cached_info, message))
+                    marked_list.append(mark_cached(cached_info, message))
                 return marked_list
             return [
                 _fallback(
@@ -435,6 +436,7 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
                 )
             ]
         _fetch_in_flight = True
+    captured: list = []
     try:
         credentials = find_dashboard_credentials()
         if not credentials:
@@ -475,25 +477,22 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
         # M0.1：整轮完成一次性原子发布——消除渐进写缓存/中途更新时间戳导致的节流
         # 分支绕行（线程 B 刷新中途线程 A 误读部分列表）；成功项与失败占位项同批次
         # 进入 _last_quotas，in-flight/节流期"全集"标注不再丢项
-        _last_quotas = results
-        _last_success_at = time.time()
+        captured = [results]
         return results
     finally:
-        # A017/L1.7：复位在途标志持锁（与入口 check-set 同锁互斥）
+        # A017/L1.7 + N3.2：缓存发布与在途标志复位同持锁，保证原子可见
         with _FETCH_STATE_LOCK:
+            if captured:
+                _last_quotas = captured[0]
+                _last_success_at = time.time()
             _fetch_in_flight = False
-
-
-def _mark_cached(info: GoQuotaInfo, message: str) -> GoQuotaInfo:
-    # 缓存兜底标注：浅拷贝缓存对象再标记（防止污染共享对象，UI 持有旧引用不受影响）
-    return replace(info, is_cached=True, error=message)
 
 
 def _fallback(now: datetime, message: str, stage: str | None = None) -> GoQuotaInfo:
     # 失败兜底单条（PL001.8 起由调用方包装为列表）：优先返回缓存首条标注副本，
     # 无缓存时返回空白信息（带 error 提示与阶段）
     if _last_quotas:
-        marked = _mark_cached(_last_quotas[0], message)
+        marked = mark_cached(_last_quotas[0], message)
         if stage is not None:
             marked.error_stage = stage
         return marked
@@ -582,7 +581,7 @@ if __name__ == "__main__":
 #   _http_get()：GET 请求（401/403 转 auth 分类；其余异常原样抛交 retry 重试）
 #   _throttled_cache(force)：节流检查——非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒返回缓存
 #   _build_info()：组装成功配额信息并更新缓存（overall = max 三窗口）
-#   _mark_cached()：缓存兜底标注（浅拷贝防污染）
+#   mark_cached()：缓存兜底标注（来自 utils.cache_util，浅拷贝防污染）
 #   fetch_go_quota(force)：主流程——节流检查 → in-flight 去重（缓存全集标注副本）
 #     → 凭据候选逐个拉取（单凭据失败降级为占位错误项不拖垮其他）→ 返回
 #     list[GoQuotaInfo]；A0.16/K1.2 起 in-flight 与节流分支均返回全集

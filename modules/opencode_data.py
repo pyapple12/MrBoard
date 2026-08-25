@@ -5,13 +5,13 @@ import json
 import re
 import threading
 import time
-import urllib.error
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from config.static.static_config import get_static_config
+from utils.cache_util import mark_cached
 from utils.logger import get_logger
 from utils.network import http_get
 
@@ -69,18 +69,14 @@ def _throttled_snapshot(force: bool) -> ModelDataSnapshot | None:
         and _last_snapshot is not None
         and time.time() - _last_success_at < FETCH_INTERVAL
     ):
-        return _mark_cached(
+        return mark_cached(
             _last_snapshot,
             str(_SC.ui["go_quota_error_messages"]["throttled_template"]).format(
                 seconds=FETCH_INTERVAL
             ),
+            list_field="errors",
         )
     return None
-
-
-def _mark_cached(snapshot: ModelDataSnapshot, message: str) -> ModelDataSnapshot:
-    # 缓存兜底标注：浅拷贝快照再标记（防污染共享对象）
-    return replace(snapshot, is_cached=True, errors=snapshot.errors + [message])
 
 
 def _extract_r_objects(body: str) -> dict[int, str]:
@@ -233,9 +229,14 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
     with _DATA_FETCH_LOCK:
         if _data_in_flight:
             if _last_snapshot is not None:
-                return _mark_cached(_last_snapshot, "数据页刷新进行中，显示缓存数据")
+                return mark_cached(
+                    _last_snapshot,
+                    _SC.ui["data_page_messages"]["in_flight"],
+                    list_field="errors",
+                )
             return ModelDataSnapshot(fetched_at=datetime.now(timezone.utc))
         _data_in_flight = True
+    captured: list = []
     try:
         now = datetime.now(timezone.utc)
         snapshot = ModelDataSnapshot(fetched_at=now)
@@ -248,7 +249,9 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
             # 缺块容忍：四块键全集缺失时补 decoding 警告（不抛中断）
             for key in MODEL_BLOCK_KEYS:
                 if key not in snapshot.model_blocks:
-                    snapshot.errors.append(f"数据块 {key} 缺失（页面结构可能变更）")
+                    snapshot.errors.append(
+                        _SC.ui["data_page_messages"]["block_missing"].format(key=key)
+                    )
         except Exception as exc:
             snapshot.errors.append(f"数据页拉取失败：{exc}")
         try:
@@ -263,16 +266,23 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
             snapshot.model_blocks or snapshot.daily_usage or snapshot.releases
         )
         if not has_data and _last_snapshot is not None:
+            dpm = _SC.ui["data_page_messages"]
             message = (
-                "；".join(snapshot.errors) if snapshot.errors else "数据页拉取失败"
+                "；".join(snapshot.errors) if snapshot.errors else dpm["fetch_failed"]
             )
-            return _mark_cached(_last_snapshot, f"{message}（显示缓存数据）")
-        _last_snapshot = snapshot
-        _last_success_at = time.time()
+            return mark_cached(
+                _last_snapshot,
+                f"{message}{dpm['cache_suffix']}",
+                list_field="errors",
+            )
+        captured = [snapshot]
         return snapshot
     finally:
-        # M1.4：复位在途标志（与入口加锁互斥，跨线程并发安全）
+        # M1.4 + N3.2：缓存发布与在途标志复位同持锁，保证原子可见
         with _DATA_FETCH_LOCK:
+            if captured:
+                _last_snapshot = captured[0]
+                _last_success_at = time.time()
             _data_in_flight = False
 
 
@@ -452,7 +462,7 @@ if __name__ == "__main__":
 #   _fetch_releases_rss()：Releases RSS 回退路径（JSON 不可用时）
 #   fetch_github_releases(force)：JSON→RSS 回退链聚合
 #   _throttled_snapshot(force)：节流检查——窗口内返回标注缓存（对齐 go_quota 同式）
-#   _mark_cached(snapshot, message)：缓存兜底标注（replace 浅拷贝防污染）
+#   mark_cached(snapshot, message, list_field="errors")：缓存兜底标注（来自 utils.cache_util，浅拷贝防污染）
 #   refresh_data_page(force)：聚合入口——节流 → 三源独立拉取（互不拖垮）→
 #     A0.16/K1.1 失败且有旧缓存时保留旧快照标注返回（不覆盖成功数据）
 #   main()：CLI 自测入口

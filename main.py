@@ -92,6 +92,26 @@ def _on_quota_updated(tray: SystemTray, infos: list[GoQuotaInfo]) -> None:
         # D0.3：错误/缓存兜底（is_cached）不是失败——托盘按真实数据更新、
         # 不复位去重标志（否则 60s 窗口内手动刷新即复位，超限重复弹气泡）
         tray.update_quota_status(info.overall_used_percent)
+        # N3.1：缓存兜底场景下超阈仍弹预警气泡（标注缓存来源，与成功路径同式）
+        if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
+            if not _notified_danger:
+                _notified_danger = True
+                try:
+                    message = str(_SC.ui["notify_message_template"]).format(
+                        used=info.overall_used_percent,
+                        remaining=info.remaining_percent,
+                    )
+                except (KeyError, ValueError, IndexError):
+                    message = (
+                        f"配额已使用 {info.overall_used_percent}%"
+                        f"，剩余 {info.remaining_percent}%"
+                    )
+                message = f"{message}（缓存数据）"
+                try:
+                    title = str(_SC.ui["notify_title"])
+                except KeyError:
+                    title = APP_NAME
+                tray.notify_quota(title, message)
 
 
 def _quit_app(app: QApplication, window: MainWindow, tray: SystemTray) -> None:

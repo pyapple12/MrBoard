@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.5.3（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.5.4（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -609,4 +609,55 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 > - 清理：删除表格行数上限死常量与废弃信号类、修正主题文档残留、补充模块说明区、激活 CDP 等待超时常量、修正 README 主题表述
 > - 收尾：导入验证命令更新、引导失败信号端到端验收脚本、全量回归零异常
 > - 版本推进 V0.2.5.2 → V0.2.5.3（base.json/README 徽章/x.progress 三处一致）
+> ```
+
+## N. 第19轮审计修复任务清单（依据 z.plan.md 附录 A019，2026-08-25 规划）
+
+> 来源：第 19 轮全量审计（A018 整改 M 批次完成后的连带复盘）；P 级 11 条（中 6 / 低 5，无高），观察项 14 条全部维持豁免
+> 目标：逻辑边界防御（缓存兜底提示/解包守卫/文案外置/锁原子性），无功能性重构
+
+### N0 正确性（防御性崩溃类，类别②）
+
+- [x] N0.1 main_window.py:975 引导成功载荷解包守卫 —— `_on_guide_done` 中 `result` 解包前加 `if not (isinstance(result, tuple) and len(result) == 2): self._status_bar.showMessage("凭据数据格式异常"); return`；验证：probe 传非二元组断言不抛 ValueError 且状态栏提示
+- [x] N0.2 data_page.py:175-185 _format_cell 类型守卫 —— `total_t/ratio/share` 分支加 `if not isinstance(value,(int,float)): return str(value)`；`models` 分支加 `if not isinstance(value, dict): return str(value)`；验证：probe 传非数值/非 dict 断言渲染不抛异常
+
+### N1 去重与收敛（类别④）
+
+- [x] N1.1 opencode_data.py:67 + go_quota.py:350/:487 节流标注逻辑抽公共 —— utils 新增 `throttle_and_mark` 或在 opencode_data 统一引用 go_quota 的 `_throttled_*`/`_mark_cached`（评估不超抽象阈值）；验证：重构后两模块节流路径行为不变（probe 命中缓存标注文案一致）
+
+> **2026-08-25 完成（N0+N1 组）**：`probe_n0.py` 9/9 PASS（修复前 FAIL 即反向验收证据）+ `probe_n1.py` 7/7 PASS；全量回归 63 脚本 **0 失败** + IMPORT OK + offscreen 冒烟通过。
+> N1.1 实现：新建 `utils/cache_util.py`（共享 `mark_cached(obj, message, *, error_field="error", list_field=None)`），opencode_data/go_quota 删本地 `_mark_cached`、改引共享函数（两模块 import 区加 `from utils.cache_util import mark_cached`、移除冗余 `replace` 导入、说明区同步）；N0.1 守卫消息外置 `status_messages.guide_data_format_error`（verify_5a3 文案外置守则不回退）。
+> 连带适配：verify_k1_accept（跨行正则匹配 mark_cached）、verify_k3_accept（mark_cached 列入导入白名单）、verify_s10（D11 改调 gq.mark_cached）。
+
+### N2 配置化（类别③⑪）
+
+- [x] N2.1 opencode_data.py:236/:269/:251 面向用户文案外置 ui.json —— 新增 `data_page_messages`（in_flight/fallback_suffix/block_missing 三键），三处改读 `_SC.ui["data_page_messages"][...]`；验证：probe 断言三处文案来自 ui.json 且缺键兜底
+- [x] N2.2 pricing.py:269 版本号单点导出 —— `from utils.logger import VERSION` 替换 `_SC.base['version']`；验证：probe 断言 pricing 读取与 logger.VERSION 同源
+
+### N3 清理与规范（类别⑥⑧⑩⑬）
+
+- [x] N3.1 main.py:51-94 配额预警缓存兜底路径弹气泡 —— `:91-94` else 分支内 `if info.overall_used_percent >= QUOTA_DANGER_PERCENT and not _notified_danger:` 亦弹气泡（消息标注缓存来源），保持 `_notified_danger` 复位语义；验证：probe 模拟全缓存超阈断言气泡触发
+- [x] N3.2 go_quota.py:478-479 + opencode_data.py:270-271 缓存发布持锁 —— 将 `_last_quotas/_last_success_at`（go_quota）与 `_last_snapshot/_last_success_at`（data）发布移入 `with 锁:` 块内与标志复位同段；验证：probe 并发两线程断言缓存标注时间戳与快照一致（理论级，需验证）
+- [x] N3.3 opencode_data.py:8 冗余 import 清理 —— 删除 `import urllib.error`（无 `urllib.error.X` 引用）；验证：IMPORT OK + 全量回归 0 失败
+- [x] N3.4 main_window.py 说明区补条目 —— MainWindow 方法清单（~:1303）补 `_on_quota_failed`（:865）/`_on_export_done`（:1019）两条目；验证：probe 断言说明区含两符号
+- [x] N3.5 data_page.py:130-168 空结果占位反馈 —— `_populate_table` 遇 `rows==[]` 调用 `_populate_placeholder`；验证：probe 断言空列表时表显示占位文案
+- [x] N3.6 system_tray.py:57 注释路径残留 —— 注释 `themes.quota_chunk_color` → `ui.theme_loader.quota_chunk_color`；验证：grep 断言零 `themes.quota_chunk_color` 残留
+
+**N2/N3 完成小结（2026-08-25）**：TDD 先行（`.temp/probe_n2.py` / `.temp/probe_n3.py`，修复前 FAIL、修复后全 PASS）；N3.5 落地为「单表空结果占位」而非调用全表 `_populate_placeholder`，避免批量设值时覆盖同批已填充的兄弟表（语义更正确，仍满足「空结果有占位反馈」验收）；verify_l_accept（L1.3/L1.7 改为适配 `captured[0]` 锁内发布）与 verify_v1010_1（H7 改为适配单点 `VERSION`）随实现演进适配；全量回归 63 脚本 0 失败 + IMPORT OK + offscreen 冒烟 OK。
+
+### N4 验证与收尾
+
+- [x] N4.1 全量回归 + 收尾 —— run_all_verify 0 异常 + IMPORT OK + offscreen 四主题冒烟 + 反向验收（N0-N3 各条坏输入/删键触发断言）；x.progress 勾选 + commit 草稿（版本推进 V0.2.5.4，此批随下次提交）
+
+> **版本推进决策（N 批次）**：第 19 轮审计整改（N 系列）完成后用户要求继续推进，发布版本由 V0.2.5.3 提升至 **V0.2.5.4**（N 批次整改纳入本次提交；M 批次已随 `fix: V0.2.5.3` 提交，不在本次范围）。
+> **commit 草稿（待用户执行，AI 不执行 git 写操作）**：
+>
+> ```
+> fix: V0.2.5.4，审计整改（正确性防御/并发收敛/配置化/清理）
+> - 正确性与防御：配额结果元组解包守卫、数据页单元格类型守卫、缓存兜底超阈弹预警气泡
+> - 防御加固：数据页空结果占位反馈、缓存标记逻辑抽共享 helper（utils.cache_util）
+> - 并发收敛：配额与数据页缓存发布移入锁内，与在途标志复位同段原子可见
+> - 配置化：数据页面向用户文案外置 ui.json、定价 UA 版本号单点导出 utils.logger.VERSION
+> - 清理：删除冗余 import、修正托盘注释路径残留、补充主窗口说明区方法条目
+> - 收尾：审计报告归档与修复清单勾选、版本推进 V0.2.5.3 → V0.2.5.4 三处一致
 > ```

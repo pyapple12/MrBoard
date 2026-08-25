@@ -1049,3 +1049,64 @@ ServiceError 分类退化（YAGNI 待 QML 诉求）、Chrome UA 字符串双份�
 - 本轮问题集中于新批次文档/说明区连带漏改与重构残尾，无运行时崩溃级缺陷、无安全项
 
 ---
+
+## 附录 A019：全量代码审计报告（第19轮，2026-08-25）
+
+> 范围：main.py + modules×7 + services×1 + ui×5 + utils×7 + config×4 + JSON 资源×8；三路并行代理全文审读 + 关键修复 grep 复核 + 重点段落人工核实
+> 重点：A018（第18轮）21 条 P 级整改（M0-M4）的回归复核 + 新批次代码连带新问题的全量通读
+> 结果：**P 级 11 条（中 6 / 低 5，无高）/ 参考级观察项 14 条全部维持豁免（用户复核确认）/ 0 安全项 / 0 确定性崩溃级缺陷**
+> 状态：📌 待修复（N 系列任务清单见 x.progress.md）
+
+### 零、上轮（A018）修复复核清单
+
+| 上轮条目                           | 现状                          | 证据                                                                                                                                                                                                                                                              |
+| ---------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A018 全部 21 条 P 级（M0-M4 修复） | ✅全部在位，无回退/无引入回归 | go_quota:478 原子发布 / browser_creds:522 / main_window:991 签名 / opencode_data:357 列表校验 / task_runner:61 说明区 / main_window:887 失配清 pending / 全仓零 `ui\.themes\|themes\.py\|theme_labels` 残留 / AGENTS:8+x.progress:15 导入命令已含 theme_loader 等 |
+| 经核实排除的误报                   | —                             | main_window.py:707-724 中 :724 `quota_runner.run` 缩进在 `if/else` 之外，无 db 时配额仍加载；原代理"无 db 跳配额"不成立，已排除                                                                                                                                   |
+
+### 一、P0-P3 修复清单
+
+**中（6 条）**
+
+| 文件:行号                                                      | 类型 | 描述                                                                                                                                                                    | 建议                                                                                                                                                        | 性质                                                       | 影响面              |
+| -------------------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------- |
+| main.py:51-94                                                  | ⑬    | 配额预警气泡仅在 `info.error is None` 分支弹；全部账户为缓存兜底（`is_cached` 且 `error` 置位）超阈值时走 `else`（:91-94）仅改托盘色不弹气泡，违背"有提示"主线          | 超阈值通知与 `error is None` 解耦：缓存兜底路径下 `overall_used_percent>=QUOTA_DANGER_PERCENT` 同样弹气泡（标注缓存来源），保持 `_notified_danger` 复位语义 | 遗留                                                       | 配额预警            |
+| ui/main_window.py:975                                          | ②    | `_on_guide_done` 中 `auth_cookie, workspace_id = result` 对 finished 信号载荷直接解包无类型/长度校验；services 契约变更返回非二元组时主线程抛 ValueError 致 GUI 崩溃    | 先 `isinstance(result, tuple) and len==2` 再解包，否则降级状态栏提示                                                                                        | 新增（需验证可达性）                                       | 凭据引导成功路径    |
+| ui/data_page.py:175-185                                        | ②    | `_format_cell` 对 `total_t/ratio/share` 直接 `f"{value:.1f}"`、对 `models` 直接 `value.items()`，无 isinstance 守卫；上游快照结构变更（非数值/非 dict）渲染期抛异常崩溃 | 格式化前做类型守卫，非预期类型兜底空串/`str(value)`，与 `_populate_table` 缺字段兜底一致                                                                    | 新增（需验证可达性）                                       | 数据页渲染          |
+| modules/opencode_data.py:236/:269/:251                         | ③    | 面向用户文案硬编码未外置 ui.json：`:236` 进行中提示、`:269` 失败兜底后缀"（显示缓存数据）"、`:251` 数据块缺失诊断——与 M2.2 外置口径不一致                               | 提取至 ui.json（并入 `go_quota_error_messages` 或新增 `data_page_error_messages` 组），统一缓存标注模板                                                     | 新增                                                       | 状态栏/缓存标注文案 |
+| modules/go_quota.py:478-479 + modules/opencode_data.py:270-271 | ⑧    | 缓存发布（`_last_quotas/_last_snapshot` 与 `_last_success_at`）在状态锁之外；并发读节流分支可能观察到新快照+旧时间戳，缓存标注/节流判定瞬时错乱                         | 发布移入 `with 锁:` 块内与标志复位同段，保证原子可见                                                                                                        | 新增（理论级：GIL 下引用赋值为原子，仅极小时间窗，需验证） | 缓存标注/节流窗口   |
+| modules/opencode_data.py:67 + modules/go_quota.py:350/:487     | ④    | 节流+浅拷贝标注逻辑（`_throttled_*`/`_mark_cached`）两模块近同构、注释自认"对齐 go_quota 同式"                                                                          | 抽 `utils` 层 `throttle_and_mark` 共享（评估不超抽象阈值）                                                                                                  | 遗留/设计权衡                                              | 缓存兜底复用        |
+
+**低（5 条）**
+
+| 文件:行号                          | 类型 | 描述                                                                                                                       | 建议                                       | 性质 | 影响面               |
+| ---------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---- | -------------------- |
+| modules/opencode_data.py:8         | ⑥    | `import urllib.error` 无 `urllib.error.X` 引用，冗余 import                                                                | 删除该行                                   | 新增 | import 整洁          |
+| modules/pricing.py:269             | ⑪    | 读 User-Agent 版本用 `_SC.base['version']` 直读，未复用 `utils.logger.VERSION` 单点导出（R4/D1 版本单点约定）              | 改 `from utils.logger import VERSION`      | 新增 | 版本号来源一致性     |
+| ui/main_window.py（说明区 ~:1303） | ⑥    | 模块说明区 MainWindow 方法清单漏列 `_on_quota_failed`（:865）与 `_on_export_done`（:1019），与 M3.4 同类失实               | 补入两条目                                 | 新增 | 文档一致性           |
+| ui/data_page.py:130-168            | ⑩    | `_populate_table` 遇 `rows==[]` 仅 `setRowCount(0)` 清空不回退占位，空态无视觉反馈                                         | 空结果时调用 `_populate_placeholder`       | 新增 | 数据页空结果可观测性 |
+| ui/system_tray.py:57               | ⑥    | 注释"阈值/分级复用 themes.quota_chunk_color"指向不存在模块路径，实际 `ui.theme_loader.quota_chunk_color`（PL007 语义残留） | 注释改 `ui.theme_loader.quota_chunk_color` | 新增 | 文档误导性           |
+
+### 二、参考级观察项（14 条，全部维持豁免，用户复核确认）
+
+1. utils/convert.py:7-19 `to_int` 浮点截断（`int(float())` 得 1）—— 无可达小数输入路径，豁免（精度边界）
+2. config/static/static_config.py:47-80 数值键白名单覆盖缺口（漏登新键不拦截）—— 有注释依据（H0.4），文档化同步清单即可
+3. utils/retry.py:13-22 默认 `retries=3/delay=1.0` 与 base.json `retry_count=2` 不一致 —— 泛型工具默认，调用方应传配置值（需 modules 组回归确认调用点）
+4. utils/convert.py:52-54 `round_cost digits=4` 默认 —— 通用 util 默认口径，非用户可调参数，豁免
+5. utils/logger.py / config/settings.py 静态键缺失即导入期崩溃 —— 项目"结构性错误 fail-loud"既定策略，非宽容解析对象，豁免
+6. services/service.py:64-83 `_wait_for_login_cookie` 阻塞 sleep 须严格在 QThreadPool worker（不可 UI 线程）—— 转 ui 组已核实，不判
+7. modules/pricing.py:210 `_load_cached_prices` TTL 失效重复读盘 —— 性能小损，非正确性
+8. go_quota/data 缓存存储差异（go_quota 用 `error` 字段、data 用 `errors` 列表）—— 设计口径不一，非 bug
+9. ui/system_tray.py:79,85 `ICON_SIZE//16`/`//8` 几何比例硬编码 —— 相对 ICON_SIZE 不变量，豁免
+10. ui/main_window.py:351 饼图内边距 `adjusted(3,3,-3,-3)` 硬编码 —— 纯绘制几何留白，豁免
+11. ui/main_window.py:343 `used_percent` getter 仅测试访问器 —— 有注释依据，豁免
+12. ui/data_page.py:182-184 `rstrip("0").rstrip(".")` 规整 —— 数值展示策略，豁免
+13. ui/theme_loader.py:92 `re.findall(r"\{[a-zA-Z_]+\}",...)` 残留占位符检测 —— 当前值为颜色串无可达触发，豁免
+14. 豁免清单无遗漏（含上述 13 项）
+
+### 三、亮点
+
+- **A018 全部 21 条 P 级修复（M0-M4）零回退**，三路代理独立 grep 确认；审计整改闭环完整
+- 全量回归 63 脚本 **0 失败** + IMPORT OK + 四主题（light/dark/console/panel）冒烟全 OK
+- 异步引用持有（`_live_tasks`）+ 引导失败信号端到端（`verify_m_accept.py`）经实测验证
+- 本轮新发现问题集中于逻辑边界（缓存兜底提示/解包防御/文案外置），**无安全项、无确定性崩溃级缺陷**

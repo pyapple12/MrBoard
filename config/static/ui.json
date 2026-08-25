@@ -16,6 +16,12 @@
     "in_flight": "配额请求进行中，请稍后刷新",
     "throttled_template": "距上次刷新不足 {seconds} 秒，显示缓存数据"
   },
+  "data_page_messages": {
+    "in_flight": "数据页刷新进行中，显示缓存数据",
+    "block_missing": "数据块 {key} 缺失（页面结构可能变更）",
+    "fetch_failed": "数据页拉取失败",
+    "cache_suffix": "（显示缓存数据）"
+  },
   "colors": {
     "quota_ok": "#4caf50",
     "quota_gray": "#9e9e9e",
@@ -128,7 +134,8 @@
     "usage_failed_template": "用量统计失败：{error}",
     "quota_failed_template": "配额拉取异常：{error}",
     "export_done_template": "导出完成：{dir}",
-    "export_failed_template": "导出失败：{error}"
+    "export_failed_template": "导出失败：{error}",
+    "guide_data_format_error": "凭据引导返回数据格式异常，请重试"
   },
   "dialog_titles": {
     "total_detail": "总量明细",

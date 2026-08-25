@@ -54,7 +54,7 @@ class SystemTray(QSystemTrayIcon):
             window.activateWindow()
 
     def update_quota_status(self, used_percent: int | None) -> None:
-        # 按最紧窗口使用百分比更新图标颜色（阈值/分级复用 themes.quota_chunk_color，
+        # 按最紧窗口使用百分比更新图标颜色（阈值/分级复用 ui.theme_loader.quota_chunk_color，
         # None → 灰色）
         if used_percent is None:
             self.setIcon(self._build_icon(QColor(QUOTA_GRAY)))
@@ -110,7 +110,7 @@ class SystemTray(QSystemTrayIcon):
 #     __init__：构建状态色图标 + 菜单（显示窗口/刷新/退出）+ 激活信号
 #     show_requested()：菜单"显示窗口"——window.show + raise_ + activateWindow
 #     update_quota_status(used_percent)：按最紧窗口使用百分比更新图标颜色
-#       （阈值/分级复用 themes.quota_chunk_color，None 灰色），供 main.py 在配额加载后调用
+#       （阈值/分级复用 ui.theme_loader.quota_chunk_color，None 灰色），供 main.py 在配额加载后调用
 #     notify_quota(title, message)：气泡通知（常驻后台提示关键变化）
 #     _build_icon(color)：QPainter 绘制圆形图标（状态色圆 + 白色中心点，几何按 ICON_SIZE 比例）
 #     _on_activated(reason)：单击/双击托盘显示窗口
