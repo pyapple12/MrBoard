@@ -287,17 +287,18 @@ def _fetch_remote_prices() -> dict[str, RateInfo] | None:
         for model, model_info in models.items():
             if not isinstance(model_info, dict):
                 continue
-            # D0.1：现网 models.dev 定价字段为 cost（官方 schema），兼容历史 pricing
-            pricing = model_info.get("cost") or model_info.get("pricing")
-            if not isinstance(pricing, dict):
+            # D0.1：现网 models.dev 定价字段为 cost（官方 schema），兼容历史 pricing；
+            # O3.10：局部变量改名避免与模块语义同名遮蔽（对齐 go_quota D0.14 先例）
+            cost_block = model_info.get("cost") or model_info.get("pricing")
+            if not isinstance(cost_block, dict):
                 continue
             result[canonical_key(provider, model)] = _rate_from_raw(
                 {
                     **{
-                        target: pricing.get(source)
+                        target: cost_block.get(source)
                         for source, target in PRICE_KEY_MAP.items()
                     },
-                    "currency": pricing.get("currency", "USD"),
+                    "currency": cost_block.get("currency", "USD"),
                 },
                 "remote",
             )

@@ -48,9 +48,38 @@ def run_gui() -> None:
     sys.exit(app.exec())
 
 
+def _danger_notify(tray: SystemTray, info: GoQuotaInfo, suffix: str) -> None:
+    # 超阈预警气泡单点（O1.1 收敛成功/缓存兜底两路复制）：阈值判定+去重标志+
+    # 模板格式化+坏模板静态拼接兜底（P24/O0.3 含 AttributeError）+标题提取；
+    # suffix 为消息尾部标注（成功路径空串、缓存路径配置缓存后缀，O2.2）
+    global _notified_danger
+    if info.overall_used_percent < QUOTA_DANGER_PERCENT or _notified_danger:
+        return
+    _notified_danger = True
+    try:
+        message = str(_SC.ui["notify_message_template"]).format(
+            used=info.overall_used_percent,
+            remaining=info.remaining_percent,
+        )
+    except (KeyError, ValueError, IndexError, AttributeError):
+        # P24 定案（选项 X'）：坏模板兜底单层化——静态拼接为最终防线（不依赖
+        # 配置，任何损坏都兜得住，信息不丢）
+        message = (
+            f"配额已使用 {info.overall_used_percent}%，剩余 {info.remaining_percent}%"
+        )
+    # notify_quota 在 try/except 链之外（模板正常与回退路径都执行）；
+    # D0.7：notify_title 访问并入防护（契约校验已兜底，双保险）
+    try:
+        title = str(_SC.ui["notify_title"])
+    except KeyError:
+        title = APP_NAME
+    tray.notify_quota(title, f"{message}{suffix}")
+
+
 def _on_quota_updated(tray: SystemTray, infos: list[GoQuotaInfo]) -> None:
     # 配额加载完成（PL001.8 多账户列表）：取最紧的有效账户驱动托盘图标/预警；
-    # 全部无效才置灰图标；≥80% 时气泡预警（6A.3 O4 去重语义不变）
+    # 全部无效才置灰图标；≥80% 时气泡预警（6A.3 O4 去重语义不变；O1.1 弹泡
+    # 逻辑单点化至 _danger_notify，成功/缓存兜底两路共用）
     global _notified_danger
     valid = [item for item in infos if item.error is None or item.is_cached]
     if not valid:
@@ -61,57 +90,17 @@ def _on_quota_updated(tray: SystemTray, infos: list[GoQuotaInfo]) -> None:
     info = max(valid, key=lambda item: item.overall_used_percent)
     if info.error is None:
         tray.update_quota_status(info.overall_used_percent)
-        if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
-            if not _notified_danger:
-                _notified_danger = True
-                # C21：气泡文案外置 ui.json（notify_title/notify_message_template）
-                try:
-                    message = str(_SC.ui["notify_message_template"]).format(
-                        used=info.overall_used_percent,
-                        remaining=info.remaining_percent,
-                    )
-                except (KeyError, ValueError, IndexError):
-                    # P24 定案（选项 X'）：坏模板兜底单层化——fallback 模板与主模板
-                    # 同质（同被占位符校验覆盖），双层冗余无增量；静态拼接为最终
-                    # 防线（不依赖配置，任何损坏都兜得住，信息不丢）
-                    message = (
-                        f"配额已使用 {info.overall_used_percent}%"
-                        f"，剩余 {info.remaining_percent}%"
-                    )
-                # notify_quota 在 try/except 链之外（模板正常与回退路径都执行）；
-                # D0.7：notify_title 访问并入防护（契约校验已兜底，双保险）
-                try:
-                    title = str(_SC.ui["notify_title"])
-                except KeyError:
-                    title = APP_NAME
-                tray.notify_quota(title, message)
-        else:
+        _danger_notify(tray, info, "")
+        if info.overall_used_percent < QUOTA_DANGER_PERCENT:
             # 回落到阈值以下：复位去重标志（再次超限才重新弹）
             _notified_danger = False
     else:
         # D0.3：错误/缓存兜底（is_cached）不是失败——托盘按真实数据更新、
-        # 不复位去重标志（否则 60s 窗口内手动刷新即复位，超限重复弹气泡）
+        # 不复位去重标志（否则 60s 窗口内手动刷新即复位，超限重复弹气泡）；
+        # N3.1/O2.2：超阈仍弹气泡，尾部标注读配置缓存后缀（data_page_messages
+        # 组已入契约，导入期拦截删键）
         tray.update_quota_status(info.overall_used_percent)
-        # N3.1：缓存兜底场景下超阈仍弹预警气泡（标注缓存来源，与成功路径同式）
-        if info.overall_used_percent >= QUOTA_DANGER_PERCENT:
-            if not _notified_danger:
-                _notified_danger = True
-                try:
-                    message = str(_SC.ui["notify_message_template"]).format(
-                        used=info.overall_used_percent,
-                        remaining=info.remaining_percent,
-                    )
-                except (KeyError, ValueError, IndexError):
-                    message = (
-                        f"配额已使用 {info.overall_used_percent}%"
-                        f"，剩余 {info.remaining_percent}%"
-                    )
-                message = f"{message}（缓存数据）"
-                try:
-                    title = str(_SC.ui["notify_title"])
-                except KeyError:
-                    title = APP_NAME
-                tray.notify_quota(title, message)
+        _danger_notify(tray, info, str(_SC.ui["data_page_messages"]["cache_suffix"]))
 
 
 def _quit_app(app: QApplication, window: MainWindow, tray: SystemTray) -> None:
@@ -146,10 +135,17 @@ if __name__ == "__main__":
 #     逻辑步骤：QApplication → MainWindow → SystemTray（信号连接：刷新→window.refresh，
 #       退出→_quit_app，配额→_on_quota_updated 托盘图标/预警）→ 显示 → app.exec()
 #     设计理由：顶层 import（循环依赖已根治，审计 M2）；托盘/窗口装配集中在入口
+#   _danger_notify(tray, info, suffix)：
+#     逻辑步骤：阈值判定+去重标志检查 → notify_message_template 格式化（坏模板
+#       静态拼接兜底，含 AttributeError）→ notify_title 提取（缺键兜底 APP_NAME）
+#       → tray.notify_quota(title, message+suffix)
+#     设计理由：O1.1 收敛成功/缓存兜底两路复制的气泡逻辑单点化；suffix 由调用方
+#       注入来源标注（成功空串/缓存读 data_page_messages.cache_suffix，O2.2）
 #   _on_quota_updated(tray, infos)：
 #     逻辑步骤：多账户列表取"最紧有效账户"（error 为空或 is_cached 中 overall
 #       最高者，A0.16/K3.5 口径同步）驱动托盘图标/状态色；全部无效才置灰；
-#       overall ≥80% 时气泡预警（O4 去重：持续超限仅首次弹）
+#       超阈弹泡统一委托 _danger_notify（N3.1 起缓存兜底路径同样弹泡并标注
+#       缓存来源；成功路径回落至阈值以下复位去重标志，O4 去重语义不变）
 #     设计理由：审计 B2 修复——托盘预警功能接线；PL001.8 起多账户语义
 #   _quit_app(app, window, tray)：
 #     逻辑步骤：window.save_state() → tray.hide() → app.quit()

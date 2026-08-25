@@ -16,17 +16,13 @@ from modules import browser_creds, credential_store
 from utils.cache_util import mark_cached
 from utils.file_utils import get_project_root, read_json, write_json
 from utils.logger import get_logger
-from utils.network import RETRY_NETWORK_ERRORS, http_get
+from utils.network import CHROME_UA, RETRY_NETWORK_ERRORS, http_get
 from utils.retry import retry_call
 
 logger = get_logger(__name__)
 
 DASHBOARD_URL_TEMPLATE = "https://opencode.ai/workspace/{workspace_id}/go"
 DASHBOARD_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    " (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-)
 # 静态配置解包（S8：参数外置 base.json）
 _SC = get_static_config()
 MIN_FETCH_INTERVAL = int(_SC.base["min_fetch_interval"])
@@ -580,7 +576,8 @@ if __name__ == "__main__":
 #     "field":$R[12]={...} 赋值形态与字符串/数字双形态值）
 #   _http_get()：GET 请求（401/403 转 auth 分类；其余异常原样抛交 retry 重试）
 #   _throttled_cache(force)：节流检查——非强制且距上次成功不足 MIN_FETCH_INTERVAL 秒返回缓存
-#   _build_info()：组装成功配额信息并更新缓存（overall = max 三窗口）
+#   _build_info()：组装成功配额信息（overall = max 三窗口；不写缓存——由
+#     fetch_go_quota 末尾 captured 锁内原子发布，M0.1/O3.11c 说明同步）
 #   mark_cached()：缓存兜底标注（来自 utils.cache_util，浅拷贝防污染）
 #   fetch_go_quota(force)：主流程——节流检查 → in-flight 去重（缓存全集标注副本）
 #     → 凭据候选逐个拉取（单凭据失败降级为占位错误项不拖垮其他）→ 返回

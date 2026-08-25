@@ -229,9 +229,12 @@ def _read_auth_cookies(cookie_db_path: Path, aes_key: bytes) -> list[str]:
     # 读取 opencode.ai 的 auth cookie 并解密（v10 解密 / v20 跳过；
     # v20 提示每进程会话仅一次防多 profile 多 cookie 刷屏，E10/E1）
     global _v20_warned
-    result, has_v20 = _with_copied_db(
-        cookie_db_path, _read_auth_cookies_query, aes_key
-    ) or ([], False)
+    # O3.9：显式判 None（原 `... or ([], False)` 在查询成功返回 falsy 元组时
+    # 走 or 分支属巧合等价，返回结构变化即成 bug）
+    copied = _with_copied_db(cookie_db_path, _read_auth_cookies_query, aes_key)
+    if copied is None:
+        copied = ([], False)
+    result, has_v20 = copied
     if has_v20 and not _v20_warned:
         _v20_warned = True
         logger.warning(
@@ -272,9 +275,12 @@ def _workspace_ids_query(conn: sqlite3.Connection) -> list[str]:
 
 
 def read_workspace_ids(history_db_path: Path) -> list[str]:
-    # 从 History 数据库的浏览记录正则提取 workspaceID（去重，limit 200；对外公开 R13；
+    # 从 History 数据库的浏览记录正则提取 workspaceID（去重，limit 200；模块内部使用，
+    # services 门面未导出，O3.11f 注释修正；
     # v10 离线探测路径专用——CDP 引导已改从登录后页面 URL 提取，5A.1 E4 改案）
-    return _with_copied_db(history_db_path, _workspace_ids_query) or []
+    # O3.9：显式判 None（同 _read_auth_cookies，防 falsy 巧合等价）
+    rows = _with_copied_db(history_db_path, _workspace_ids_query)
+    return [] if rows is None else rows
 
 
 def _with_copied_db(
@@ -579,7 +585,7 @@ def _chrome_executable() -> Path | None:
 
 
 def chrome_user_data_dir() -> Path:
-    # Chrome User Data 目录（保留登录态；对外公开，供 main_window 调用，R13）
+    # Chrome User Data 目录（保留登录态；模块内部使用，O3.11f 注释修正）
     local_appdata = _local_appdata()
     return local_appdata / "Google" / "Chrome" / "User Data"
 
@@ -671,7 +677,7 @@ def psutil_process_iter() -> list[Any]:
 #     **Chrome 自行解密，v10/v20/v30 通吃、跨版本稳定**（S6.1 调研结论：比 SYSTEM
 #     DPAPI 逆向 / DLL 注入更适合产品化）；workspaceID 不依赖浏览历史（5A.1 E4 改案）
 #   shutdown_chrome_debug()：终止调试实例（用户后续自行正常启动 Chrome）
-#   chrome_user_data_dir()：Chrome User Data 目录（公开入口，R13）
+#   chrome_user_data_dir()：Chrome User Data 目录（内部使用，O3.11f 修正公开性描述）
 #   _chrome_executable()：chrome.exe 三路径定位
 #   psutil_process_iter()：进程遍历（psutil 优先，回退 tasklist 解析）
 # 设计理由：零配置体验（目标用户打包分发场景）；v10 离线解密免打扰；

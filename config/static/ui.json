@@ -20,6 +20,8 @@
     "in_flight": "数据页刷新进行中，显示缓存数据",
     "block_missing": "数据块 {key} 缺失（页面结构可能变更）",
     "fetch_failed": "数据页拉取失败",
+    "fetch_failed_template": "数据页拉取失败：{error}",
+    "release_failed_template": "官方动态拉取失败：{error}",
     "cache_suffix": "（显示缓存数据）"
   },
   "colors": {

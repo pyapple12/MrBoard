@@ -66,6 +66,13 @@ class _FnTask(QRunnable):
 #     各一），信号直连对应 handler 零分发；run(fn, seq=0) 提交任务
 #   _FnTask(QRunnable)：线程池任务壳，执行 fn 并经持有的 runner 引用发射信号
 #     （runner 由主线程持有不回收，引用安全；setAutoDelete(False) 生命周期全权由 Python 侧管理）
+# 方法级（O3.11h 补条目）：
+#   TaskRunner.run(fn, seq)：构造 _FnTask 持 runner/seq 引用提交线程池并入 _live_tasks
+#   TaskRunner._task_done(task)：完成回调——引用自 _live_tasks 转 _done_tasks(deque
+#     maxlen=16) 保最近引用防 GC（只管引用转移；信号发射在 _FnTask.run）
+#   _FnTask.__init__：任务壳构造（持 runner/fn/seq 引用）
+#   _FnTask.run：线程池执行体——fn() 成功发 finished(seq, 结果)，异常发
+#     failed(seq, str(exc))（原始异常串，文案格式化留在 UI 层 handler），finally 单点回调 _task_done
 # 引用管理机制（A017/PL006.2 实测教训：QRunnable wrapper 运行期被 GC 触发 0xC0000409 崩溃）：
 #   _live_tasks(set) 持有执行中任务 Python 引用；完成后转入 _done_tasks(deque maxlen=16)
 #   继续保引用，自动淘汰最老且无泄漏

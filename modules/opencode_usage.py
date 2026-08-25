@@ -719,8 +719,8 @@ if __name__ == "__main__":
 #   UsageSummary：总览（sessions/messages/days/tokens/cost 多口径 + cost_source 标注）
 # 函数：
 #   find_db_path()：三级探测——OPENCODE_DB 环境变量 → opencode db path 子进程
-#     （shutil.which + 10s 超时，失败返回 None）→ XDG 默认路径；参考 opencode-usage
-#     的探测链，GUI 每次启动只需调用一次
+#     （shutil.which + base.json subprocess_timeout 驱动超时，失败返回 None）→
+#     XDG 默认路径；参考 opencode-usage 的探测链，GUI 每次启动只需调用一次
 #   _query_db_path_from_cli()：子进程查询 opencode db path（失败/超时返回 None）
 #   OpenCodeDB：只读连接（mode=ro 防误写）+ row_factory；聚合入口——totals 总览 /
 #     by_day（日期降序）/ by_month（%Y-%m 降序）/ by_model / by_provider / by_agent /
@@ -742,5 +742,5 @@ if __name__ == "__main__":
 # 异常处理：连接只读不会写坏库；探测失败抛 FileNotFoundError 带提示；
 #   子进程不可用/超时静默降级；CLI 解析错误打印用法退出码 1
 # 关联配置：OPENCODE_DB 环境变量可覆盖数据库路径；config/static/base.json
-#   （db_default_path/table_limit_group/table_limit_day/subprocess_timeout/
-#   retry_count/retry_delay）；ui.json（unknown_label 未知模型/Provider 标签）
+#   （db_default_path/table_limit_group/table_limit_day/subprocess_timeout）；
+#   ui.json（unknown_label 未知模型/Provider 标签）

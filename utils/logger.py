@@ -52,7 +52,10 @@ def get_logger(name: str) -> logging.Logger:
 def _setup_handlers() -> None:
     # 初始化根日志器：控制台 handler + UTF-8 文件 handler（文件失败时降级仅控制台）
     root = logging.getLogger()
-    root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    # O0.5：显式级别名映射（getattr(logging, LOG_LEVEL) 在小写值时命中模块级
+    # 函数对象（如 logging.info），setLevel 抛 TypeError 且在 try 外启动即崩；
+    # getLevelNamesMapping 键恒为大写级别名，未知值兜底 INFO）
+    root.setLevel(logging.getLevelNamesMapping().get(LOG_LEVEL.upper(), logging.INFO))
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
     root.addHandler(console_handler)
@@ -94,7 +97,7 @@ def _setup_handlers() -> None:
 #     逻辑步骤：首次调用触发 _setup_handlers()，返回 logging.getLogger(name)
 #     设计理由：业务模块只需 get_logger(__name__) 即可获得统一格式的双通道日志，
 #       修复"logger 无 handler 导致日志静默丢失"的经典问题（对齐 AccelWorld D12）
-#     _setup_handlers()：
+#   _setup_handlers()：
 #     逻辑步骤：root logger 挂控制台 handler（stderr）+ 文件 handler（utf-8 编码，
 #       中文不乱码），日志目录不存在则自动创建；文件路径不可用时降级仅控制台
 #     设计理由：文件日志落盘便于排查常驻应用问题；控制台便于 CLI/开发调试

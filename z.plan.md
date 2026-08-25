@@ -1110,3 +1110,93 @@ ServiceError 分类退化（YAGNI 待 QML 诉求）、Chrome UA 字符串双份�
 - 全量回归 63 脚本 **0 失败** + IMPORT OK + 四主题（light/dark/console/panel）冒烟全 OK
 - 异步引用持有（`_live_tasks`）+ 引导失败信号端到端（`verify_m_accept.py`）经实测验证
 - 本轮新发现问题集中于逻辑边界（缓存兜底提示/解包防御/文案外置），**无安全项、无确定性崩溃级缺陷**
+
+## 附录 A020：全量代码审计报告（第20轮，2026-08-26）
+
+> 范围：main.py + modules×7 + services×1 + ui×5 + utils×8 + config×4 + JSON×3；三路并行代理全文审读 + 主会话逐项实证抽查（关键发现均动态探针/源码核对复现）
+> 重点：A019（第19轮）N 系列整改（V0.2.5.4，提交 3c85e96）的回归复核 + 全量通读；**本轮问题集中于 N 整改的连带效应**（新整改代码自身引入或配套未同步）
+> 结果：**P 级 22 条（中 9 / 低 10 / 文档 3，无高）/ 参考级观察项合并 18 条全部维持豁免（用户复核确认）/ 死键仅 1 / 0 安全项 / 0 确定性崩溃级缺陷**
+> 状态：📌 待修复（O 系列任务清单见 x.progress.md）
+
+### 零、上轮（A019）修复复核清单
+
+| 上轮条目              | 现状                                                                               | 证据                                              |
+| --------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------- |
+| N0.1 解包守卫         | ⚠️ 在位，守卫分支引入次生缺陷（不恢复引导态→半死锁，见中-2）+ 契约漏同步（见中-4） | main_window.py:977                                |
+| N0.2 类型守卫         | ✅ 在位无回归                                                                      | data_page.py:185/189/193                          |
+| N1.1 mark_cached 共享 | ✅ 干净收敛，两模块零本地残留                                                      | cache_util.py:5 + 两模块各 3 处引用               |
+| N2.1 文案外置         | ⚠️ 四键落地，同语义硬编码漏网 2 处（见中-7）                                       | opencode_data.py:256/260                          |
+| N2.2 VERSION 单点     | ✅ 全项目 base["version"] 直读仅剩 logger 单点                                     | pricing.py:11/269                                 |
+| N3.1 缓存气泡         | ⚠️ 功能在位，携带复制实现/硬编码文案/说明区失实三项连带                            | main.py:95-114                                    |
+| N3.2 锁内发布         | ✅ 语义复核无损（空 captured 不发布，与基线一致）                                  | go_quota.py:486 / opencode_data.py:284            |
+| N3.3-N3.6             | ✅ 全部在位                                                                        | import 已删 / 说明区:1308 / 占位:154 / 注释零残留 |
+| 版本一致性            | ✅ README 徽章 == base.json == logger.VERSION = V0.2.5.4                           | 三处                                              |
+
+### 一、P0-P3 修复清单
+
+**中（9 条）**
+
+| 文件:行号                                        | 类型 | 描述                                                                                                                                                                                                                                                  | 建议                                                                                                                  | 性质                                        | 影响面            |
+| ------------------------------------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------- |
+| ui/data_page.py:158                              | ①⑬   | N3.5 占位分支 `setHorizontalHeaderLabels(英文键名)` 覆盖 `__init__:101/:111` 中文表头，且正常分支不重设 → 任一表出现空结果后该表表头永久变为英文键名（直到重启），确定复现                                                                            | 占位分支删除 setColumnCount/setHorizontalHeaderLabels 两行（列结构 **init** 已固定），仅保留 setRowCount(1)+占位 item | 新增（N3.5 连带）                           | 显示层/数据页     |
+| ui/main_window.py:977-979                        | ①⑧   | N0.1 守卫命中只 showMessage+return，跳过正常/失败路径共有恢复序列（按钮启用、_guide_active=False、_refresh_timer 重启）→ 触发即半死锁：自动刷新永停、引导入口全禁；当前上游契约恒成立（理论可达 ≤中）                                                 | 守卫分支复用 _on_guide_failed 恢复序列后再提示                                                                        | 新增（N0.1 连带）                           | 凭据引导/UI 交互  |
+| main.py:73、:104                                 | ②    | format 兜底 except (KeyError,ValueError,IndexError) 漏 AttributeError（`"{used.x}".format(used=80)` 实证抛 AttributeError）——模板含未知属性占位符时异常逃逸，PyQt6 槽内未捕获异常 abort 进程，突破 P24"任何损坏都兜得住"防线；:104 为 N3.1 复制扩散点 | except 元组补 AttributeError；随低-1 helper 抽取一并单点化                                                            | 成功路径遗留+缓存路径新增                   | GUI 进程稳定性    |
+| ui/main_window.py:192-211                        | ③②   | B0.6/C0.8 契约 status_messages 必需键集（18 键）未纳入 N0.1 新消费键 guide_data_format_error（:978 消费）→ 删键导入期不拦截，运行时恰在防御路径抛 KeyError（槽内 abort）：防御代码自身成崩溃点                                                        | required 元组补 "guide_data_format_error"                                                                             | 新增（N0.1 连带）                           | 配置体系/契约防线 |
+| utils/logger.py:55                               | ②    | getattr(logging, LOG_LEVEL, ...)：log_level 手改为小写（"info" 等）命中 logging 模块级函数对象（hasattr 实证），setLevel 抛 TypeError 且该行在 try 外 → 启动即崩裸异常无中文提示                                                                      | 显式级别映射 logging.getLevelNamesMapping().get(LOG_LEVEL.upper(), INFO) 或移入 try                                   | 遗留                                        | 启动/日志         |
+| config/static/static_config.py:75-77             | ②⑬   | H0.4 数值键白名单只查"存在时的类型"，键缺失放行（实证删 http_timeout 导入期无报错，崩溃后移 network.py:24 裸 KeyError）；字符串键完全无存在性校验                                                                                                     | 白名单循环补 if _v is None: raise RuntimeError                                                                        | 遗留                                        | 配置体系          |
+| modules/opencode_data.py:256、:260 + main.py:109 | ③    | 三处用户可见文案硬编码未外置："数据页拉取失败：{exc}"、"官方动态拉取失败：{exc}"（与 N2.1 外置 fetch_failed 同语义不同源）、"（缓存数据）"（与 cached_prefix/cache_suffix 措辞三足鼎立）                                                              | 前两者外置 data_page_messages 补 {error} 模板键；缓存后缀复用 cache_suffix 统一措辞                                   | 新增发现（N2.1/N3.1 口径不齐）              | 数据页/托盘预警   |
+| modules/opencode_data.py:237                     | ⑬⑧   | in-flight 去重且无缓存返回裸快照（is_cached=False/errors 空/三源空），UI 无法区分进行中与失败；对照 go_quota:430-437 同场景返回带 in_flight 文案占位项，行为分叉                                                                                      | 该快照追加 errors=[data_page_messages.in_flight]                                                                      | 遗留（M1.4 起）                             | 数据页            |
+| ui/main_window.py:245-249                        | ③    | 契约双缺口：go_quota_error_messages required 漏 throttled_template（go_quota:362/opencode_data:74 裸读）；N1.1 新增 data_page_messages 整组不在任何契约（opencode_data:234/253/269 裸读）                                                             | required 补第三键；data_page_messages 四键照 F0.1 式样入 _UI_STRUCT_KEYS                                              | 部分（throttled 遗留/data_page 组新增连带） | 配置体系/契约防线 |
+
+**低（10 条）**
+
+| 文件:行号                                          | 类型 | 描述                                                                                                                                  | 建议                                                   | 性质 |
+| -------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ---- |
+| main.py:96-114                                     | ④    | N3.1 整段复制成功路径气泡逻辑约 15 行，fallback 文案两份逐字相同（亦为中-3 扩散根源）                                                 | 提取 _danger_notify(tray, info, suffix) 两路共用       | 新增 |
+| modules/opencode_data.py:258(:409)                 | ⑤    | fetch_github_releases(force) 参数函数体从未读取，唯一调用传 force=True 无效果                                                         | 删参数及实参                                           | 遗留 |
+| ui/main_window.py:1163-1179                        | ⑨    | _show_columns_menu 每次 new QMenu+9 QAction popup 后局部 wrapper 被 GC、C++ 对象滞留 children → 常驻应用累积泄漏                      | aboutToHide.connect(menu.deleteLater) 或单实例复用     | 遗留 |
+| ui/main_window.py:207 + ui.json:134                | ⑫⑤   | usage_failed_template 全仓唯一 .py 引用是其自身契约行（死键）；_on_load_error 直显原始异常串不走模板                                  | _on_load_error 改走模板统一口径（推荐）或删键+删契约行 | 遗留 |
+| ui/theme_loader.py:111-114                         | ⑤    | is_dir 检查不可达死分支（其前 :101 循环经 _load_theme 对缺失目录必先抛），M0.6 设计意图失效                                           | 检查上移到循环前恢复设计价值，或删除并修注释           | 遗留 |
+| ui/theme_loader.py:24、:62                         | ⑥②   | read_text 遇非 UTF-8 资源裸抛 UnicodeDecodeError，违背 M0.6/A3.5 导入期 IO 失败转 RuntimeError 自宣口径                               | 包 try 转 RuntimeError（消息含路径）                   | 遗留 |
+| ui/data_page.py:172-177                            | ④②   | _populate_placeholder 未设 NoEditTriggers（启动空态占位格可编辑）；editTriggers/alternatingRowColors 两分支每次重复设置               | 表格静态属性收敛 **init** 单点一次                     | 遗留 |
+| services/service.py:95-122                         | ⑬    | get_usage/export_data 对坏库 sqlite3.Error 不转 ServiceError，UI 直显英文异常串，与其他入口中文口径不一                               | 转 ServiceError                                        | 遗留 |
+| services/service.py:64-84                          | ⑨⑥   | 登录等待单轮周期（CDP≤10s+验证重试链最长约 50s）远超 deadline 检查粒度，总等待显著超 login_wait_seconds，超时提示"{minutes} 分钟"失真 | deadline 检查下沉至验证步骤前，或注释声明              | 遗留 |
+| modules/go_quota.py:26-29 ↔ opencode_data.py:36-39 | ④⑫   | CHROME_UA/_BROWSER_UA 逐字符相同的 UA 字符串双处维护                                                                                  | 收敛 utils/network 单点导出                            | 遗留 |
+
+**文档（3 条）**
+
+| 位置                                   | 类型 | 描述                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 说明区失实/缺漏批（八处合并）          | ⑥    | main.py:149-152 未同步缓存分支气泡；utils/logger.py:97-99 _setup_handlers 缩进挂错层级；go_quota.py:583 "_build_info 更新缓存"与 M0.1 原子发布矛盾；opencode_usage.py:746 关联配置多列 retry_count/delay、:722 写死"10s"；services/service.py:196-198 残句排版错乱；browser_creds.py:582/:674 "对外公开供 main_window 调用(R13)"实无外部消费方；ui/main_window.py 方法清单漏 _build_cards/:520、_build_guide_card/:626、_build_detail_section/:648、_sorted_hidden_columns/:1227 且 _on_guide_done 条目未反映 N0.1 守卫；ui/task_runner.py 说明区漏 _task_done/_FnTask.**init**/.run 条目 |
+| modules/browser_creds.py:232-234、:277 | ⑥    | `_with_copied_db(...) or ([], False)`：查询成功返回 falsy 元组时走 or 分支属巧合等价，未来结构变化即成 bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| modules/pricing.py:291                 | ⑥    | 局部变量 pricing 与模块语义同名遮蔽（go_quota D0.14 同类已改名先例）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+### 二、参考级观察项（全部维持豁免，用户 2026-08-26 复核确认）
+
+1. retry.py:28-30 nan/inf 经 json.loads 可入参数致 int()/sleep() 抛错 —— 需手写 NaN 字面量无可达常规路径（纯理论，需验证）
+2. sqlite_utils.py:11-12 UNC 路径 URI 转义解析失败 —— 调用方全本机盘路径不可达（需验证）
+3. file_utils.py:36/72 read_json 缓存对象引用可被污染 —— 调用方全显式 use_cache=False，C1 已裁定
+4. windows.py:15 内联 get_static_config 未按顶层解包风格 —— 单例等价纯风格
+5. network.py http_get 不强制 UA 责任分散调用方 —— 设计取舍非缺陷
+6. opencode_data.py:322 stack 扫描窗口魔数 6000 无注释 —— 内部算法参数命中豁免条件①，建议补量纲注释
+7. opencode_data.py:265-277 三源全空不断流节流失效 —— A017/L1.4 已声明取舍待评估
+8. opencode_data.py:321 正则 [\d.]+ 放行畸形数字丢整图 —— 有 errors 兜底降级不崩
+9. go_quota.py:70-100 凭据保存读改写非原子 —— UI 顺序执行无可达并发（需验证）
+10. browser_creds.py:90-101 凭据 TTL 缓存 check-set 无锁 —— 生产方受 in-flight 去重约束近乎不可达
+11. browser_creds.py:521-523 CDP cookie domain 子串过滤 —— 本机自启 Chrome 无跨域注入路径（需验证）
+12. browser_creds.py:551-556 terminate 后 wait 超时未升级 kill —— Windows 语义下几乎不可达
+13. exporter.py:88-91 CSV 公式注入 —— 本机自用攻击链牵强（需验证）
+14. pricing.py:108-131 load_price_map 无锁并发双拉 —— 低频链路 write_json 原子替换最终一致
+15. service.py:183-188 get_service 单例无锁 —— AppService 无状态双初始化无害
+16. SUBPROCESS_TIMEOUT float/int cast 不一致（usage:33↔browser_creds:61）—— 数值等价风格噪音
+17. gh api per_page=5 vs _RELEASE_LIMIT=3 双处数量语义 —— 拉 5 截 3 现状自洽
+18. ui.json colors 与主题 palette.chunk_ok 双源并存 —— PL003.1.e 注释明示托盘无主题语义；其余 UI 几何/魔法数字（index==1、errors[:2] 等）外观惯例豁免；A019 #9-#13 原样维持无回退
+
+死键专项：AST 级扫描 base.json 39 键 + ui.json 56 键，除 usage_failed_template（见低-4）外死键为 0。
+
+### 三、亮点
+
+- **A019/N 系列 11 条修复主体质量良好零回退**：mark_cached 收敛干净、captured[0] 锁内发布语义经复核无损、版本三处一致
+- convert.py 数值防护完备（nan/inf/bool/溢出四级拦截）；sqlite_utils mode=ro 与 URI 转义正确；file_utils 原子写 fd 泄漏闭环
+- settings.py from_dict 宽容解析（bool 排除/clamp/themes 白名单）符合错误策略范本
+- 本轮核心发现集中于 N 整改连带效应（表头覆盖/守卫状态机/契约漏同步），方向正确、一次收尾批次可闭环

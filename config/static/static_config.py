@@ -74,7 +74,11 @@ def _load_static_config() -> StaticConfig:
     )
     for _key in _NUMERIC_BASE_KEYS:
         _v = result["base"].get(_key)
-        if _v is not None and type(_v) is not int and not isinstance(_v, float):
+        # O0.6：缺失与类型非法同策略导入期拦截（.get() 为 None 原放行，崩溃点
+        # 后移调用方裸 KeyError，违背 H0.4 导入期暴露目标）
+        if _v is None:
+            raise RuntimeError(f"base.json 缺少必需数值键：{_key}")
+        if type(_v) is not int and not isinstance(_v, float):
             raise RuntimeError(
                 f"base.json 数值键 {_key} 类型非法（应为数字）：{type(_v).__name__}"
             )

@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.5.4（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.5.5（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -660,4 +660,70 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 > - 配置化：数据页面向用户文案外置 ui.json、定价 UA 版本号单点导出 utils.logger.VERSION
 > - 清理：删除冗余 import、修正托盘注释路径残留、补充主窗口说明区方法条目
 > - 收尾：审计报告归档与修复清单勾选、版本推进 V0.2.5.3 → V0.2.5.4 三处一致
+> ```
+
+## O. 第20轮审计修复任务清单（依据 z.plan.md 附录 A020，2026-08-26 规划）
+
+> 来源：第 20 轮全量审计（V0.2.5.4 提交 3c85e96 基线）；P 级 22 条（中 9 / 低 10 / 文档 3，无高），观察项合并 18 条全部维持豁免；核心发现集中于 N 整改连带效应
+
+### O0 正确性与防御（类别①②）
+
+- [x] O0.1 data_page.py:158 占位分支表头覆盖 —— 删除 `setColumnCount`/`setHorizontalHeaderLabels` 两行（列结构与中文表头 **init**:101/:111 已固定），仅保留 setRowCount(1)+占位 item；验证：probe 构造空 rows 调 `_populate_table` 后断言表头仍为中文首列名且 rowCount==1
+- [x] O0.2 main_window.py:977 守卫分支不恢复引导态 —— 守卫命中后复用失败路径恢复序列（`_auto_guide_button/_manual_guide_button.setEnabled(True)` + `_guide_active=False` + `_set_guide_actions_enabled(True)` + `_refresh_timer.start(...)`）再 showMessage+return；验证：probe 断言守卫触发后 timer.isActive() 为 True 且按钮 enabled
+- [x] O0.3 main.py:73/:104 format 兜底漏 AttributeError —— 两处 except 元组补 `AttributeError`（随 O1.1 helper 抽取单点化）；验证：probe 以 `{used.x}` 坏模板调 _danger_notify 断言走静态拼接 fallback 不抛
+- [x] O0.4 main_window.py:192-211 契约缺新消费键 —— status_messages required 元组（:192-211）补 `"guide_data_format_error"`；验证：probe 临时删 ui.json 该键断言导入期 RuntimeError
+- [x] O0.5 utils/logger.py:55 log_level 小写崩溃链 —— `getattr(logging, LOG_LEVEL, ...)` 改显式映射 `logging.getLevelNamesMapping().get(str(LOG_LEVEL).upper(), logging.INFO)`；验证：probe 以 "info" 配置断言 setLevel 后 root.level == logging.INFO 不抛
+- [x] O0.6 static_config.py:75-77 数值白名单不查键缺失 —— 循环内补 `if _v is None: raise RuntimeError(f"base.json 缺少必需数值键：{_key}")`；验证：probe 隔离目录删 http_timeout 断言导入期 RuntimeError（不再后移 network 裸 KeyError）
+- [x] O0.7 opencode_data.py:237 in-flight 无缓存裸快照 —— 返回前追加 `snapshot.errors.append(_SC.ui["data_page_messages"]["in_flight"])` 与 go_quota 占位口径对齐；验证：probe 在途无缓存断言返回快照 errors 含进行中文案
+
+**O0 完成小结（2026-08-26）**：TDD 先行（`.temp/probe_o0.py` 12 断言修复前 FAIL——O0.2 初版探针无判别力已先置引导态修正，反向验收 `.temp/verify_o0_accept.py` 11 断言换载荷/换键/多重坏模板交叉触发全 PASS）；全量回归 64 脚本 0 失败 + IMPORT OK + offscreen 冒烟 OK。
+
+### O1 去重与收敛（类别④）
+
+- [x] O1.1 main.py:64-114 气泡逻辑两段复制 —— 提取模块级 `_danger_notify(tray, info, suffix)`（含模板 format+AttributeError 兜底+title 提取，成功路径传 suffix=""、缓存路径传配置后缀），两分支各一行调用；验证：probe 分别以成功/缓存超阈 GoQuotaInfo 断言气泡文案一致且仅差来源标注
+- [x] O1.2 go_quota.py:26-29 ↔ opencode_data.py:36-39 CHROME_UA 双处维护 —— 收敛至 utils/network 定义并导出（如 `CHROME_UA`），两模块改 import；验证：grep 两模块无本地定义 + IMPORT OK
+
+### O2 配置化与契约（类别③）
+
+- [x] O2.1 opencode_data.py:256/:260 错误文案硬编码 —— data_page_messages 新增 `fetch_failed_template`/`release_failed_template` 两键（值含 `{error}` 占位符），两处 except 改 `.format(error=exc)`；验证：grep 无硬编码文案残留 + probe 断言 errors 消息来自配置
+- [x] O2.2 main.py:109 "（缓存数据）"硬编码 —— 复用 `data_page_messages.cache_suffix` 或在 notify 组新增专用键统一措辞（随 O1.1 经 suffix 参数注入）；验证：probe 断言气泡消息尾部与配置键一致
+- [x] O2.3 main_window.py:245-249 契约双缺口 —— go_quota_error_messages required 补 `"throttled_template"`；新增 data_page_messages 四键组入 `_UI_STRUCT_KEYS`（照 F0.1 式样）；验证：probe 分别删 throttled_template/data_page_messages.in_flight 断言导入期 RuntimeError
+
+**O1/O2 完成小结（2026-08-26）**：TDD 先行（`.temp/probe_o1o2.py` 15 断言，修复前 11 FAIL——其中 O2.2 初版期望值用错实例数值、O2.1 行为段未考虑 release 链路内部自吞异常走 RSS 回退，均已修正探针后闭环）；实现要点：`_danger_notify(tray, info, suffix)` 单点承载阈值/去重/模板/兜底/标题全链（缓存路径 suffix 改读 `data_page_messages.cache_suffix`，"（缓存数据）"硬编码删除）、CHROME_UA 收敛 utils/network 单点导出、data_page_messages 组六键全部入 `_UI_STRUCT_KEYS` 契约；全量回归 64 脚本 0 失败 + IMPORT OK + offscreen 冒烟 OK。
+
+### O3 清理与规范（类别⑤⑥⑨⑫⑬）
+
+- [x] O3.1 opencode_data.py:258/:409 force 死参数 —— 删除 `fetch_github_releases` 的 force 形参与唯一调用实参（节流实际由快照层控制）；验证：grep 无 force 引用 + IMPORT OK
+- [x] O3.2 main_window.py:1163-1179 QMenu 泄漏 —— `_show_columns_menu` 内 `menu.aboutToHide.connect(menu.deleteLater)`；验证：probe 连开两次菜单断言 children 中 QMenu 计数不累积（offscreen）
+- [x] O3.3 ui.json usage_failed_template 死键 —— `_on_load_error` 改走该模板格式化（统一中文口径，推荐方案）保留键与契约行；验证：probe 断言状态栏消息为模板产物非原始异常串
+- [x] O3.4 theme_loader.py:111-114 is_dir 死分支 —— 将目录存在性检查上移到 :100 注册循环之前恢复 M0.6 设计价值（缺失时中文诊断先于 iterdir）；验证：probe 隔离空资源目录断言导入期 RuntimeError 文案指向根目录
+- [x] O3.5 theme_loader.py:24/:62 read_text 编码逃逸 —— 两处 read_text 包 try/except (OSError, UnicodeDecodeError, ValueError) 转 RuntimeError 中文诊断（消息含文件路径）；验证：probe 写入 GBK 字节主题文件断言导入期 RuntimeError 含路径
+- [x] O3.6 data_page.py 表格属性重复设置 —— NoEditTriggers/alternatingRowColors 收敛至 **init** 单点一次，_populate_placeholder 与 _populate_table 两分支删除重复行；验证：probe 断言占位表格 editTriggers 为 NoEditTriggers 且填充路径行为不变
+- [x] O3.7 services/service.py:95-122 sqlite3.Error 英文直显 —— get_usage/export_data 的 except 分支转 `ServiceError("usage_db_error", 中文消息)` 口径；验证：probe 传坏库路径断言收到中文 ServiceError 而非裸异常串
+- [x] O3.8 services/service.py:64-84 登录等待 deadline 失真 —— deadline 检查下沉至每轮 dashboard 验证步骤之前；验证：probe mock 验证耗时断言总等待不超过 login_wait_seconds 上界（或注释声明取舍）
+- [x] O3.9 browser_creds.py:232-234/:277 or 巧合写法 —— `_with_copied_db(...) or ([], False)` 改显式 `result = ...; if result is None:` 判空；验证：IMPORT OK + 全量回归 browser_creds 相关脚本通过
+- [x] O3.10 pricing.py:291 变量遮蔽 —— 局部变量 `pricing` 改名 `cost_block`；验证：IMPORT OK
+- [x] O3.11 说明区失实/缺漏批修（八处合并）—— main.py:149-152 补缓存气泡描述、utils/logger.py:97-99 _setup_handlers 条目平级化、go_quota.py:583 改"缓存由 fetch_go_quota 末尾原子发布"、opencode_usage.py:746 删 retry 两项/:722 去"10s"数值化、services/service.py:196-198 清残句、browser_creds.py:582/:674 改"内部使用"、ui/main_window.py 说明区补 _build_cards/_build_guide_card/_build_detail_section/_sorted_hidden_columns 四条目+_on_guide_done 条目附守卫一句、ui/task_runner.py 说明区补 _task_done/_FnTask.**init**/.run 三条目；验证：verify_s11 式 docstring/说明区检测脚本全 PASS
+
+**O3 完成小结（2026-08-26）**：TDD 先行（`.temp/probe_o3.py` 24 断言，修复前 22 FAIL）；实施要点：O3.1 删 force 死参数（连带适配 verify_pl002_accept:87）、O3.2 QMenu aboutToHide→deleteLater 防滞留泄漏、O3.3 usage_failed_template 死键接入 _on_load_error 消费方（模板产物替代英文异常串直显）、O3.4 根目录缺失检查上移注册循环前恢复设计价值、O3.5 两处 read_text 编码/IO 失败转 RuntimeError 中文诊断（含路径，探针以 GBK 字节主题文件实证）、O3.6 表格静态属性收敛 init 单点（占位格不再可编辑）、O3.7 连接+查询统一 sqlite3.Error→ServiceError 中文口径（复用 usage/export_failed_template；OpenCodeDB 构造即连接故构造纳入 try，db 可空+finally 判空关闭）、O3.8 deadline 验证步骤前复查、O3.9 显式判 None 替代 or 巧合等价、O3.10 cost_block 改名、O3.11 八处说明区批修（含 O0-O2 新增函数补条目义务）。
+
+### O4 验证与收尾
+
+- [x] O4.1 全量回归 + 收尾 —— TDD 探针（probe_o*.py 修复前 FAIL）+ run_all_verify 0 异常 + IMPORT OK + offscreen 冒烟 + 反向验收（删键/坏模板/坏编码触发断言）；x.progress 勾选 + 版本推进决策 + commit 草稿
+
+**O4 完成小结（2026-08-26）**：O 批次（第 20 轮审计整改）全部完成——probe_o0（12 断言）/verify_o0_accept（11 断言反向验收）/probe_o1o2（15 断言）/probe_o3（24 断言）全 PASS；全量回归 64 脚本 **0 失败** + IMPORT OK + offscreen 冒烟 OK。版本推进决策与 commit 草稿待用户确认后补充。
+
+> **版本推进决策（O 批次）**：第 20 轮审计整改（O 系列）完成后用户确认推进，发布版本由 V0.2.5.4 提升至 **V0.2.5.5**（O 批次整改纳入本次提交；N 批次已随 `fix: V0.2.5.4` 提交 3c85e96，不在本次范围）。
+> **commit 草稿（待用户执行，AI 不执行 git 写操作）**：
+>
+> ```
+> fix: V0.2.5.5，审计整改（正确性防御/去重收敛/配置化契约/清理规范）
+> - 正确性与防御：数据页空结果保持中文表头、引导载荷守卫恢复引导态与定时刷新、坏模板兜底补全属性异常捕获
+> - 防御加固：日志级别非法值启动防护、数值配置键缺失导入期拦截、在途快照标注进行中文案
+> - 防御再补：加载失败消息改模板产物、主题资源读取失败转含路径中文诊断、数据库坏库转业务错误统一提示
+> - 去重收敛：超阈预警气泡逻辑单点化两路共用、浏览器标识字符串收敛网络工具单点导出
+> - 配置化：数据页错误文案模板外置、缓存气泡尾部标注读配置、数据页文案组与节流模板键入契约校验
+> - 清理：删除拉取死参数、菜单关闭即释放防泄漏、目录缺失检查上移、表格属性收敛单点、查询显式判空、变量改名避遮蔽
+> - 规范：八处模块说明区失实修正与方法条目补全、登录等待验证前复查截止时间
+> - 版本推进 V0.2.5.4 → V0.2.5.5（base.json/README 徽章/x.progress 三处一致）
 > ```

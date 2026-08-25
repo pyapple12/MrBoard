@@ -11,6 +11,14 @@ RETRY_NETWORK_ERRORS: tuple[type[Exception], ...] = (
     TimeoutError,
 )
 
+# 浏览器 UA 单点（O1.2：dashboard HTML/数据页/GitHub API 三处共用——无浏览器 UA
+# 会被 opencode.ai 403 拦截，实测 Python-urllib 默认 UA 被拒；go_quota/opencode_data
+# 原各持一份逐字符相同定义，收敛此处防升级漂移）
+CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    " (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 
 def http_get(
     url: str,

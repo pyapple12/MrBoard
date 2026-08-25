@@ -13,7 +13,7 @@ from typing import Any
 from config.static.static_config import get_static_config
 from utils.cache_util import mark_cached
 from utils.logger import get_logger
-from utils.network import http_get
+from utils.network import CHROME_UA, http_get
 
 logger = get_logger(__name__)
 
@@ -31,12 +31,6 @@ GH_RELEASES_RSS_URL = str(_SC.base["gh_releases_rss_url"])
 # 节流间隔（base.json 驱动，PL002.2；对齐 go_quota.MIN_FETCH_INTERVAL 模式；
 # A0.16/K2.3：原"缓存 TTL"从未实现语义，无效配置键已一并删除）
 FETCH_INTERVAL = int(_SC.base["data_fetch_interval_sec"])
-# 浏览器 UA（数据页与 GitHub API 共用：无浏览器 UA 会被 opencode.ai 403 拦截，
-# 实测 Python-urllib 默认 UA 被拒）
-_BROWSER_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    " (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-)
 
 # 数据页四数据块锚点键（PL002.4：$R 块字段名与展示列头对应）
 MODEL_BLOCK_KEYS = ("tokenCost", "cacheRatio", "sessionCost", "country")
@@ -234,7 +228,11 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
                     _SC.ui["data_page_messages"]["in_flight"],
                     list_field="errors",
                 )
-            return ModelDataSnapshot(fetched_at=datetime.now(timezone.utc))
+            # O0.7：无缓存在途快照带进行中标注（裸空快照使 UI 无法区分"进行中"
+            # 与"失败"，与 go_quota 占位项口径对齐）
+            _placeholder = ModelDataSnapshot(fetched_at=datetime.now(timezone.utc))
+            _placeholder.errors.append(_SC.ui["data_page_messages"]["in_flight"])
+            return _placeholder
         _data_in_flight = True
     captured: list = []
     try:
@@ -253,11 +251,18 @@ def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
                         _SC.ui["data_page_messages"]["block_missing"].format(key=key)
                     )
         except Exception as exc:
-            snapshot.errors.append(f"数据页拉取失败：{exc}")
+            # O2.1：错误文案外置（模板含 {error} 占位符，与 fetch_failed 兜底键同组）
+            snapshot.errors.append(
+                _SC.ui["data_page_messages"]["fetch_failed_template"].format(error=exc)
+            )
         try:
-            snapshot.releases = fetch_github_releases(force=True)
+            snapshot.releases = fetch_github_releases()
         except Exception as exc:
-            snapshot.errors.append(f"官方动态拉取失败：{exc}")
+            snapshot.errors.append(
+                _SC.ui["data_page_messages"]["release_failed_template"].format(
+                    error=exc
+                )
+            )
         # A0.16/K1.1：三源全空且已有历史缓存时保留旧快照标注返回（失败不覆盖成功
         # 数据，对齐 go_quota 只缓存成功项的模式）；首刷无缓存时照常返回空快照+错误。
         # A017/L1.4 已知取舍声明：守卫粒度为三源整体——单源失败（如 Releases 网络抖动
@@ -351,7 +356,7 @@ def parse_daily_usage(body: str) -> list[dict[str, Any]]:
 
 
 # GitHub Releases：JSON 快照键与 RSS 命名空间
-_GH_API_HEADERS = {"User-Agent": _BROWSER_UA}
+_GH_API_HEADERS = {"User-Agent": CHROME_UA}
 _RSS_NS = {"atom": "http://www.w3.org/2005/Atom"}
 _RELEASE_LIMIT = 3  # 最新 N 条（展示范围收敛，z.plan PL002）
 
@@ -408,9 +413,10 @@ def _fetch_releases_rss() -> list[dict[str, Any]]:
     return items
 
 
-def fetch_github_releases(force: bool = False) -> list[dict[str, Any]]:
-    # GitHub Releases 拉取（PL002.6）：JSON 优先、异常回退 RSS、双路径全失败返回
-    # 空列表（宽容降级）；节流由快照层 refresh_data_page 统一控制
+def fetch_github_releases() -> list[dict[str, Any]]:
+    # GitHub Releases 拉取（PL002.6；O3.1 删除从未读取的 force 死参数——节流
+    # 实际由快照层 refresh_data_page 统一控制）：JSON 优先、异常回退 RSS、
+    # 双路径全失败返回空列表（宽容降级）
     try:
         return _fetch_releases_json()
     except Exception as exc:
@@ -442,7 +448,7 @@ if __name__ == "__main__":
 # 模块级常量：
 #   DATA_URL / GH_RELEASES_API_URL / GH_RELEASES_RSS_URL：数据源 URL（base.json 驱动）
 #   FETCH_INTERVAL：数据页刷新节流间隔（base.json 驱动，PL002.2）
-#   _BROWSER_UA：浏览器 UA（数据页与 GitHub 共用；无浏览器 UA 会被 opencode.ai
+#   CHROME_UA：浏览器 UA（自 utils.network 单点导入；无浏览器 UA 会被 opencode.ai
 #     403 拦截，实测 Python-urllib 默认 UA 被拒）
 #   _GH_API_HEADERS / _RSS_NS / _RELEASE_LIMIT：GitHub 请求头/RSS 命名空间/条数上限
 #   _R_OBJECT_PATTERN 等 $R/时序正则族：页面结构锚点（markup 变更时集中调整）
@@ -460,7 +466,7 @@ if __name__ == "__main__":
 #   parse_daily_usage(body)：热门模型时序解析（data-slot 正则，PL002.5）
 #   _fetch_releases_json()：Releases API 路径（PL002.6）
 #   _fetch_releases_rss()：Releases RSS 回退路径（JSON 不可用时）
-#   fetch_github_releases(force)：JSON→RSS 回退链聚合
+#   fetch_github_releases()：JSON→RSS 回退链聚合（O3.1 删 force 死参数）
 #   _throttled_snapshot(force)：节流检查——窗口内返回标注缓存（对齐 go_quota 同式）
 #   mark_cached(snapshot, message, list_field="errors")：缓存兜底标注（来自 utils.cache_util，浅拷贝防污染）
 #   refresh_data_page(force)：聚合入口——节流 → 三源独立拉取（互不拖垮）→

@@ -99,6 +99,10 @@ class DataPage(QWidget):
         self._box.addWidget(daily_title)
         self._daily_table = QTableWidget(0, len(DAILY_COLUMN_IDS))
         self._daily_table.setHorizontalHeaderLabels(_DATA_TABLE_HEADERS["daily"])
+        # O3.6：表格静态属性收敛 init 单点一次（原填充/占位分支每次重复设置，
+        # 且初始占位漏设 NoEditTriggers 致占位格可编辑）
+        self._daily_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._daily_table.setAlternatingRowColors(True)
         self._box.addWidget(self._daily_table)
 
         # 四数据块表
@@ -109,6 +113,8 @@ class DataPage(QWidget):
         for key, column_ids in _BLOCK_TABLES:
             table = QTableWidget(0, len(column_ids))
             table.setHorizontalHeaderLabels(_DATA_TABLE_HEADERS[key])
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.setAlternatingRowColors(True)
             self._block_tables[key] = table
             self._box.addWidget(table)
 
@@ -152,17 +158,12 @@ class DataPage(QWidget):
     ) -> None:
         # 通用表格填充：行数同步 + 逐格格式化（缺字段兜底空串）
         if not rows:
-            # N3.5：空结果单行占位（避免空白表格，提示尚未获取数据）
+            # N3.5/O0.1：空结果单行占位（避免空白表格）；列结构与中文表头
+            # 已由 __init__ 固定，此处不得覆写（否则表头永久变英文键名）
             table.setRowCount(1)
-            table.setColumnCount(max(len(column_ids), 1))
-            table.setHorizontalHeaderLabels(list(column_ids) or [""])
-            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-            table.setAlternatingRowColors(True)
             table.setItem(0, 0, QTableWidgetItem(DATA_EMPTY_TEXT))
             return
         table.setRowCount(len(rows))
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(True)
         for row_index, row in enumerate(rows):
             for col_index, column_id in enumerate(column_ids):
                 value = row.get(column_id) if isinstance(row, dict) else None

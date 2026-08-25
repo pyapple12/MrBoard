@@ -1,6 +1,7 @@
 # 应用服务门面（A017/PL006）：粗粒度方法聚合全部后端编排，UI 只认本包；
 # 纯 Python 零 Qt——换前端（QML/Web）时本目录原样带走
 
+import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +71,10 @@ def _wait_for_login_cookie(deadline: float) -> tuple[str | None, str | None]:
             timeout=CDP_FETCH_TIMEOUT
         )
         if candidate and workspace_id:
+            # O3.8：dashboard 验证是单轮最贵步骤（重试链最长约 50s），启动前
+            # 复查 deadline，避免轮询条件通过后仍进入长验证拖高总等待
+            if time.time() >= deadline:
+                break
             try:
                 usage = fetch_dashboard_usage(
                     DashboardCredentials(workspace_id, candidate, "cdp验证")
@@ -97,8 +102,12 @@ class AppService:
         # db_path 为 None 时抛 ServiceError（UI 转状态栏提示）
         if db_path is None:
             raise ServiceError(str(_SC.ui["status_messages"]["no_db_found"]))
-        db = OpenCodeDB(db_path)
+        db: OpenCodeDB | None = None
         try:
+            # O3.7：连接建立（OpenCodeDB 构造即 open_readonly）与查询统一纳入
+            # sqlite3.Error 防护——坏库/锁库转业务错误统一中文口径（原裸异常串
+            # 直通 UI 英文直显；复用 usage_failed_template 与 _on_load_error 同键）
+            db = OpenCodeDB(db_path)
             summary = db.totals()
             rows = {
                 dim: getattr(db, f"by_{dim}")(
@@ -106,8 +115,15 @@ class AppService:
                 )
                 for dim in DIMENSIONS
             }
+        except sqlite3.Error as exc:
+            raise ServiceError(
+                str(_SC.ui["status_messages"]["usage_failed_template"]).format(
+                    error=exc
+                )
+            ) from None
         finally:
-            db.close()
+            if db is not None:
+                db.close()
         return UsageData(summary=summary, rows=rows)
 
     def export_data(self, db_path: Path | None, out_dir: Path) -> None:
@@ -115,11 +131,20 @@ class AppService:
         # db_path 为 None 时抛 ServiceError
         if db_path is None:
             raise ServiceError(str(_SC.ui["status_messages"]["no_db_export"]))
-        db = OpenCodeDB(db_path)
+        db: OpenCodeDB | None = None
         try:
+            # O3.7：连接与导出统一转业务错误中文口径（复用 export_failed_template）
+            db = OpenCodeDB(db_path)
             export_all(db, out_dir)
+        except sqlite3.Error as exc:
+            raise ServiceError(
+                str(_SC.ui["status_messages"]["export_failed_template"]).format(
+                    error=exc
+                )
+            ) from None
         finally:
-            db.close()
+            if db is not None:
+                db.close()
 
     def get_quotas(self) -> list[GoQuotaInfo]:
         # 多账户配额快照（节流/缓存兜底/in-flight 去重在 go_quota 内部）
@@ -195,7 +220,6 @@ def get_service() -> AppService:
 #   CDP_FETCH_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：CDP 引导参数
 #   CDP_WAIT_TIMEOUT：CDP 就绪等待超时（base.json 驱动；wait_cdp_ready 调用处复用此
 #     常量而非裸读 base.json，防死常量漂移，M3.6）
-#     （base.json 驱动；原 main_window 常量随编排迁入）
 # 类型：
 #   ServiceError：业务错误基类（message 中文，UI catch 后按模板格式化）
 #   UsageData：用量聚合结果（summary + 各维度 rows；原 main_window.UsageData 迁入）

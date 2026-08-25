@@ -208,6 +208,8 @@ _UI_STRUCT_KEYS = (
             "quota_failed_template",
             "export_done_template",
             "export_failed_template",
+            # O0.4：N0.1 守卫消息入契约（:978 消费，删键将使防御路径自身 KeyError）
+            "guide_data_format_error",
         ),
         STATUS_MESSAGES,
     ),
@@ -244,8 +246,22 @@ _UI_STRUCT_KEYS = (
     # 删键将运行时 KeyError——B0.6/C0.8 历史遗漏 + E2.1 新增键未同步）
     (
         "go_quota_error_messages",
-        ("no_credentials", "in_flight"),
+        ("no_credentials", "in_flight", "throttled_template"),
         dict(_SC.ui["go_quota_error_messages"]),
+    ),
+    # O2.3：data_page_messages 组入契约（opencode_data 六处裸读，删键将运行时
+    # KeyError；O2.1 新增两模板键一并纳入必需键集）
+    (
+        "data_page_messages",
+        (
+            "in_flight",
+            "block_missing",
+            "fetch_failed",
+            "fetch_failed_template",
+            "release_failed_template",
+            "cache_suffix",
+        ),
+        dict(_SC.ui["data_page_messages"]),
     ),
 )
 for _cfg_name, _required, _actual in _UI_STRUCT_KEYS:
@@ -885,7 +901,11 @@ class MainWindow(QMainWindow):
             self._consume_pending()
             return
         self._consume_pending()
-        self._status_bar.showMessage(message)
+        # O3.3：usage_failed_template 死键接入消费方（原直显原始异常串英文直出，
+        # 与其他入口中文模板口径不一）
+        self._status_bar.showMessage(
+            STATUS_MESSAGES["usage_failed_template"].format(error=message)
+        )
 
     def _on_tab_changed(self, index: int) -> None:
         # 数据与动态页首次切换触发懒加载（PL002.10：has_loaded 幂等防重复拉取）
@@ -975,6 +995,15 @@ class MainWindow(QMainWindow):
         # N0.1：载荷契约守卫——finished 信号载荷须为二元组，上游契约变更返回非二元组
         # 时直接解包会抛 ValueError 致 GUI 崩溃，降级为状态栏提示而非崩溃
         if not (isinstance(result, tuple) and len(result) == 2):
+            # O0.2：守卫降级须与失败路径同式恢复引导态（按钮启用/_guide_active
+            # 复位/定时刷新重启），否则触发即半死锁（自动刷新永停、引导入口全禁）
+            self._auto_guide_button.setEnabled(True)
+            self._manual_guide_button.setEnabled(True)
+            self._guide_active = False
+            self._set_guide_actions_enabled(True)
+            self._refresh_timer.start(
+                self._config.refresh_interval_ms
+            )  # B0.8：恢复定时刷新
             self._status_bar.showMessage(STATUS_MESSAGES["guide_data_format_error"])
             return
         auth_cookie, workspace_id = result
@@ -1161,8 +1190,10 @@ class MainWindow(QMainWindow):
             style.polish(status_label)
 
     def _show_columns_menu(self) -> None:
-        # 弹出列显示开关菜单（P13：勾选 = 显示，取消 = 隐藏）
+        # 弹出列显示开关菜单（P13：勾选 = 显示，取消 = 隐藏；O3.2：关闭即
+        # deleteLater——popup 后局部 wrapper 被 GC，C++ 对象滞留 children 累积泄漏）
         menu = QMenu(self)
+        menu.aboutToHide.connect(menu.deleteLater)
         for col, col_id in enumerate(COLUMN_IDS):
             # C 方案：QAction 构造式（绕开 PyQt6 stub 对 addAction 的 Optional 返回标注）
             action = QAction(TABLE_HEADERS[col], menu)
@@ -1311,6 +1342,10 @@ class MainWindow(QMainWindow):
 #       引导卡显示条件单点维护于 _should_show_guide（全部账户凭据类错误且无缓存
 #       且非引导进行中，A0.16/K3.6 口径同步）
 #     _show_total_detail：点击总览按钮弹出总量明细（QMessageBox，P15）
+#     _build_cards：总览卡片区装配（P17 卡片顺序 + 明细区入口）
+#     _build_guide_card：凭据引导卡装配（PL005 引导链路 UI 容器）
+#     _build_detail_section：明细区装配（总览/维度/刷新/导出/设置控件行，P13/P15）
+#     _sorted_hidden_columns：隐藏列按 COLUMN_IDS 权序稳定化（持久化前规整）
 #     _on_tab_changed/_on_data_ready/_on_data_error：数据页懒加载（首次切换触发，
 #       PL002.10）与结果回传
 #     _theme_palette：当前主题 palette 取用（饼图/动态色消费）
@@ -1328,7 +1363,8 @@ class MainWindow(QMainWindow):
 #       （会话选中保持防快照打回 A0.16/K0.3）与切换即存即渲染
 #     _start_cdp_guide/_manual_guide/_on_guide_done/_on_guide_failed：凭据引导
 #       双路径（A0.16/K0.2 引导互斥早退防并发；成功 pending 记录+自动刷新；
-#       失败按 _should_show_guide 条件显示引导卡）
+#       失败按 _should_show_guide 条件显示引导卡；N0.1 载荷契约守卫——
+#       非二元组降级状态栏提示并同式恢复引导态，O0.2）
 #     _should_show_guide：引导卡显示条件单点维护（_on_quota_ready 与 failed 回调共用）
 #     save_state：窗口几何（QByteArray hex）/主题/刷新间隔/隐藏列 → config 持久化
 #     closeEvent：保存状态并隐藏到托盘（常驻模式，真退出走托盘菜单）

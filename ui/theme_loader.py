@@ -21,7 +21,11 @@ if not _QSS_PATH.is_file():
     # M0.6：导入期 IO 失败形态对齐 _load_theme 契约风格（RuntimeError 中文诊断，
     # 而非裸 FileNotFoundError/UnicodeDecodeError——打包场景下更易定位）
     raise RuntimeError(f"基础 QSS 模板缺失：{_QSS_PATH}")
-_QSS_TEMPLATE = _QSS_PATH.read_text(encoding="utf-8")
+try:
+    _QSS_TEMPLATE = _QSS_PATH.read_text(encoding="utf-8")
+except (OSError, UnicodeDecodeError, ValueError) as exc:
+    # O3.5：读取/编码失败与缺失同策略转 RuntimeError 中文诊断（含路径）
+    raise RuntimeError(f"基础 QSS 模板读取失败：{_QSS_PATH}（{exc}）") from None
 
 _SC = get_static_config()
 
@@ -33,6 +37,12 @@ if len(THEME_NAMES) < 2:
     raise RuntimeError(
         f"ui.json themes 数组至少需要 light/dark 两项，当前 {THEME_NAMES}"
     )
+
+# O3.4：主题资源根目录整体缺失检查上移到注册循环之前（M0.6 设计意图——
+# 打包/部署异常时显式中文诊断先于 _load_theme 的单主题缺失提示；原位置在
+# 循环后属不可达死分支：能到达循环后则目录必然存在）
+if not _THEMES_DIR.is_dir():
+    raise RuntimeError(f"主题资源目录缺失：{_THEMES_DIR}")
 
 # 配额窗口内动态色键集（PL003.1.d：运行时 setStyleSheet 覆盖不走 QSS 占位符，
 # 残留检测兜不住，需显式契约：每主题 palette 必含全部动态色键）
@@ -60,6 +70,11 @@ def _load_theme(name: str) -> dict:
         raise RuntimeError(f"主题 {name} 资源缺失：{tj_path}")
     try:
         data = json.loads(tj_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as exc:
+        # O3.5：编码失败与坏 JSON 同策略转中文诊断（含路径，M0.6/A3.5 口径）
+        raise RuntimeError(
+            f"主题 {name} 的 theme.json 编码非法（须为 UTF-8）：{tj_path}（{exc}）"
+        ) from None
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"主题 {name} 的 theme.json 解析失败：{exc}") from None
     if not isinstance(data, dict):
@@ -107,11 +122,8 @@ for _name in THEME_NAMES:
     _PALETTES[_name] = {str(key): value for key, value in _data["palette"].items()}
     THEME_DISPLAY_NAMES[_name] = str(_data["display_name"])
 
-# 文件夹多出未注册的主题目录：视为无效不加载，仅警告（注册表唯一权威）
-if not _THEMES_DIR.is_dir():
-    # M0.6：主题资源根目录整体缺失（打包/部署异常）时显式中文诊断，
-    # 而非 iterdir 抛裸 OSError 逃逸
-    raise RuntimeError(f"主题资源目录缺失：{_THEMES_DIR}")
+# 文件夹多出未注册的主题目录：视为无效不加载，仅警告（注册表唯一权威；
+# 根目录缺失检查已由 O3.4 上移至注册循环之前）
 for _child in sorted(_THEMES_DIR.iterdir()):
     if (
         _child.is_dir()
