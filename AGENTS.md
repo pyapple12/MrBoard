@@ -5,7 +5,7 @@
 ## 运行与验证
 
 - 入口 `main.py`：GUI 为默认模式；版本号 `VERSION` 单一来源在 `config/static/base.json` 的 `version` 字段，由 `utils/logger.py` 单点导出（main.py/main_window.py/system_tray.py 共引，D1/R4 模式）
-- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_*.py`（当前 43 个：s1-s14 基线 + v0808/v0809/v1010/3A/4A/5A/6A 各批次，全量回归 = 全部运行；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护）
+- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.theme_loader, services.service, ui.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_*.py`（当前 43 个：s1-s14 基线 + v0808/v0809/v1010/3A/4A/5A/6A 各批次，全量回归 = 全部运行；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护）
 - GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
 - 依赖（`requirements.txt`）：PyQt6（其余按需添加，见 z.plan.md）
 
@@ -112,7 +112,7 @@
 - 空格约定：逗号后加空格、冒号前不加空格（切片冒号两侧不加）、赋值/比较运算符两侧加空格、函数定义前后各空两行、类定义前后各空两行、方法之间空一行
 - 字符串引号：普通字符串用双引号，文档字符串用 `"""` 三引号；f-string 内含大量双引号时允许外层使用单引号
 - 路径处理：强制使用 `pathlib` 代替 `os.path`
-- 临时文件：所有临时生成的脚本/文件必须写入项目根目录下的 `.temp/` 文件夹（已 gitignore）
+- 临时文件：所有临时生成的脚本/文件必须写入项目根目录下的 `.temp/` 文件夹（已 gitignore）；确需系统 TEMP（如 `tempfile.mkdtemp`）时 finally 必须 rmtree 其**返回的根目录**而非仅内部子目录，且收工前对 TEMP 做残留扫描（A018 教训：历轮探针泄漏约 120 个 mkdtemp 目录 + mw_before_pl006.py 快照）
 
 ## Git 注意
 
@@ -140,6 +140,7 @@
 - **挂起/崩溃立即抓线程栈**：测试进程挂起或 0xC0000409 秒杀时，第一动作是 faulthandler 线程栈转储**写文件**（stderr 会被 fail-fast 截断），按栈定位卡点；禁止在未定位前做逐个猜测性修补（PL006 实测：盲猜三轮 vs 栈转储一次定位）
 - **QThreadPool + QRunnable 必须持引用**：QRunnable 子类提交池后若 Python wrapper 无引用，worker 运行期被 GC 触发 0xC0000409 崩溃——用 `_live_tasks` 集合 + 完成后转 `deque(maxlen=N)` 保引用；或 setAutoDelete(False) 由 Python 全权管理生命周期
 - **版本号格式变更需全链路同步**：base.json / README 徽章 / x.progress 版本行三处一致外，还需排查历史 verify 脚本中 startswith("ver ") 式格式快照断言（V0.2.4.3 四段式切换实测漏 s1/s9/s12 三处）
+- **验证纪律（A018/M 批次教训）**：验证/全量回归脚本只校验**不变量**，禁止把易变的具体值写死为期望值——版本号（verify_s12/s9/v1010_1 曾写死 "V0.2.4.3"，版本推进后必失败且易漏改，M 批次已改为四段式正则 `re.fullmatch(r"V\d+\.\d+\.\d+\.\d+", version)`）、日期、路径、计数等同理；版本唯一性/同源由动态读取 base.json 比对覆盖，格式防护用正则；版本推进是最后才做的易变操作，不应污染稳定回归集
 - 执行命令前先检测当前 shell（Windows 下为 pwsh）：使用 PowerShell 兼容命令（`Select-String` 替代 `grep`，`Get-ChildItem` 替代 `ls` 等），避免 Linux-only 工具
 - pwsh 会话带 `-NoProfile` 不加载 `$PROFILE`，输出中文前必须先设置编码：`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;`
 - 未经用户明确要求，不得擅自执行 `git add`、`git commit` 或任何其他 Git 写操作

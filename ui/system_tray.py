@@ -102,7 +102,7 @@ class SystemTray(QSystemTrayIcon):
 #   QUOTA_GRAY（托盘灰色，错误/未知态）、PIE_DOT_COLOR（中心圆点白色）、
 #   MENU_LABELS（菜单文案，ui.json 外置，5A.3 C5）
 # 导入函数：build_app_title（来自 utils.logger，标题单点——tooltip 与主窗口标题一致，B3.1/C3.5 归类）、
-#   QUOTA_COLOR_OK / quota_chunk_color（来自 ui.themes，图标颜色与进度条分级同源，C13 归类）
+#   QUOTA_COLOR_OK / quota_chunk_color（来自 ui.theme_loader，图标颜色与进度条分级同源，C13 归类）
 # 类：SystemTray(QSystemTrayIcon)
 #   信号：
 #     refresh_requested / quit_requested：菜单触发，由 main.py 装配连接
@@ -117,4 +117,4 @@ class SystemTray(QSystemTrayIcon):
 # 设计理由：常驻托盘形态（对齐 opencode-bar 菜单栏模式）；图标颜色一眼可见
 #   配额紧张度；退出信号与刷新信号解耦，装配逻辑集中在 main.py
 # 异常处理：托盘在 offscreen/无托盘环境下仅构造对象（不 show），不崩溃
-# 关联配置：QUOTA 三色/阈值与分级来自 ui/themes.py（ui.json 外置）
+# 关联配置：QUOTA 三色/阈值与分级来自 ui/theme_loader（ui.json 外置）

@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.5.2（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.5.3（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -12,7 +12,7 @@
 
 ```powershell
 # 导入验证（全量 19 个模块）
-.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.themes, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"
+.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.theme_loader, services.service, ui.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"
 
 # GUI 无头初始化验证（不弹窗）
 $env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"
@@ -518,7 +518,7 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 
 ### PL006.4 验证与收尾
 
-- [x] PL006.4.a 新建 .temp/verify_pl006_accept.py 反向验收：services/ 目录零 Qt 断言（AST 扫描）/行为等价/runner 双路径/UI 零 modules import（2026-08-24 完成）
+- [x] PL006.4.a 新建 .temp/verify_pl006_accept.py 反向验收：services/ 目录零 Qt 断言（AST 扫描）/行为等价/runner 双路径/modules import 白名单（仅 DTO 类型，运行时常量经 services 门面）（2026-08-24 完成，M1.3 升级为白名单口径）
 - [x] PL006.4.b 全量回归 0 异常 + IMPORT OK + offscreen 冒烟 + --version；run_all_verify 超时放宽 120→300 秒（批量环境 CDP mock 场景偶超旧阈值）（2026-08-25 完成）
 - [x] PL006.4.c README 项目结构段补 services/ 与 ui/task_runner 说明（L141/L151）+ x.progress 勾选 + commit 草稿 V0.2.5.1 已给出（2026-08-24 完成；仅本条自身勾选拖延至确认时补记）ss 勾选 + commit 草稿
 
@@ -527,7 +527,7 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 > 目标：主题作为纯声明式资源管理于 ui/themes/ 文件夹（theme.json 纯数据 + base.qss 共享模板），不含任何 Python；新增主题 = 新建文件夹不改任何 .py
 > 现状诊断：颜色已外置 ui.json palettes 但两处耦合残留——QSS 模板是 themes.py 的 Python 字符串常量；主题资产分散三处（themes.py 模板/ui.json palettes/ui.json theme_labels）
 > 硬限制：themes.py 与 themes/ 不能同名共存（Python 硬约束）→ 加载器改 theme_loader.py + themes/ 纯资源文件夹（零 .py）；消费方 import 一次性替换 from ui.theme_loader
-> 版本归属：**V0.2.5.2**（2026-08-24 用户定版；与 PL006 的 V0.2.5.1 同属 V0.2.5.x 功能批次）
+> 版本归属：**V0.2.5.3**（PL007 原 2026-08-24 用户定版 V0.2.5.2；M 批次审计整改后推进至 V0.2.5.3）
 
 ### PL007.1 资源文件落地
 
@@ -547,3 +547,66 @@ A0.16 整改索引：K1.1 失败保缓存 / K2.2 timeout 走配置回退 / K2.3 
 - [x] PL007.3.a 探针：四主题 QSS 逐字节等价断言（对照迁移前黄金基线）；契约触发断言（删动态色键/改坏占位符各抛 RuntimeError）——**2026-08-25** probe_pl007 22/22 PASS + verify_pl007_accept 反向验收 R1-R4 共 13/13 PASS
 - [x] PL007.3.b 全量回归 0 异常 + offscreen 冒烟四主题切换 + IMPORT OK——**2026-08-25** run_all_verify 43 脚本 0 异常（18 个历史脚本已适配 theme_loader/theme.json 新源）；offscreen 四主题 app 级 QSS 各 1653 字符与黄金基线一致
 - [x] PL007.3.c README 补自定义主题指引 + x.progress 勾选 + commit 草稿——**2026-08-25** README 结构树/配置参数表/自定义主题指引三处同步；版本推进 V0.2.5.2 三处一致
+
+## M. 第18轮审计修复任务清单（依据 z.plan.md 附录 A018，2026-08-25 规划）
+
+> 来源：第 18 轮全量审计（PL006 接口层重构 + PL007 主题文件夹化两批新代码连带）；P 级 21 条（中 3 / 低 18，无高），观察项 23 条全部维持豁免
+> 主线：中项三条 = 节流绕过挡板（A017 覆盖不全）/ domain null TypeError（A017 漏网）/ 引导失败签名失配（PL006 漏网）
+
+### M0 正确性与防御
+
+- [x] M0.1 go_quota 节流绕过 in-flight 挡板 —— go_quota.py:353-361/:391-392/:444：改整轮完成后一次性提交快照（循环内只填 results，return 前 _last_quotas=results 单次更新 _last_success_at），节流分支前置感知 in-flight 标志；顺带修正 L1.7 注释"状态锁覆盖缓存读写"失实处；验证：并发探针（mock 两账户延迟差异，断言节流期返回完整列表或 in-flight 提示而非部分列表）
+- [x] M0.2 browser_creds domain null TypeError —— browser_creds.py:521-523：`OPENCODE_HOST in cookie.get("domain", "")` 改 `OPENCODE_HOST in (cookie.get("domain") or "")`；验证：probe 断言 domain=null 的 cookie 条目不抛 TypeError 且轮询继续
+- [x] M0.3 _on_guide_failed 签名失配 —— main_window.py:1008 签名改 `(self, seq: int, message: str) -> None`（seq 前缀对齐其他 handler，体内忽略 seq）；验证：offscreen 探针经 `guide_runner.failed.emit(1, "测试错误")` 端到端断言状态栏文本更新且无 TypeError（禁止直调绕过信号）
+- [x] M0.4 _on_load_error 失配不清 pending —— main_window.py:902-903 失配分支 return 前追加 `self._consume_pending()`（对齐 :804-808 匹配分支 G0.1 处理）；验证：probe 模拟 refresh#1 失败 seq 失配后断言 _usage_pending 已消费
+- [x] M0.5 Releases JSON 非 list 校验前置 —— opencode_data.py:328 后补 `if not isinstance(data, list): raise ValueError(...)`（或直接 return []）使限速回退决策前置、日志可读；验证：probe mock dict 响应断言不抛 TypeError 且走 RSS 回退
+- [x] M0.6 theme_loader 导入期 IO 包装 —— theme_loader.py:19 base.qss read_text 与 :105 iterdir 包 try（FileNotFoundError/OSError/UnicodeDecodeError → RuntimeError 中文提示，口径对齐 _load_theme）；验证：临时改名 base.qss 重导入断言 RuntimeError 中文消息
+- [x] M0.7 E3.9 消息缺主题名 —— theme_loader.py:_build_theme 增加 name 参数（:126 构建循环传 name），消息改为 f"主题 {name} 调色板 {key} 值必须是字符串…"；验证：probe 改坏 panel palette 值断言消息含 "panel"
+
+> **2026-08-25 完成（M0 组）**：`probe_m0.py` 8/8 PASS（修复前 FAIL 即反向验收证据，TDD 闭环）+ IMPORT OK + offscreen 冒烟 + 全量回归 62 脚本仅 3 历史版本债（verify_s12/s9/v1010_1 期望 `V0.2.4.3`，属 PL007 版本推进遗留，与 M0 无关不在本组范围）；`verify_s7.py`（`_on_guide_failed` 加 seq 参）、`verify_l_accept.py`（L1.3 占位项经 results 进入缓存全集）已适配 M0 实现
+
+### M1 去重与架构收敛
+
+- [x] M1.1 UsageData 本地死类删除 —— 删 main_window.py:302-307 本地 @dataclass 定义（:55 import 生效）；说明区 :1287-1288 表述同步为"import 自 services"；验证：AST/grep 断言 main_window 无 class UsageData 且 `mw.UsageData is services.service.UsageData`
+- [x] M1.2 DIMENSIONS 单点导出 —— services/service.py 对 DIMENSIONS 加 re-export（**init** 同步），main_window.py:108 改 from services 导入删本地字面量；验证：grep 断言全项目 DIMENSIONS 定义仅 service.py 一处
+- [x] M1.3 ERROR_STAGE/QUOTA_WINDOW_KEYS 门面导出 + verify 升级 —— services re-export ERROR_STAGE_*/QUOTA_WINDOW_KEYS，main_window.py:46-49 改从 services 导入；verify_pl006_accept.py:61-63 断言升级为"modules import 白名单比对"（仅允许 DTO 类型注解符号）；x.progress PL006.4.a"UI 零 modules import"措辞同步为白名单口径；验证：升级后 verify_pl006_accept 全 PASS
+- [x] M1.4 opencode_data in-flight 去重 —— 移植 go_quota D0.4/L1.7 同款标志+锁（约 15 行：_DATA_FETCH_LOCK + _data_in_flight + finally 复位），或最低限度注释显式声明不做取舍（二选一，倾向前者与配额链路对称）；验证：probe 并发双调 refresh_data_page 断言仅一次网络层调用
+
+### M2 配置化
+
+- [x] M2.1 no_db 文案回归 ui.json 单源 —— service.py:94 改 raise ServiceError(str(_SC.ui["status_messages"]["no_db_found"]))、:112 改 no_db_export 键，删除硬编码；验证：grep 断言 service.py 无裸中文 db 文案 + probe 断言 db_path=None 时 message 含环境变量提示
+- [x] M2.2 节流提示文案外置 —— ui.json go_quota_error_messages 组新增 throttled_template 键，go_quota.py:359 与 opencode_data.py:66 两处 f-string 改读模板 .format(seconds=N)；验证：probe 断言两处文案随 ui.json 变更
+
+> **2026-08-25 完成（M1+M2 组）**：`probe_m1m2.py` 7/7 PASS（修复前 FAIL 即反向验收证据）+ `verify_pl006_accept.py` 升级为 modules import 白名单后 0 失败 + IMPORT OK + offscreen 冒烟 + 全量回归 62 脚本仅 3 历史版本债（verify_s12/s9/v1010_1 期望 V0.2.4.3，属 PL007 版本推进遗留，非本组范围）；x.progress PL006.4.a 措辞已同步白名单口径
+
+### M3 清理
+
+- [x] M3.1 TABLE_LIMIT 死常量删除 —— 删 main_window.py:74-75 两常量及 :1261 说明区条目；验证：grep 全文零引用 + IMPORT OK
+- [x] M3.2 _CdpGuideSignals 死类清理 —— 删 main_window.py:385-390 类定义，清理 :11 QObject/:13 QRunnable 未使用 import 名（核对无其他使用点后再删）；验证：grep 零残留 + IMPORT OK
+- [x] M3.3 PL007 文档残留七处批次替换 —— system_tray.py:57,105,120 / main.py:116,139 / config/settings.py:26-27 / main_window.py:681 注释统一改为 theme_loader/theme.json display_name 口径；验证：grep 全项目零 "ui.themes|themes.py|theme_labels" 注释残留（.temp 除外）
+- [x] M3.4 main_window 说明区补条目 —— 说明区补 _usage_job/_consume_pending/_set_guide_actions_enabled 三函数条目 + _RemainingPieChart 方法级条目；验证：人工核对覆盖全部函数清单
+- [x] M3.5 task_runner.py 补模块说明区 —— 文件末尾补 `# ===== ui/task_runner.py 模块说明 =====` 区块（TaskRunner/_FnTask/引用管理机制/设计理由）；验证：grep 断言存在
+- [x] M3.6 CDP_WAIT_TIMEOUT 死常量激活 —— service.py:150 裸读改用 :37 常量 `timeout=CDP_WAIT_TIMEOUT`；说明区 :192 常量清单补 CDP_WAIT_TIMEOUT 条目；验证：grep 断言常量有消费点 + 说明区含条目
+- [x] M3.7 README 双主题表述修正 —— README.md:42 改四主题表述（与 :109 一致）；验证：grep README 零"双主题"
+
+> **2026-08-25 完成（M3 组）**：`probe_m3.py` 9/9 PASS（修复前 FAIL 即反向验收证据）+ 全量回归 62 脚本 **0 失败** + IMPORT OK + offscreen 冒烟通过；适配 `verify_v1010_3.py`（TABLE_LIMIT 改从 services 导入）与 `verify_v4a3.py`（C14 断言改为检查 services 说明区）
+
+### M4 验证与收尾
+
+- [x] M4.1 导入验证命令更新 —— AGENTS.md:8 与 x.progress.md:15 运行验证命令替换 ui.themes 为 ui.theme_loader 并补 services.service/ui.task_runner；验证：新命令执行输出 IMPORT OK（真实覆盖加载器契约链）
+- [x] M4.2 guide failed 端到端信号断言固化 —— 在 M0.3 探针基础上将 emit 式断言并入 verify_l_accept 或新建 verify_m_accept 汇总脚本，防同类签名失配再逃逸；验证：汇总脚本 PASS
+- [x] M4.3 全量回归 + 收尾 —— run_all_verify 0 异常 + IMPORT OK + offscreen 四主题冒烟 + 反向验收（M0 各条删键/坏输入触发断言）；x.progress 勾选 + 版本推进决策 + commit 草稿
+
+> **2026-08-25 完成（M4 组）**：M4.1 两份导入命令已替换 `ui.themes`→`ui.theme_loader` 并补 `services.service/ui.task_runner`，新命令 IMPORT OK；M4.2 新建 `verify_m_accept.py`（5 断言全 PASS，含真实 TaskRunner.failed 信号 emit 端到端）；M4.3 反向验收 `probe_m0.py` 全 PASS + 全量回归 63 脚本 **0 失败** + IMPORT OK + 四主题（light/dark/console/panel）冒烟全 OK。
+> **版本推进决策（用户 2026-08-25 修订）**：M 批次虽为 A018 审计整改（缺陷清理），但用户要求推进版本号，故整体发布版本由 V0.2.5.2 提升至 **V0.2.5.3**（PL007 主题资源文件夹化 + M 批次整改一并纳入）。
+> **commit 草稿（待用户执行，AI 不执行 git 写操作）**：
+>
+> ```
+> fix: V0.2.5.3，审计整改（正确性与防御/架构收敛/配置化/清理/收尾）
+> - 正确性与防御：配额刷新节流绕过、凭据 domain 为空崩溃、引导失败信号签名失配、加载错误未清待补发、Releases 非列表崩溃、主题加载器导入期异常包装、主题错误消息补全主题名
+> - 架构收敛：删除未使用类与重复维度定义、收敛模块门面导出、用量数据获取在途去重
+> - 配置化：无数据库提示文案与节流提示外置 ui.json
+> - 清理：删除表格行数上限死常量与废弃信号类、修正主题文档残留、补充模块说明区、激活 CDP 等待超时常量、修正 README 主题表述
+> - 收尾：导入验证命令更新、引导失败信号端到端验收脚本、全量回归零异常
+> - 版本推进 V0.2.5.2 → V0.2.5.3（base.json/README 徽章/x.progress 三处一致）
+> ```

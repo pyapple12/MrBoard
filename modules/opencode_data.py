@@ -3,6 +3,7 @@
 
 import json
 import re
+import threading
 import time
 import urllib.error
 import xml.etree.ElementTree as ET
@@ -18,6 +19,12 @@ logger = get_logger(__name__)
 
 # 静态配置解包（S8：参数外置 base.json，运行时零 IO）
 _SC = get_static_config()
+
+# M1.4：in-flight 去重标志与状态锁（移植 go_quota D0.4/L1.7 同式）——连点/定时叠加
+# 并发刷新只放行一个，防打爆非官方接口（GitHub 匿名限额）；网络 IO 不持锁
+_data_in_flight = False
+_DATA_FETCH_LOCK = threading.Lock()
+
 DATA_URL = str(_SC.base["data_url"])
 GH_RELEASES_API_URL = str(_SC.base["gh_releases_api_url"])
 GH_RELEASES_RSS_URL = str(_SC.base["gh_releases_rss_url"])
@@ -63,7 +70,10 @@ def _throttled_snapshot(force: bool) -> ModelDataSnapshot | None:
         and time.time() - _last_success_at < FETCH_INTERVAL
     ):
         return _mark_cached(
-            _last_snapshot, f"距上次刷新不足 {FETCH_INTERVAL} 秒，显示缓存数据"
+            _last_snapshot,
+            str(_SC.ui["go_quota_error_messages"]["throttled_template"]).format(
+                seconds=FETCH_INTERVAL
+            ),
         )
     return None
 
@@ -214,40 +224,56 @@ def fetch_model_data(body: str) -> dict[str, list[dict[str, Any]]]:
 
 def refresh_data_page(force: bool = False) -> ModelDataSnapshot:
     # 数据页聚合入口（PL002.7）：节流 → 三源独立拉取（互不拖垮）→ 快照；
-    # 整体失败保留上次快照标 is_cached（缓存兜底策略）
-    global _last_snapshot, _last_success_at
+    # 整体失败保留上次快照标 is_cached（缓存兜底策略）；
+    # M1.4：in-flight 去重——并发刷新在途时直返缓存（防双击刷新打爆接口）
+    global _last_snapshot, _last_success_at, _data_in_flight
     cached = _throttled_snapshot(force)
     if cached is not None:
         return cached
-    now = datetime.now(timezone.utc)
-    snapshot = ModelDataSnapshot(fetched_at=now)
+    with _DATA_FETCH_LOCK:
+        if _data_in_flight:
+            if _last_snapshot is not None:
+                return _mark_cached(_last_snapshot, "数据页刷新进行中，显示缓存数据")
+            return ModelDataSnapshot(fetched_at=datetime.now(timezone.utc))
+        _data_in_flight = True
     try:
-        body = http_get(DATA_URL, headers=_GH_API_HEADERS).decode(
-            "utf-8", errors="replace"
+        now = datetime.now(timezone.utc)
+        snapshot = ModelDataSnapshot(fetched_at=now)
+        try:
+            body = http_get(DATA_URL, headers=_GH_API_HEADERS).decode(
+                "utf-8", errors="replace"
+            )
+            snapshot.model_blocks = fetch_model_data(body)
+            snapshot.daily_usage = parse_daily_usage(body)
+            # 缺块容忍：四块键全集缺失时补 decoding 警告（不抛中断）
+            for key in MODEL_BLOCK_KEYS:
+                if key not in snapshot.model_blocks:
+                    snapshot.errors.append(f"数据块 {key} 缺失（页面结构可能变更）")
+        except Exception as exc:
+            snapshot.errors.append(f"数据页拉取失败：{exc}")
+        try:
+            snapshot.releases = fetch_github_releases(force=True)
+        except Exception as exc:
+            snapshot.errors.append(f"官方动态拉取失败：{exc}")
+        # A0.16/K1.1：三源全空且已有历史缓存时保留旧快照标注返回（失败不覆盖成功
+        # 数据，对齐 go_quota 只缓存成功项的模式）；首刷无缓存时照常返回空快照+错误。
+        # A017/L1.4 已知取舍声明：守卫粒度为三源整体——单源失败（如 Releases 网络抖动
+        # 返回 []）而其他源成功时，空源仍会覆盖旧值；per-source 合并待后续评估
+        has_data = bool(
+            snapshot.model_blocks or snapshot.daily_usage or snapshot.releases
         )
-        snapshot.model_blocks = fetch_model_data(body)
-        snapshot.daily_usage = parse_daily_usage(body)
-        # 缺块容忍：四块键全集缺失时补 decoding 警告（不抛中断）
-        for key in MODEL_BLOCK_KEYS:
-            if key not in snapshot.model_blocks:
-                snapshot.errors.append(f"数据块 {key} 缺失（页面结构可能变更）")
-    except Exception as exc:
-        snapshot.errors.append(f"数据页拉取失败：{exc}")
-    try:
-        snapshot.releases = fetch_github_releases(force=True)
-    except Exception as exc:
-        snapshot.errors.append(f"官方动态拉取失败：{exc}")
-    # A0.16/K1.1：三源全空且已有历史缓存时保留旧快照标注返回（失败不覆盖成功
-    # 数据，对齐 go_quota 只缓存成功项的模式）；首刷无缓存时照常返回空快照+错误。
-    # A017/L1.4 已知取舍声明：守卫粒度为三源整体——单源失败（如 Releases 网络抖动
-    # 返回 []）而其他源成功时，空源仍会覆盖旧值；per-source 合并待后续评估
-    has_data = bool(snapshot.model_blocks or snapshot.daily_usage or snapshot.releases)
-    if not has_data and _last_snapshot is not None:
-        message = "；".join(snapshot.errors) if snapshot.errors else "数据页拉取失败"
-        return _mark_cached(_last_snapshot, f"{message}（显示缓存数据）")
-    _last_snapshot = snapshot
-    _last_success_at = time.time()
-    return snapshot
+        if not has_data and _last_snapshot is not None:
+            message = (
+                "；".join(snapshot.errors) if snapshot.errors else "数据页拉取失败"
+            )
+            return _mark_cached(_last_snapshot, f"{message}（显示缓存数据）")
+        _last_snapshot = snapshot
+        _last_success_at = time.time()
+        return snapshot
+    finally:
+        # M1.4：复位在途标志（与入口加锁互斥，跨线程并发安全）
+        with _DATA_FETCH_LOCK:
+            _data_in_flight = False
 
 
 # 热门模型时序：data-slot 标记与 aria-label 形态（SolidJS 渲染属性）
@@ -325,6 +351,12 @@ def _fetch_releases_json() -> list[dict[str, Any]]:
     # 解析 tag_name/published_at/body，取最新 3 条
     raw = http_get(GH_RELEASES_API_URL, headers=_GH_API_HEADERS)
     data = json.loads(raw.decode("utf-8", errors="replace"))
+    # M0.5：GitHub 匿名限速期返回 dict（如 {"message":"API rate limit..."}）而非
+    # list——data[:N] 会抛 TypeError 回退 RSS 前浪费一次注定失败的请求；
+    # 前置校验回退，错误原因可读（A017/L1.6 同口径）
+    if not isinstance(data, list):
+        logger.warning("Releases API 返回非列表（可能限速），回退 RSS 动态")
+        return []
     items: list[dict[str, Any]] = []
     for release in data[:_RELEASE_LIMIT]:
         if not isinstance(release, dict):

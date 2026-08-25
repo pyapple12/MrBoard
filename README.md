@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-V0.2.5.2-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-V0.2.5.3-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -39,7 +39,7 @@ Windows 桌面信息窗口应用，一站式监控 **OpenCode 用量统计** 与
 - **凭据三路径配置**：v10 自动探测（老 Chrome）→ CDP 一键获取（新 Chrome 一键登录）→ 手动填写，凭据缺失时主窗口引导
 - **数据导出**：一键导出 8 个 CSV（UTF-8 BOM，Excel 直接打开）+ JSON
 - **常驻托盘**：关闭按钮最小化到托盘，双击图标显示窗口，配额状态一眼可见
-- **主题切换**：浅色/深色双主题一键切换
+- **主题切换**：浅色/深色/控制台/面板四主题一键切换
 - **配置持久化**：自动保存窗口位置、主题、刷新间隔（5 分钟定时刷新）
 - **宽容容错**：网络失败回退缓存、接口结构变更降级提示、数字字段弹性解析（不崩溃）
 

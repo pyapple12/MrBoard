@@ -11,8 +11,13 @@ from modules import browser_creds
 from modules.exporter import export_all
 from modules.go_quota import (
     DashboardCredentials,
+    ERROR_STAGE_AUTH,
+    ERROR_STAGE_NETWORK,
+    ERROR_STAGE_NO_CREDS,
+    ERROR_STAGE_PROVIDER,
     GoQuotaError,
     GoQuotaInfo,
+    QUOTA_WINDOW_KEYS,
     fetch_dashboard_usage,
     fetch_go_quota,
     save_dashboard_credentials,
@@ -91,7 +96,7 @@ class AppService:
         # 用量统计全量聚合：totals + 全部分组查询（原 _UsageTask.run 主体迁入）；
         # db_path 为 None 时抛 ServiceError（UI 转状态栏提示）
         if db_path is None:
-            raise ServiceError("未找到 opencode.db")
+            raise ServiceError(str(_SC.ui["status_messages"]["no_db_found"]))
         db = OpenCodeDB(db_path)
         try:
             summary = db.totals()
@@ -109,7 +114,7 @@ class AppService:
         # 全量导出：独立只读连接 + exporter 落盘（原 _ExportTask.run 主体迁入）；
         # db_path 为 None 时抛 ServiceError
         if db_path is None:
-            raise ServiceError("无数据库可导出")
+            raise ServiceError(str(_SC.ui["status_messages"]["no_db_export"]))
         db = OpenCodeDB(db_path)
         try:
             export_all(db, out_dir)
@@ -146,9 +151,7 @@ class AppService:
             proc = browser_creds.launch_chrome_debug()
             if proc is None:
                 raise ServiceError(str(_SC.ui["guide_messages"]["launch_failed"]))
-            if not browser_creds.wait_cdp_ready(
-                timeout=int(_SC.base["cdp_wait_timeout"])
-            ):
+            if not browser_creds.wait_cdp_ready(timeout=CDP_WAIT_TIMEOUT):
                 raise ServiceError(str(_SC.ui["guide_messages"]["cdp_not_ready"]))
             auth_cookie, workspace_id = _wait_for_login_cookie(
                 time.time() + wait_seconds
@@ -190,6 +193,8 @@ def get_service() -> AppService:
 #   DIMENSIONS / TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：用量查询维度与行数分档
 #     （base.json 驱动；原 main_window 编排依赖随迁）
 #   CDP_FETCH_TIMEOUT / CDP_POLL_INTERVAL / CDP_LOGIN_WAIT_SECONDS：CDP 引导参数
+#   CDP_WAIT_TIMEOUT：CDP 就绪等待超时（base.json 驱动；wait_cdp_ready 调用处复用此
+#     常量而非裸读 base.json，防死常量漂移，M3.6）
 #     （base.json 驱动；原 main_window 常量随编排迁入）
 # 类型：
 #   ServiceError：业务错误基类（message 中文，UI catch 后按模板格式化）

@@ -113,7 +113,7 @@ if __name__ == "__main__":
 #   _SC：静态配置解包单例（base.json/ui.json，模块顶层一次性读取）
 #   _notified_danger：配额预警去重标志（持续超限只在首次触发时通知，回落复位）
 #   APP_NAME：应用名（来自 utils.logger 单一来源，D1/C14）
-#   QUOTA_DANGER_PERCENT：配额预警阈值（ui/themes.py 导出，ui.json
+#   QUOTA_DANGER_PERCENT：配额预警阈值（ui/theme_loader 导出，ui.json
 #     quota_danger_percent 驱动，J3.1 补列）
 # 模块级导入：QApplication / QSystemTrayIcon（PyQt6.QtWidgets，J4.1 补列——
 #   run_gui 创建应用实例、_quit_app 与 closeEvent 判断托盘可用性）
@@ -136,4 +136,4 @@ if __name__ == "__main__":
 #     设计理由：任何退出路径都先保存状态（对齐 AccelWorld B2 修复经验）
 # 异常处理：GUI 异常由 Qt 事件循环处理；本模块无网络/文件操作
 # 关联配置：config/static/base.json（version）；ui.json（notify_title/notify_message_template，
-#   P24 定案后 fallback 键已移除）；ui/themes.py（quota_danger_percent）
+#   P24 定案后 fallback 键已移除）；ui/theme_loader（quota_danger_percent）

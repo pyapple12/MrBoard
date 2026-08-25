@@ -356,7 +356,12 @@ def _throttled_cache(force: bool) -> list["GoQuotaInfo"] | None:
         and time.time() - _last_success_at < MIN_FETCH_INTERVAL
     ):
         return [
-            _mark_cached(item, f"距上次刷新不足 {MIN_FETCH_INTERVAL} 秒，显示缓存数据")
+            _mark_cached(
+                item,
+                str(_SC.ui["go_quota_error_messages"]["throttled_template"]).format(
+                    seconds=MIN_FETCH_INTERVAL
+                ),
+            )
             for item in _last_quotas
         ]
     return None
@@ -368,9 +373,9 @@ def _build_info(
     used_source: str,
     credential: DashboardCredentials | None = None,
 ) -> GoQuotaInfo:
-    # 组装单账户成功配额信息（PL001.8：附账户标注并写入多账户缓存；
-    # overall = max 三窗口，D0.6 钳制 0-100）
-    global _last_success_at
+    # 组装单账户成功配额信息（PL001.8：附账户标注；overall = max 三窗口，D0.6 钳制
+    # 0-100）；M0.1：本函数不再写 _last_quotas/_last_success_at（缓存由 fetch_go_quota
+    # 末尾原子发布，根除渐进写导致节流分支绕行）
     windows = [
         window
         for window in (usage.get(key) for key in QUOTA_WINDOW_KEYS.values())
@@ -388,16 +393,16 @@ def _build_info(
         workspace_id=workspace_id,
         fetched_at=now,
     )
-    _last_quotas.append(info)
-    _last_success_at = time.time()
     return info
 
 
 # D0.4：in-flight 去重标志（连点/定时叠加时并发请求只放行一个，防打爆 dashboard）
 _fetch_in_flight = False
-# A017/L1.7：in-flight 标志与缓存读写的状态锁——check-then-set 与清空/复位
+# A017/L1.7 + M0.1：in-flight 标志与缓存发布的状态锁——check-then-set 与复位
 # 在 QThreadPool 池线程发生，手动+定时叠加可真并发（偶发重复拉取一轮）；
-# 网络 IO 不持锁（并发第二个调用方在锁外等待标志位，即时返回标注缓存）
+# 网络 IO 不持锁（并发第二个调用方在锁外等待标志位，即时返回标注缓存）；
+# 缓存（_last_quotas/_last_success_at）仅由 fetch_go_quota 末尾一次性原子发布，
+# 循环体不再渐进写，根除节流分支在刷新中途读到部分列表的绕行通道
 _FETCH_STATE_LOCK = threading.Lock()
 
 
@@ -405,7 +410,7 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
     # 主流程（PL001.8 多凭据循环轮询）：节流 → 凭据候选逐个拉取（单凭据失败降级
     # 为占位错误项不拖垮其他）→ 返回 list[GoQuotaInfo]；
     # D0.4：在途请求去重——并发调用直接返回上次成功缓存，不叠加请求
-    global _fetch_in_flight, _last_quotas
+    global _fetch_in_flight, _last_quotas, _last_success_at
     now = datetime.now(timezone.utc)
     cached = _throttled_cache(force)
     if cached is not None:
@@ -441,7 +446,6 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
                     stage=ERROR_STAGE_NO_CREDS,
                 )
             ]
-        _last_quotas = []
         results: list[GoQuotaInfo] = []
         for credentials_item in credentials:
             try:
@@ -468,9 +472,11 @@ def fetch_go_quota(force: bool = False) -> list[GoQuotaInfo]:
                     error_stage=stage,
                 )
                 results.append(placeholder)
-                # A017/L1.3：失败占位项同步入缓存——in-flight/节流期"全集"标注
-                # 副本不再丢失败项（选择器闪缩残余场景终结）
-                _last_quotas.append(placeholder)
+        # M0.1：整轮完成一次性原子发布——消除渐进写缓存/中途更新时间戳导致的节流
+        # 分支绕行（线程 B 刷新中途线程 A 误读部分列表）；成功项与失败占位项同批次
+        # 进入 _last_quotas，in-flight/节流期"全集"标注不再丢项
+        _last_quotas = results
+        _last_success_at = time.time()
         return results
     finally:
         # A017/L1.7：复位在途标志持锁（与入口 check-set 同锁互斥）

@@ -16,7 +16,12 @@ logger = get_logger(__name__)
 _THEMES_DIR = Path(__file__).parent / "themes"
 
 # ===== 共享 QSS 结构模板（{占位符} 由调色板替换；QSS 自身的 {} 保持不变） =====
-_QSS_TEMPLATE = (_THEMES_DIR / "_templates" / "base.qss").read_text(encoding="utf-8")
+_QSS_PATH = _THEMES_DIR / "_templates" / "base.qss"
+if not _QSS_PATH.is_file():
+    # M0.6：导入期 IO 失败形态对齐 _load_theme 契约风格（RuntimeError 中文诊断，
+    # 而非裸 FileNotFoundError/UnicodeDecodeError——打包场景下更易定位）
+    raise RuntimeError(f"基础 QSS 模板缺失：{_QSS_PATH}")
+_QSS_TEMPLATE = _QSS_PATH.read_text(encoding="utf-8")
 
 _SC = get_static_config()
 
@@ -71,16 +76,17 @@ def _load_theme(name: str) -> dict:
     return data
 
 
-def _build_theme(palette: dict[str, str]) -> str:
+def _build_theme(name: str, palette: dict[str, str]) -> str:
     # 按调色板构建 QSS（str.replace 注入占位符，避开 QSS 自身花括号；
     # A3.5：构建后检测残留 {占位符}——palette 缺键会静默残留无效值
     # （6A.1 chunk_ok 事故根因），发现即抛错防再犯）
     result = _QSS_TEMPLATE
     for key, value in palette.items():
         if not isinstance(value, str):
-            # E3.9：palette 值非字符串（手改配置）→ 契约风格 RuntimeError
+            # E3.9：palette 值非字符串（手改配置）→ 契约风格 RuntimeError；
+            # M0.7：消息注入主题名，便于定位四主题中哪个 palette 被改坏
             raise RuntimeError(
-                f"调色板 {key} 值必须是字符串，当前 {type(value).__name__}"
+                f"主题 {name} 调色板 {key} 值必须是字符串，当前 {type(value).__name__}"
             )
         result = result.replace("{" + key + "}", value)
     missing = re.findall(r"\{[a-zA-Z_]+\}", result)
@@ -102,6 +108,10 @@ for _name in THEME_NAMES:
     THEME_DISPLAY_NAMES[_name] = str(_data["display_name"])
 
 # 文件夹多出未注册的主题目录：视为无效不加载，仅警告（注册表唯一权威）
+if not _THEMES_DIR.is_dir():
+    # M0.6：主题资源根目录整体缺失（打包/部署异常）时显式中文诊断，
+    # 而非 iterdir 抛裸 OSError 逃逸
+    raise RuntimeError(f"主题资源目录缺失：{_THEMES_DIR}")
 for _child in sorted(_THEMES_DIR.iterdir()):
     if (
         _child.is_dir()
@@ -123,7 +133,7 @@ DEFAULT_THEME_NAME = THEME_NAMES[0]
 
 # PL003.1.a：注册制构建 QSS 全集
 _THEME_QSS: dict[str, str] = {
-    name: _build_theme(palette) for name, palette in _PALETTES.items()
+    name: _build_theme(name, palette) for name, palette in _PALETTES.items()
 }
 
 
@@ -158,7 +168,7 @@ def quota_chunk_color(percent: int, theme_name: str | None = None) -> str:
 #   _SC：静态配置解包（themes 注册表/quota_* 阈值/colors 节）
 #   _PALETTES：注册制调色板全集（各主题 theme.json palette，N 主题泛化 PL003.1）
 #   THEME_DISPLAY_NAMES：主题显示名映射（theme.json display_name，承接原 ui.json
-#     theme_labels；公开导出供 main_window 的 THEME_LABELS 引用）
+#     THEME_DISPLAY_NAMES；公开导出供 main_window 引用）
 #   _QUOTA_DYNAMIC_KEYS：配额窗口内动态色键集（chunk 三档/quota_gray/pie_bg/pie_text，
 #     每主题必含契约校验——运行时 setStyleSheet 覆盖不走 QSS 占位符，残留检测兜不住）
 #   QUOTA_WARN_PERCENT / QUOTA_DANGER_PERCENT：配额阈值（ui.json 驱动）
@@ -168,7 +178,7 @@ def quota_chunk_color(percent: int, theme_name: str | None = None) -> str:
 # 函数：
 #   _load_theme(name)：读 theme.json + 结构契约校验（缺文件/坏 JSON/根非对象/
 #     缺 display_name 或 palette/palette 非对象均抛 RuntimeError 中文提示）
-#   _build_theme(palette)：str.replace 注入占位符（残留占位符/非字符串值抛契约错）
+#   _build_theme(name, palette)：str.replace 注入占位符（残留占位符/非字符串值抛契约错，消息含主题名）
 #   get_theme(name)：字典查找 + 未知名回退默认主题（PL003.1.c 消除"第三主题错位"）
 #   get_palette(name)：调色板副本 + 未知名回退默认（quota/饼图取色源，PL007 新增）
 #   quota_chunk_color(percent, theme_name=None)：三档色随主题 palette（阈值常量，

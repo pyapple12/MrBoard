@@ -8,9 +8,7 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import (
     QByteArray,
-    QObject,
     QPoint,
-    QRunnable,
     QThreadPool,
     QTimer,
     Qt,
@@ -42,17 +40,18 @@ from PyQt6.QtWidgets import (
 from config.settings import load_config, save_config
 from config.static.static_config import get_static_config
 
-# A017/PL006：仅保留 DTO 类型注解用途的 modules import（函数调用一律走 services 门面）
-from modules.go_quota import (
+# A017/PL006：仅保留 DTO 类型注解用途的 modules import（函数调用与运行时常量
+# 一律走 services 门面；M1.3：ERROR_STAGE_*/QUOTA_WINDOW_KEYS 改由 services 再导出）
+from modules.go_quota import GoQuotaInfo
+from services.service import (
     ERROR_STAGE_AUTH,
     ERROR_STAGE_NO_CREDS,
     QUOTA_WINDOW_KEYS,
-    GoQuotaInfo,
 )
 from modules.opencode_usage import TokenStats, UsageRow, UsageSummary
 from modules.opencode_data import ModelDataSnapshot
 from services import get_service
-from services.service import ServiceError, UsageData
+from services.service import DIMENSIONS, ServiceError, UsageData
 from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
 from ui.task_runner import TaskRunner
 from ui.theme_loader import (
@@ -70,9 +69,6 @@ logger = get_logger(__name__)
 # 静态配置解包（S8：参数外置 base.json，运行时零 IO）
 _SC = get_static_config()
 AUTO_LOAD_DELAY_MS = int(_SC.base["auto_load_delay_ms"])
-# L8/L10：表格行数上限（base.json 驱动；A017/PL006 CDP 参数随编排迁 services）
-TABLE_LIMIT_GROUP = int(_SC.base["table_limit_group"])
-TABLE_LIMIT_DAY = int(_SC.base["table_limit_day"])
 # L9：剩余量饼图参数（ui.json 驱动；PL003.1.d 起 bg/text 色随主题 palette，
 # 模块级仅保留默认主题色作初始值）
 PIE_SIZE = int(_SC.ui["pie_size"])
@@ -102,10 +98,10 @@ QUOTA_NAME_WIDTH = int(_SC.ui["quota_name_width"])
 CARDS_SPACING = int(_SC.ui["cards_spacing"])
 RESET_TIME_FORMAT = str(_SC.ui["reset_time_format"])
 
-# 分组维度与表格列配置（表头文案外置 ui.json，S8.3；维度枚举保留代码内）
+# 分组维度与表格列配置（表头文案外置 ui.json，S8.3）
 # P15：总览已移出维度下拉（独立显示 + 点击弹明细），保留 total 数据供弹窗用
 # D5：维度标签/配额窗口标签/引导卡片文案外置 ui.json
-DIMENSIONS = ("month", "day", "model", "provider", "agent", "session")
+# M1.2：DIMENSIONS 由 services.service 单点导出（编排与 UI 同源，消除双份字面量漂移）
 DIMENSION_LABELS = dict(_SC.ui["dimension_labels"])
 QUOTA_WINDOW_LABELS = dict(_SC.ui["quota_window_labels"])
 GUIDE_CARD_TEXT = str(_SC.ui["guide_card_text"])
@@ -299,14 +295,6 @@ for _tname, _tmpl in _TEMPLATE_MAP.items():
         raise RuntimeError(f"ui.json 模板键 {_tname} 占位符异常：{_exc}") from None
 
 
-@dataclass
-class UsageData:
-    # 后台任务返回的完整用量数据（内存驻留，维度切换不再查库）
-
-    summary: UsageSummary
-    rows: dict[str, list[UsageRow]]
-
-
 # F0.2：usage 任务在途/待补发标志（连点去重——跨线程读写由 GIL 保证原子，
 # 与 go_quota._fetch_in_flight 同式；A017/PL006 起复位逻辑经 usage 任务包装函数
 # 的 finally 单点保持，H0.6 时序结论不变）
@@ -380,14 +368,6 @@ class _RemainingPieChart(QWidget):
             Qt.AlignmentFlag.AlignCenter,
             PIE_REMAINING_TEMPLATE.format(percent=remaining),
         )
-
-
-class _CdpGuideSignals(QObject):
-    # CDP 凭据引导任务信号载体：成功/失败回传主线程；
-    # success 附带 workspace_id（PL005.2：添加账户后自动选中，默认空向后兼容）
-
-    success = pyqtSignal(str, str)
-    failed = pyqtSignal(str)
 
 
 def _format_tokens(count: int) -> str:
@@ -678,7 +658,7 @@ class MainWindow(QMainWindow):
         self._refresh_button.clicked.connect(self.refresh)
         self._export_button = QPushButton(BUTTON_LABELS["export"])
         self._export_button.clicked.connect(self._export_data)
-        # PL003.2：主题下拉（theme_labels 显示名，userData = 主题名；切换即应用即存）
+        # PL003.2：主题下拉（THEME_DISPLAY_NAMES 显示名，userData = 主题名；切换即应用即存）
         self._theme_combo = QComboBox()
         for name in THEME_NAMES:
             self._theme_combo.addItem(THEME_LABELS.get(name, name), name)
@@ -900,6 +880,9 @@ class MainWindow(QMainWindow):
         # A017/L3.3：seq 匹配的本次失败同样消费待补发标志（防残留至下次成功后
         # 冗余补发一次全维度查询）
         if seq != self._refresh_seq:
+            # M0.4：过期失败回调同样消费待补发标志（对齐 _on_usage_ready 失配分支，
+            # 防 pending 悬挂至下周期冗余补发全维度查询）
+            self._consume_pending()
             return
         self._consume_pending()
         self._status_bar.showMessage(message)
@@ -1005,9 +988,10 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage(message)
         self.refresh()
 
-    def _on_guide_failed(self, message: str) -> None:
+    def _on_guide_failed(self, seq: int, message: str) -> None:
         # 引导失败：状态栏提示；引导卡按条件显示（PL005.2：已有有效凭据时从配额区
-        # 添加账户失败不弹引导卡——与 _on_quota_ready 同源判断，防界面语义混乱）
+        # 添加账户失败不弹引导卡——与 _on_quota_ready 同源判断，防界面语义混乱）；
+        # M0.3：seq 为 TaskRunner.failed(int,str) 信号首参（对齐其他 handler，本处忽略）
         self._auto_guide_button.setEnabled(True)
         self._manual_guide_button.setEnabled(True)
         self._guide_active = False
@@ -1258,7 +1242,6 @@ class MainWindow(QMainWindow):
 # ===== ui/main_window.py 模块说明 =====
 # 模块级常量：
 #   AUTO_LOAD_DELAY_MS：启动延迟加载毫秒数（base.json 驱动）
-#   TABLE_LIMIT_GROUP / TABLE_LIMIT_DAY：表格行数上限（base.json）
 #   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG_DEFAULT / PIE_COLOR_TEXT_DEFAULT：
 #     剩余量饼图参数与默认主题色（ui.json + 默认 palette 派生，A0.16/K3.6 改名同步）
 #   PIE_START_ANGLE / FULL_CIRCLE_16：饼图绘制角度常量（Qt 角度单位，代码内，C11）
@@ -1288,6 +1271,12 @@ class MainWindow(QMainWindow):
 #     A017/PL006.1 定义迁至 services.service，此处 import 供注解）
 #   _RemainingPieChart：剩余量饼图控件（QPainter 分级色圆弧[随用量三档变色] +
 #     中心"剩余 Y%"，P16/A017-L0.1）
+#   补充函数条目（A018/M3.4：审计发现函数清单漏列，补全覆盖）：
+#     _usage_job()：用量聚合任务体（AppService.get_usage 包装，供 TaskRunner 提交；
+#       F0.2 在途/待补发标志复位经其 finally 单点，H0.6 时序结论）
+#     _consume_pending()：消费待补发请求——以最新序号再启动一次 _usage_job（G0.1；
+#       渲染路径与过期丢弃路径共用，防双路径漂移）
+#     _set_guide_actions_enabled(enabled)：引导按钮启用/禁用（PL005.2 引导完成/失败时复位）
 # 函数：
 #   _format_tokens()：K/M/B/G 缩写格式化
 #   _format_cost()：费用格式化（近零容差内显示 -，≥1 两位小数，<1 四位小数）

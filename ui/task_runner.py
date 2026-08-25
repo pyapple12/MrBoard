@@ -56,3 +56,18 @@ class _FnTask(QRunnable):
             self._runner.failed.emit(self._seq, str(exc))
         finally:
             self._runner._task_done(self)
+
+
+# ===== ui/task_runner.py 模块说明 =====
+# 职责：Qt 异步任务设施——把同步函数提交线程池后台执行，结果/异常经信号回传主线程；
+#   随前端生灭的传输层（内部零业务逻辑，换前端时本模块随之重写）
+# 类：
+#   TaskRunner(QObject)：统一后台任务运行器；每个职责一个实例（usage/quota/data/export
+#     各一），信号直连对应 handler 零分发；run(fn, seq=0) 提交任务
+#   _FnTask(QRunnable)：线程池任务壳，执行 fn 并经持有的 runner 引用发射信号
+#     （runner 由主线程持有不回收，引用安全；setAutoDelete(False) 生命周期全权由 Python 侧管理）
+# 引用管理机制（A017/PL006.2 实测教训：QRunnable wrapper 运行期被 GC 触发 0xC0000409 崩溃）：
+#   _live_tasks(set) 持有执行中任务 Python 引用；完成后转入 _done_tasks(deque maxlen=16)
+#   继续保引用，自动淘汰最老且无泄漏
+# 设计理由：网络 IO 不持锁、并发去重由业务模块（go_quota/opencode_data）各自标志+锁负责；
+#   本模块只解决"异步执行+线程安全回传"，职责单一

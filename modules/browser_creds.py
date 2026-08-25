@@ -518,8 +518,8 @@ def fetch_login_state_via_cdp(
     for cookie in cookies:
         if not isinstance(cookie, dict):
             continue
-        if cookie.get("name") in COOKIE_NAMES and OPENCODE_HOST in cookie.get(
-            "domain", ""
+        if cookie.get("name") in COOKIE_NAMES and OPENCODE_HOST in (
+            cookie.get("domain") or ""
         ):
             value = cookie.get("value")
             if isinstance(value, str) and value:

@@ -13,7 +13,8 @@
   "cli_reset_time_format": "%Y-%m-%d %H:%M:%S",
   "go_quota_error_messages": {
     "no_credentials": "未找到 dashboard 凭据（设置 OPENCODE_GO_WORKSPACE_ID/OPENCODE_GO_AUTH_COOKIE 或创建 opencode-go.json 配置文件）",
-    "in_flight": "配额请求进行中，请稍后刷新"
+    "in_flight": "配额请求进行中，请稍后刷新",
+    "throttled_template": "距上次刷新不足 {seconds} 秒，显示缓存数据"
   },
   "colors": {
     "quota_ok": "#4caf50",
