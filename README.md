@@ -1,6 +1,6 @@
 # myboard —— OpenCode 用量与 Go 配额监控
 
-[![Version](https://img.shields.io/badge/Version-V0.2.5.6-blue.svg)](config/static/base.json)
+[![Version](https://img.shields.io/badge/Version-V0.2.6.1-blue.svg)](config/static/base.json)
 [![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -28,6 +28,14 @@ Windows 桌面信息窗口应用，一站式监控 **OpenCode 用量统计** 与
 | 用量统计                                  | Go 配额                                                |
 | ----------------------------------------- | ------------------------------------------------------ |
 | 总 tokens / 输入 / 输出 / 缓存率 / 总费用 | 5 小时 / 每周 / 每月使用百分比 + 重置时间 + 剩余量饼图 |
+
+> **QML 演示版（开发预览，PL008）**：并行孵化的 QML+FluentUI 前端，基于虚拟数据
+> （mock_service 三态样例），不接真实业务，用于查看全页面效果与动效/光影/阴影/粒子
+> 能力展示。启动命令：
+>
+> ```powershell
+> .\.venv\Scripts\python.exe -c "import ui.qml.launcher as l; l.launch()"
+> ```
 
 ---
 
@@ -139,21 +147,30 @@ mrboard/
 │   ├── exporter.py            # 导出：CSV(UTF-8 BOM) + JSON
 │   └── browser_creds.py       # 浏览器凭据：v10 DPAPI + v20 CDP 引导
 ├── services/                   # 应用服务门面（A017/PL006）：UI 唯一后端入口，纯 Python 零 Qt
-│   └── service.py             # AppService：聚合用量/配额/导出/凭据编排，前端可整体替换
+│   ├── service.py             # AppService：聚合用量/配额/导出/凭据编排，前端可整体替换
+│   └── mock_service.py        # 虚拟数据门面（QML 演示版数据源，normal/error/cached 三态样例）
 ├── config/
 │   ├── settings.py            # 用户配置读写（AppConfig，config/user_config.json）
 │   └── static/                # 静态配置（只读，json 驱动）
 │       ├── static_config.py   # StaticConfig 加载器 + 缓存单例
 │       ├── base.json          # 应用参数（版本/间隔/端口/上限等）
 │       └── ui.json            # UI 参数（颜色/阈值/表头）
-├── ui/                        # GUI 层
-│   ├── main_window.py         # 主窗口（卡片/配额/表格/引导 + 后台加载）
-│   ├── task_runner.py         # 统一后台任务运行器（QThreadPool 封装，A017/PL006）
-│   ├── system_tray.py         # 系统托盘（状态色图标/菜单/预警）
-│   ├── theme_loader.py        # 主题加载器：读 ui/themes/ 资源 + 契约校验（PL007）
-│   └── themes/                # 主题纯资源文件夹（零 .py；新增主题=新建子文件夹+theme.json）
-│       ├── _templates/base.qss  # 共享 QSS 结构模板（{色键} 占位符）
-│       └── light|dark|console|panel/theme.json  # 各主题 display_name + palette
+├── ui/                        # GUI 层（双前端并存：qt6 默认 / qml 演示版）
+│   ├── qt6/                   # QtWidgets 前端（默认 GUI，PL008 迁入）
+│   │   ├── main_window.py     # 主窗口（卡片/配额/表格/引导 + 后台加载）
+│   │   ├── task_runner.py     # 统一后台任务运行器（QThreadPool 封装，A017/PL006）
+│   │   ├── system_tray.py     # 系统托盘（状态色图标/菜单/预警）
+│   │   ├── theme_loader.py    # 主题加载器：读 qt6/themes/ 资源 + 契约校验（PL007）
+│   │   └── themes/            # 主题纯资源文件夹（零 .py；新增主题=新建子文件夹+theme.json）
+│   │       ├── _templates/base.qss  # 共享 QSS 结构模板（{色键} 占位符）
+│   │       └── light|dark|console|panel/theme.json  # 各主题 display_name + palette
+│   └── qml/                   # QML 前端（PL008 虚拟数据演示版：PySide6 + FluentUI）
+│       ├── launcher.py        # 数据桥与启动器（context 注入 mock 数据/阈值/文案）
+│       ├── main.qml           # FluWindow + FluNavigationView 两页导航
+│       ├── UsagePage.qml      # 用量监控页（卡片区 + 配额区 + 饼图 + 粒子）
+│       ├── DataPage.qml       # 数据与动态页（用量明细表 + Releases 时间线）
+│       ├── theme/             # 单基础主题单例色板（Theme.qml + qmldir）
+│       └── effects/           # 动效组件（CardShadow：MultiEffect 阴影/光晕）
 ├── data/                      # 静态数据（预留）+ 运行数据（凭据/日志/价格缓存，已 gitignore）
 ├── utils/                     # 通用工具
 │   ├── logger.py              # 统一日志（控制台 + 轮转文件，项目内 data/logs/myboard.log）
@@ -192,9 +209,9 @@ mrboard/
 |                             | `unknown_label`、`cost_zero_epsilon`、`total_tokens_unit`、`total_tokens_unit_threshold`、`status_time_format`、`token_abbr_units`、`cli_reset_time_format` | 分组缺失标签、费用容差、单位/K/M/B/G 缩写与时间格式 |
 |                             | `status_messages`（含任务错误模板）、`go_quota_error_messages`、`menu_labels`、`tooltips`、`dialog_titles`、`dialog_prompts`                                | 状态栏/错误/菜单/对话框文案                         |
 |                             | `table_columns`                                                                                                                                             | 明细表格列元数据                                    |
-| `ui/themes/`                | 各主题 `theme.json`（display_name + palette 约 30 色）、`_templates/base.qss` 共享模板                                                                      | 四主题调色板/显示名/QSS 结构（PL007 资源文件夹化）  |
+| `ui/qt6/themes/`            | 各主题 `theme.json`（display_name + palette 约 30 色）、`_templates/base.qss` 共享模板                                                                      | 四主题调色板/显示名/QSS 结构（PL007 资源文件夹化）  |
 
-**自定义主题**：新建 `ui/themes/<名字>/theme.json`（复制现有主题改色值），并在
+**自定义主题**：新建 `ui/qt6/themes/<名字>/theme.json`（复制现有主题改色值），并在
 `ui.json` 的 `themes` 数组登记主题名，重启即在主题下拉框出现——无需修改任何 `.py`
 文件；调整所有主题的样式结构只需编辑 `_templates/base.qss` 一处。
 

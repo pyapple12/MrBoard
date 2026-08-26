@@ -772,3 +772,136 @@ ui/
 | Watch001.l | zip 数量不齐静默截断                           | A016           | releases 双源合并处补 warning 日志（数量不一致时记录）               | probe mock 不齐断言 warning                        |
 
 > 收尾：Watch001.a-l 完成后执行全量回归 + IMPORT OK + offscreen 冒烟（对应 x.progress WTH001.m）。
+
+## PL008. QML 前端立项：双前端并存 + QtWidgets 迁入 ui/qt6（2026-08-26）
+
+> 来源：UI 现代化演进讨论（2026-08-26）——需求为毛玻璃/光影/阴影/粒子/更多动效；技术选型拍板方案 A（QML + FluentUI）；沿用 PL006 预留的"多前端并存（ui/qt6 与 ui/qml 并列 + 分发开关）"远期形态
+> 选型依据：PySide6-FluentUI-QML v1.6.7（MIT 许可，PyPI 直装，454 star）；FluentUI 库已宣布转向 Pro 版（FluentUI2），旧版锁 v1.6.7 使用；备选 Qaterial（MIT，作者声明非 LTS）/ Rin-UI（MIT，未达生产可用）；Web 栈（Tauri+sidecar/tsParticles）与 qfluentwidgets（GPLv3 与 MIT 冲突）经讨论排除
+> 状态：📌 待实施（PL008 任务清单见 x.progress.md）
+> **验收点：以"启动虚拟数据支持的 QML 前端可查看全页面效果"为准**——单基础主题 + 动效/光影/阴影/粒子能力展示（粒子为必做），不接入真实业务；PL008 结束版本 **V0.2.6.1**（三处同步：base.json/README 徽章/x.progress 版本行，一次 commit 收口）
+
+### 一、架构与共享边界
+
+```
+ui/
+├── qt6/                  ← 现有 QtWidgets 前端整体迁入（git mv 保留历史，默认入口）
+│   ├── main_window.py  system_tray.py  data_page.py
+│   ├── task_runner.py  theme_loader.py  themes/
+├── qml/                  ← 新 QML 前端（FluentUI）并行孵化
+│   ├── launcher.py  main.qml  theme/  views/  components/
+└── __init__.py
+
+services/
+├── service.py            ← 业务门面（现有，不动）
+├── contracts.py          ← 共享事实唯一读取点（新建，阈值+注册表+文案读取）
+└── mock_service.py       ← 虚拟数据门面（QML 演示版数据源，三态样例）
+（注：qt6/qml 不设独立 adapter——qt6 由 main/theme_loader 直连 contracts 消费
+业务常量/共享事实，QML 由 ui/qml/launcher.py 注入承担数据桥；2026-08-27 定案
+删除原 services/qt6_adapter.py——纯转发零整形、唯一消费者 main.py 仅用 1 个
+业务阈值，绕道 UI 桥拿业务常量属分层错乱）
+```
+
+**共享边界定案**：
+
+| 数据                                        | 宿主                                                    | 消费者                                                |
+| ------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------- |
+| QUOTA_WARN/DANGER_PERCENT 两阈值            | services/contracts.py（唯一解包点）                     | main.py、qt6 theme_loader、QML（经 context property） |
+| 主题注册表（themes 数组 + 默认主题=首项）   | services/contracts.py                                   | qt6、QML Theme.qml（注入；QML 初期只消费默认主题）    |
+| 面向用户文案（status_messages 等组）        | services/contracts.py `get_ui_texts(group)`（含键校验） | qt6（改造中，见决策 7）、QML launcher 注入            |
+| 主题显示名 / 着色实现                       | 各前端自持                                              | qt6 在 theme.json，QML 单基础主题自声明               |
+| quota_chunk_color / get_theme / get_palette | qt6 专属                                                | 仅 qt6 内部                                           |
+| 托盘专用色                                  | 挂起（随 system_tray 归属定案，本轮托盘随 qt6 走）      | —                                                     |
+
+**隔离共识（统一标准）**：共享语义一律经 services 门面/contracts 导出，前端只经 context property 或 adapter 注入获取；前端专属实现细节由各前端自持；前端不直读配置文件、不 import 对方前端代码。（QML 初期文案经 get_ui_texts 共享读取，无直读例外；qt6 直读在向共享层改造中）
+
+### 二、搬迁批边界（批次一：纯重构，行为零变化）
+
+- git mv：main_window/system_tray/data_page/task_runner + themes/ → ui/qt6/；新建 ui/qt6/**init**.py；ui/**init**.py 保留
+- theme_loader 例外：先改造为 contracts 消费者（阈值/注册表解包移除），再随队迁入
+- 引用面四块联动：qt6 内部互引（ui.qt6.*）、main.py（路径替换 + 阈值改从 contracts 拿）、.temp verify 脚本批量适配（**永久依赖**，非一次性）、AGENTS.md/x.progress 验证命令
+- main.py 暂不加 --frontend 开关（QML 落地时再加），搬迁批保持"默认即 qt6"
+- 验收：全量回归 64 脚本 0 失败 + IMPORT OK + 四主题冒烟，独立 commit 可回滚
+
+### 三、QML 孵化分阶段（PL008 范围 = Phase 0-5）
+
+| 阶段                     | 内容                                                                              | 估算                   |
+| ------------------------ | --------------------------------------------------------------------------------- | ---------------------- |
+| Phase 0 PoC              | PySide6-FluentUI-QML 安装验证（⚠️ Python 3.14 wheel 兼容性）+ 最小 FluWindow demo | 0.5 天                 |
+| Phase 1 MockService      | services/mock_service.py 同签名模拟数据（含错误态/缓存态样例）                    | 0.5 天                 |
+| Phase 2 骨架             | main.qml FluApp + 导航 + Theme 单例（**单基础主题**，注册表注入仅消费默认主题）   | 1 天                   |
+| Phase 3 用量监控页       | 卡片区/配额区（选择器+单卡三进度条+QtCharts 饼图）/明细区                         | 2 天                   |
+| Phase 4 数据动态页       | TableView + Releases 时间线                                                       | 1 天                   |
+| Phase 5 动效层           | MultiEffect 阴影/页面过渡/粒子（**必做**：启动画面或背景点缀二选一）              | 1 天                   |
+| ~~Phase 6 接入真实业务~~ | context property 换 get_service()，新旧前端输出一致性对比                         | **范围外**（后续批次） |
+| ~~Phase 7 双前端分发~~   | main.py --frontend qt6\|qml + 旧前端退役评估                                      | **范围外**（后续批次） |
+
+**PL008 验收定义**：`mock` 数据源下 QML 前端可启动并查看全部页面效果（用量监控页两区 + 数据动态页 + 单基础主题 + 动效/光影/阴影/粒子能力展示），等价于"虚拟数据支持的 UI 演示版"。
+
+### 四、QML 实施细则与验证方法
+
+**A. 数据流细则**
+
+- 入口：`ui/qml/launcher.py`（Python 侧）——构建 QQmlApplicationEngine，`setContextProperty("service", MockService())`，加载 main.qml；资源路径用 `get_project_root()`（utils/file_utils，不自造定位）
+- 列表数据：QAbstractListModel 子类包装（UsageRow/GoQuotaInfo 列表 → model），经 `engine.setContextProperty("usageModel", ...)` 注入；QML 侧 TableView/ListView 直接绑定；**role 名与 modules dataclass 字段名保持一致**（QML↔Python 隐性契约，避免接真业务时对不上）
+- 单值数据：QObject 属性（`@Property(int) overallPercent` 等）或 JS 对象经 context property 注入
+- 刷新语义：mock 下由 QML 侧 `Timer` 定时调 `service.get_quotas()`（模拟 60s 节流前的即时响应），数据变化经 model `reset()` 触发视图更新——**模拟真实异步回传**（worker 信号 → model 更新）
+- 注入三通道：阈值/注册表（contracts）、文案（contracts.get_ui_texts）、业务数据（MockService）——全部在 launcher 汇合 setContextProperty
+- 验证：QML 侧 `Component.onCompleted` 打印注入属性；Python 侧探针断言 engine.rootContext() 各 property 非空
+
+**B. 主题系统细则（单基础主题）**
+
+- `Theme.qml`（单例）：接收 contracts 注入的 `defaultTheme`（context property），初始化一套基础主题色板（充分体现 QML 能力：色板键 chunk_ok/warn/danger/pie 等对齐语义）
+- **无主题切换 UI**（决策：初期单主题，能力体现在动效/光影/阴影/粒子而非主题数量；主题切换与多主题扩展后续批次再议）
+- 四主题能力展示由 qt6 承担（默认入口不变）；QML 单主题与 qt6 配色"神似非复刻"（PL003 惯例）
+- 验证：探针断言 Theme 单例色板属性就位；offscreen 启动无异常
+
+**C. 用量监控页细则**
+
+- 卡片区：`FluCard` + `FluProgressBar`，数据来自 usageModel（summary 字段），P17 顺序 + 缓存率标注
+- 配额区：`FluComboBox`（workspace_id 列表，userData 同 qt6 语义）+ `FluButton` 添加账户 + 单卡三进度条（five_hour/weekly/monthly，`FluProgressBar` value 绑定） + 状态文案 + 饼图
+- 饼图：`QtCharts.PieSeries`（usage 百分比），弧色分级 = contracts 共享阈值（QUOTA_WARN/DANGER_PERCENT）+ Theme.qml 自持三色（chunk_ok/warn/danger 色板键，绿/黄/红）——判定用共享阈值、色值用自持色板，**不引用不复刻 qt6 的 quota_chunk_color**（着色实现各前端自持定案）；动态更新 PieSeries replace/clear-append
+- 验证：探针断言 PieSeries 扇区数与 mock infos 一致、进度条 value 与 mock 数值一致；分级色阈值边界（warn-1/warn/danger-1/danger 四值断言颜色）；手动目检配色
+
+**D. 数据与动态页细则**
+
+- `TableView`（QtQuick.TableView）：columns 对齐 COLUMN_IDS，数据源 usageModel；行高/列宽静态配置（对齐 qt6 视觉）
+- Releases 时间线：`ListView` + 自绘 delegate（版本号/日期/正文），空态占位文案
+- 验证：探针断言 model 行数与 mock 一致；空数据 mock 断言占位显示
+
+**E. 动效层细则**
+
+- 卡片阴影/光晕：`MultiEffect`（shadowEnabled + blur）包裹 FluCard；性能注意 blur 不动画时静态
+- 页面过渡：`StackView`/`FluNavigationView` 自带动画 + 自定义 `Transition`（opacity+位移）
+- 粒子（**必做**）：`QtQuick.Particles`（ParticleSystem+Emitter+ImageParticle）启动画面或背景点缀二选一，发射源接 `ParticleGroup`
+- 验证：无头冒烟（offscreen 启动不崩）；手动目检清单（阴影可见/过渡流畅/粒子帧率）
+
+**F. 错误策略对齐细则（原则级，细节实现时定）**
+
+- QML 版落实"不崩溃/不阻塞/有提示/能自愈"：状态栏提示 → QML 用 FluInfoBar/Flyout 替代；缓存兜底标注（is_cached）→ 文案标注显示；刷新失败保留旧视图
+- mock 三态样例（正常/错误/缓存）驱动各分支 UI 调试
+
+**G. 通用验证方法（每阶段必做）**
+
+1. IMPORT 级冒烟（probe 含至少一项 import 断言——WTH001 教训）
+2. offscreen 启动无异常 + QML 控制台零报错（qml 引擎 warning 抓取）
+3. 手动目检清单（窗口模式逐项核对视觉/交互）
+4. 回归隔离：QML 开发期间 qt6 全量回归保持 0 失败（双前端互不干扰）
+
+### 五、风险清单
+
+1. **Python 3.14 wheel 兼容性**（最高风险）：FluentUI-QML 仓库标注 Python 3.11，PyPI wheel 可能未编 3.14——PoC 第一件事验证；失败则 QML 前端用独立 3.12 venv（services 纯 Python 无碍）
+2. **PyQt6/PySide6 同环境共存**：现有 qt6 前端用 PyQt6、QML 用 PySide6——同一进程不能混用两个绑定，pip 安装顺序可能互相覆盖；QML 走独立 3.12 venv 则天然隔离，共用 venv 需 PoC 验证
+3. FluentUI 已转向 Pro 版：锁 v1.6.7 使用，接受"文档 WIP、主要靠 demo 源码"的学习成本
+4. FluWindow 无边框仅 Windows：本项目目标平台即 Windows，无碍
+5. 双前端并存期维护成本：QML 版稳定前旧前端保持默认入口不退役
+
+### 六、决策记录（2026-08-26 讨论定案）
+
+1. 方案 A（QML+FluentUI）确认，不做 Web 栈/qfluentwidgets（许可冲突）
+2. 共享语义全走 services/contracts 单点，无直读例外（含主题注册表与文案）
+3. 主题显示名与着色实现各前端自持（display_name 在 qt6 theme.json，QML 单主题自声明）
+4. system_tray 随 qt6 迁（归属定案挂起项顺带解决：QML 版需要时另写或再抽）
+5. 先各自写 adapter，共同点待 QML 落地后浮现再抽象（YAGNI）
+6. **PL008 验收 = 虚拟数据 QML 演示版**（单基础主题 + 粒子必做，不接真实业务）；版本推进 **V0.2.6.1**（一次 commit 收口）；接入真实业务与 --frontend 分发列为后续批次
+7. **qt6 文案直读改造**：qt6 从 `_SC.ui[...]` 直读改造为与 QML 相同的共享层 `get_ui_texts` 读取（统一双前端读取方式）——已登记 y.problem.md，执行列后续批次，不在 PL008 范围
+8. QML 版角色定位：虚拟数据演示版（mock_service 为产品级数据源长期保留），不接真实业务、无 --frontend 分发（PL009）

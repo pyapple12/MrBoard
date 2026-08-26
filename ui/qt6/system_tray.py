@@ -5,7 +5,7 @@ from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from config.static.static_config import get_static_config
-from ui.theme_loader import QUOTA_COLOR_OK, quota_chunk_color
+from ui.qt6.theme_loader import QUOTA_COLOR_OK, quota_chunk_color
 from utils.logger import build_app_title
 
 # 图标/通知参数（S8.3：外置 ui.json，静态配置解包）
@@ -54,7 +54,7 @@ class SystemTray(QSystemTrayIcon):
             window.activateWindow()
 
     def update_quota_status(self, used_percent: int | None) -> None:
-        # 按最紧窗口使用百分比更新图标颜色（阈值/分级复用 ui.theme_loader.quota_chunk_color，
+        # 按最紧窗口使用百分比更新图标颜色（阈值/分级复用 ui.qt6.theme_loader.quota_chunk_color，
         # None → 灰色）
         if used_percent is None:
             self.setIcon(self._build_icon(QColor(QUOTA_GRAY)))
@@ -97,12 +97,12 @@ class SystemTray(QSystemTrayIcon):
             self.show_requested()
 
 
-# ===== ui/system_tray.py 模块说明 =====
+# ===== ui/qt6/system_tray.py 模块说明 =====
 # 模块级常量：ICON_SIZE（图标像素尺寸）、NOTIFY_DURATION_MS（气泡通知时长）、
 #   QUOTA_GRAY（托盘灰色，错误/未知态）、PIE_DOT_COLOR（中心圆点白色）、
 #   MENU_LABELS（菜单文案，ui.json 外置，5A.3 C5）
 # 导入函数：build_app_title（来自 utils.logger，标题单点——tooltip 与主窗口标题一致，B3.1/C3.5 归类）、
-#   QUOTA_COLOR_OK / quota_chunk_color（来自 ui.theme_loader，图标颜色与进度条分级同源，C13 归类）
+#   QUOTA_COLOR_OK / quota_chunk_color（来自 ui.qt6.theme_loader，图标颜色与进度条分级同源，C13 归类）
 # 类：SystemTray(QSystemTrayIcon)
 #   信号：
 #     refresh_requested / quit_requested：菜单触发，由 main.py 装配连接
@@ -110,7 +110,7 @@ class SystemTray(QSystemTrayIcon):
 #     __init__：构建状态色图标 + 菜单（显示窗口/刷新/退出）+ 激活信号
 #     show_requested()：菜单"显示窗口"——window.show + raise_ + activateWindow
 #     update_quota_status(used_percent)：按最紧窗口使用百分比更新图标颜色
-#       （阈值/分级复用 ui.theme_loader.quota_chunk_color，None 灰色），供 main.py 在配额加载后调用
+#       （阈值/分级复用 ui.qt6.theme_loader.quota_chunk_color，None 灰色），供 main.py 在配额加载后调用
 #     notify_quota(title, message)：气泡通知（常驻后台提示关键变化）
 #     _build_icon(color)：QPainter 绘制圆形图标（状态色圆 + 白色中心点，几何按 ICON_SIZE 比例）
 #     _on_activated(reason)：单击/双击托盘显示窗口

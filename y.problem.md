@@ -152,7 +152,20 @@
 
 ## 待评估 / 待实施
 
-（暂无其他记录——存量项均已研究定稿并归档至上方已完成区，实施方案见 z.plan.md PL001-PL003）
+### P26. qt6 文案读取统一改造（2026-08-26 登记，PL008 决策 7）📌 待实施
+
+- **现状**：qt6 前端（main_window 等）面向用户文案从 `_SC.ui[...]` 直读（`status_messages`/`button_labels` 等组），契约校验由 `_UI_STRUCT_KEYS` 覆盖；QML 前端（PL008）按隔离共识经共享层 `contracts.get_ui_texts(group)` 读取注入
+- **目标**：qt6 文案直读改造为与 QML 相同的共享层 `get_ui_texts` 读取——双前端读取方式统一、契约校验单点收敛（契约层 P23 定案：结构键名代码内显式声明 + 导入期校验为健康标准）
+- **范围**：qt6 全部面向用户文案读取点迁移（main_window 的 STATUS_MESSAGES/BUTTON_LABELS/DIALOG_* 等消费 `_SC.ui[...]` 处）；阈值/注册表已在 PL008 搬迁批经 contracts
+- **时机**：列后续批次（PL009 或独立小批次），不在 PL008 范围；PL008 期间 qt6 保持现状（契约已覆盖，无行为风险）
+- **关联**：z.plan.md PL008 决策记录第 7 条；QML 侧实现后作为对照基准
+
+### P27. QML 前端接入真实业务与双前端分发（2026-08-27 登记，PL008 范围外）📌 待实施
+
+- **现状**：QML 前端（PL008 演示版）经 `setContextProperty("service", MockService)` 注入虚拟数据，不接真实业务；main.py 默认仅分发 qt6（无 `--frontend` 开关，PL006 预留的"多前端并存 + 分发开关"远期形态）
+- **目标**：① 接入真实业务——context property 换 `get_service()` 返回真 AppService（读真实 opencode.db + dashboard 会话，涉及线程/缓存/错误全链路）；② main.py 增 `--frontend qt6|qml` 分发开关；③ 错误策略"刷新失败保留旧视图"按真实刷新链路落实
+- **时机**：PL009 规划时立，不在 PL008 范围；PL008 期间 QML 保持虚拟数据演示版角色（z.plan 决策 8）
+- **关联**：z.plan.md PL008 决策记录第 6/8 条与方案 Phase 6/7（范围外）；PL008.9.e 验收标注
 
 ---
 

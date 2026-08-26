@@ -3,3 +3,6 @@ pywin32
 pycryptodome
 websocket-client
 psutil
+# QML 前端（PL008，与 PyQt6 共存不同进程；FluentUI 锁 1.6.7）
+PySide6==6.11.2
+PySide6-FluentUI-QML==1.6.7

@@ -201,7 +201,7 @@ class DataPage(QWidget):
         return str(value)
 
 
-# ===== ui/data_page.py 模块说明 =====
+# ===== ui/qt6/data_page.py 模块说明 =====
 # 模块级常量：
 #   DATA_PAGE_TAB_TITLE/DATA_RELEASES_TITLE/DATA_DAILY_TITLE/DATA_BLOCKS_TITLE/
 #   DATA_EMPTY_TEXT/DATA_RELEASES_EMPTY：页签/区块标题与占位文案（ui.json 驱动）

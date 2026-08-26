@@ -58,7 +58,7 @@ class _FnTask(QRunnable):
             self._runner._task_done(self)
 
 
-# ===== ui/task_runner.py 模块说明 =====
+# ===== ui/qt6/task_runner.py 模块说明 =====
 # 职责：Qt 异步任务设施——把同步函数提交线程池后台执行，结果/异常经信号回传主线程；
 #   随前端生灭的传输层（内部零业务逻辑，换前端时本模块随之重写）
 # 类：

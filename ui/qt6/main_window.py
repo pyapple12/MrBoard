@@ -56,9 +56,9 @@ from services.service import (
     UsageData,
     get_service,  # WTH001.e：services 混用导入形式统一归并至此
 )
-from ui.data_page import DATA_PAGE_TAB_TITLE, DataPage
-from ui.task_runner import TaskRunner
-from ui.theme_loader import (
+from ui.qt6.data_page import DATA_PAGE_TAB_TITLE, DataPage
+from ui.qt6.task_runner import TaskRunner
+from ui.qt6.theme_loader import (
     DEFAULT_THEME_NAME,
     THEME_DISPLAY_NAMES,
     THEME_NAMES,
@@ -1281,7 +1281,7 @@ class MainWindow(QMainWindow):
             a0.accept()
 
 
-# ===== ui/main_window.py 模块说明 =====
+# ===== ui/qt6/main_window.py 模块说明 =====
 # 模块级常量：
 #   AUTO_LOAD_DELAY_MS：启动延迟加载毫秒数（base.json 驱动）
 #   PIE_SIZE / PIE_FONT_SIZE / PIE_COLOR_BG_DEFAULT / PIE_COLOR_TEXT_DEFAULT：
@@ -1374,7 +1374,7 @@ class MainWindow(QMainWindow):
 #     _should_show_guide：引导卡显示条件单点维护（_on_quota_ready 与 failed 回调共用）
 #     save_state：窗口几何（QByteArray hex）/主题/刷新间隔/隐藏列 → config 持久化
 #     closeEvent：保存状态并隐藏到托盘（常驻模式，真退出走托盘菜单）
-# 设计理由：数据加载全后台（services 门面 + ui.task_runner 统一线程池封装）+
+# 设计理由：数据加载全后台（services 门面 + ui.qt6.task_runner 统一线程池封装）+
 #   信号回传（线程安全）；worker 自建只读连接避免 sqlite check_same_thread 问题；
 #   维度切换零查询；配置"退出即存、启动即恢复"（对齐 AccelWorld B2 修复经验）；
 #   CDP 引导独立临时 profile，不打扰用户正在使用的浏览器（S6.1 实测结论）；

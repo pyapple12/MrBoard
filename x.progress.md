@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.5.6（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.6.1（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -12,10 +12,10 @@
 
 ```powershell
 # 导入验证（全量 19 个模块）
-.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.theme_loader, services.service, ui.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"
+.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.qt6.main_window, ui.qt6.system_tray, ui.qt6.theme_loader, services.service, ui.qt6.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"
 
 # GUI 无头初始化验证（不弹窗）
-$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"
+$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.qt6.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"
 
 # 验证脚本（按轮次，全量回归 = 全部运行）
 # 基线 S1-S8
@@ -541,3 +541,63 @@ main_window 切换调用（PL006.3）：删四个数据任务类与对应 Signal
 - [x] WTH001.m 全量回归 + 收尾 —— run_all_verify 0 异常 + IMPORT OK + offscreen 四主题冒烟；x.progress 勾选 + commit 草稿（git 由用户执行）
 
 **WTH001 完成小结（2026-08-26）**：TDD 先行（`.temp/probe_wth.py` 15 断言，修复前 15 FAIL）；实施要点——a 死键删除（card dict 仅留渲染消费键）、b 正则收紧 `\d+(?:\.\d+)?`、c 6000 补字符数窗口量纲注释、d 两模块统一 int()、e services 导入归并 from services.service 形式、f THEME_LABELS 直接下标访问（C0.6 契约保证可达，删不可达 fallback）、g windows.py 顶层 _SC 解包、h retries 总尝试轮次口径澄清、i --estimate help 注明仅总览生效、j 全仓 ≥80% 快照注释符号化为 QUOTA_DANGER_PERCENT 表述、k AGENTS 写死计数改"数量随批次增长"、l zip 双列表数量不齐 warning 告警；**教训记录**：f 条 edit 替换曾致 for 循环体缩进丢失（probe 仅文本断言未 import 未捕获，全量回归 IMPORT 阶段炸出）——已修复并确认 probe 后续批次应含至少一项 import 级冒烟断言；验证：全量回归 64 脚本 0 失败 + IMPORT OK + offscreen 四主题冒烟全 OK。本批随文档整理（A020 归档/豁免定案合并/双文件压缩）一并提交。
+
+## PL008 QML 前端立项：双前端并存 + QtWidgets 迁入 ui/qt6（依据 z.plan.md PL008 方案，2026-08-26 规划）
+
+> 目标：QML+FluentUI 前端（方案 A）并行孵化；现有 QtWidgets 前端迁入 ui/qt6/ 保持默认可用；共享语义经 services/contracts 单点
+> 状态：📌 待实施
+> **验收点：mock 数据源下 QML 前端可启动并查看全部页面效果（用量监控页两区 + 数据动态页 + 单基础主题 + 动效/光影/阴影/粒子能力展示）——粒子为必做；不接入真实业务；PL008 结束版本 V0.2.6.1（一次 commit 收口）**
+> 硬约束：搬迁批纯重构行为零变化，独立 commit 可回滚；共享语义全走 contracts 单点无直读例外；QML 版稳定前旧前端不退役；QML 开发期间 qt6 全量回归保持 0 失败
+
+### PL008.1 共享事实层（contracts.py）
+
+- [x] PL008.1.a 新建 services/contracts.py —— 唯一解包点：QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT（ui.json quota_warn_percent/quota_danger_percent）+ THEME_NAMES/DEFAULT_THEME_NAME（ui.json themes 数组）+ `get_ui_texts(group)` 泛型文案读取（含键存在性校验，对齐 H0.4 契约风格）；验证：IMPORT OK + 值与原 theme_loader 解包一致（probe 断言相等）✅ 2026-08-27（probe_contracts PASS）
+- [x] PL008.1.b 新建 services/qt6_adapter.py —— qt6 前端适配桥（从 contracts 取数转发，qt6 特有整形留此处）；验证：IMPORT OK ✅ 2026-08-27（main.py 经它取阈值；probe 断言转发一致）⚠️ **PL008 收尾定案（2026-08-27）：此文件已删除**——纯转发零整形，唯一消费者 main.py 仅用 QUOTA_DANGER_PERCENT（业务阈值），绕道 UI 适配桥拿业务常量属分层错乱；main.py 改直连 services.contracts，QML 亦不建独立 adapter（launcher.py 承担数据桥）
+- [x] PL008.1.c theme_loader.py 改造 —— 删两阈值与 THEME_NAMES 解包行，改 `from services.contracts import ...` 消费；验证：probe 断言 theme_loader 值 == contracts 值 ✅ 2026-08-27（probe_contracts PASS；main_window 保持经 theme_loader 转发，符合 z.plan 边界表）
+
+### PL008.2 搬迁批（纯重构）
+
+- [x] PL008.2.a git mv 五文件 + themes/ 至 ui/qt6/，新建 ui/qt6/**init**.py，ui/**init**.py 保留；验证：git mv 后文件在位 ✅ 2026-08-27（git status 全 R/RM 状态，历史保留）
+- [x] PL008.2.b qt6 内部互引路径批量改 `from ui.qt6.xxx import ...`（main_window/data_page/theme_loader/task_runner/system_tray 互相引用全量排查）；验证：grep ui 内部零 `from ui.(main_window|data_page|theme_loader|task_runner|system_tray)` 残留 ✅ 2026-08-27（ZERO ✓；5 文件说明区标题同步 ui/qt6/*.py）
+- [x] PL008.2.c main.py import 改 ui.qt6.* + 阈值/注册表改从 services.contracts 拿；验证：IMPORT OK ✅ 2026-08-27（main.py 经 ui.qt6.* + services.qt6_adapter）⚠️ PL008 收尾：阈值改为 main.py 直连 services.contracts（qt6_adapter 已删，见 PL008.1.b 注）
+- [x] PL008.2.d .temp verify 脚本批量适配 ui.qt6.* import（全量 64 个排查）；AGENTS.md 验证命令 + x.progress 命令速查同步；验证：全量回归 64 脚本 0 失败（搬迁验收红线）✅ 2026-08-27（64/64 全绿；适配面含 import/sys.modules 清理/mock.patch 目标/源码路径/说明区标题/k 系列 probe_k0-k2）
+- [x] PL008.2.e offscreen 四主题冒烟 + 新旧行为抽样对比（手动/探针各入口）；验证：冒烟全 OK ✅ 2026-08-27（probe_qt6_smoke PASS：四主题 QSS/调色板、阈值分级边界、窗口四主题切换、托盘创建四组抽样全 OK）
+
+### PL008.3 QML PoC（环境验证）
+
+- [x] PL008.3.a 安装 PySide6 + PySide6-FluentUI-QML（⚠️ 验证 Python 3.14 wheel 兼容性——不兼容则 QML 前端用独立 3.12 venv）；验证：`import PySide6, FluentUI` 成功 + `pyside6-qml` 可执行 ✅ 2026-08-27（PySide6 6.11.2 = cp310-abi3 wheel 兼容 3.14；FluentUI 1.6.7 纯 Python；装入 .venv 与 PyQt6 共存正常——PyQt6 Qt 6.11.1 + PySide6 Qt 6.11.2 双绑定各自独立；import 双成功 + pyside6-qml --help 可执行 + pyside6-* 全套工具就位）
+- [x] PL008.3.b 最小 FluWindow + FluButton demo 跑通（offscreen + 窗口模式）；验证：demo 启动无异常 + QML 控制台零报错 ✅ 2026-08-27（probe_qml_demo PASS：offscreen 与 --windowed 双模式——① 根对象创建 ② FluButton 点击信号链路（click() 递增 window.clicks）③ QML 引擎 warnings 零收集；关键发现：**FluApp 为单例不可创建**（qmltypes isSingleton），1.6.7 入口用 FluWindow 作根）
+
+### PL008.4 MockService 与数据桥
+
+- [x] PL008.4.a 新建 services/mock_service.py —— 与 AppService 同签名（get_usage/get_quotas/get_data_page/export_data/save_account/add_account_via_cdp），返回构造的 UsageData/list[GoQuotaInfo]/ModelDataSnapshot，**含三态样例**（正常/错误占位/缓存标注，供 UI 各分支调试）；验证：MockService 各方法返回类型与真服务一致（probe isinstance） ✅ 2026-08-27（probe_mock_service PASS：① 六方法签名与 AppService inspect 一致 ② normal 态 isinstance（UsageData/UsageSummary/UsageRow/GoQuotaInfo/ModelDataSnapshot）+ export/save 返回 None + add_account 返回 (str,str) ③ error 态配额 error+error_stage=NETWORK/三窗口空、数据页 errors 非空、usage 抛 ServiceError（对齐真服务 db_path=None 口径）④ cached 态 is_cached=True+保留数据）
+- [x] PL008.4.b QML 数据桥 —— 新建 ui/qml/launcher.py：QQmlApplicationEngine + setContextProperty("service", MockService) + QAbstractListModel 包装列表数据注入（usageModel/quotaModel/releasesModel，**role 名与 dataclass 字段一致**）+ 阈值/注册表经 contracts 注入 + 文案经 contracts.get_ui_texts 注入；资源路径用 get_project_root() 自定位；验证：探针断言 engine.rootContext() 各 property 非空 + QML 侧 Component.onCompleted 打印注入值 ✅ 2026-08-27（probe_qml_bridge PASS：build_context 十键齐备 + 三 model 行数 + role 名=字段名（点路径 tokens.total/five_hour.usage_percent，顶层平铺字段同名）+ QML report 打印注入值全对：warn=50;danger=80;themes=4;default=light;usageRows=2;quotaRows=2;releasesRows=3;sessions=12;total=301000;statusGroup=ok。ListModel 通用化：点路径取值 + @Property count（QAbstractListModel 无内置 count）+ prepare_engine 统一 FluentUI.init 与注入保活）
+
+### PL008.5 QML 骨架
+
+- [x] PL008.5.a ui/qml/main.qml —— FluApp 入口 + FluNavigationView 两页导航（用量监控/数据动态对齐现 UI）；验证：demo 启动显示两页 + 切换无异常 ✅ 2026-08-27（probe_qml_skeleton PASS：① 根对象创建 ② 导航两页标题=用量监控/数据与动态（对齐 qt6 usage_tab_title/data_page_tab_title）+ navCount=2 ③ QMetaObject.invokeMethod 调 switchToSecond→setCurrentIndex(1) 无异常 ④ QML 引擎零警告。注：**FluApp 在 1.6.7 为单例不可创建**（PL008.3.b 实测），入口实际用 FluWindow 根 + FluNavigationView；页面占位组件待 PL008.6/7 填充；图标用 FluentIcons 字符码 0xE9D2(Chart)/0xE81C(History)）
+- [x] PL008.5.b ui/qml/theme/Theme.qml —— **单基础主题**单例：接收 context property 注入的 defaultTheme，初始化一套基础色板（chunk_ok/warn/danger/pie 等对齐语义），无主题切换 UI；能力体现在动效/光影/阴影/粒子而非主题数量；验证：探针断言 Theme 单例色板属性就位 + offscreen 启动无异常 ✅ 2026-08-27（probe_qml_skeleton ③ PASS：Theme 单例 pragma Singleton + theme/qmldir 注册，chunkOk=#47c18c/chunkWarn=#ffb020/chunkDanger=#ff4b4b + pie1-5 + bg/cardBg/text/accent 就位；themeName=light 证明 context 注入 defaultTheme 成功被单例接收；main.qml import "theme" 引用）
+
+### PL008.6 用量监控页（卡片区 + 配额区 + 饼图）
+
+- [x] PL008.6.a 卡片区 —— FluCard + FluProgressBar 绑定 usageModel（summary 字段），P17 顺序 + 缓存率标注；验证：探针断言卡片数值与 mock summary 一致 ✅ 2026-08-27（probe_qml_usage ① PASS：五卡按 P17 顺序 总tokens=301.0K/输入=125.0K/输出=98.0K/缓存率=15.9%（(cache_read+cache_write)/total）/总费用=$12.34，数值与 mock summary 一致；容器用 FluArea（**1.6.7 无 FluCard 组件**）替代；cardTitles/tokenAbbrUnits/costZeroEpsilon 经 contracts + launcher 注入（QML 侧格式化对齐 qt6 _format_tokens/_format_cost 口径））
+- [x] PL008.6.b 配额区 —— FluComboBox（workspace_id，userData 同 qt6 语义）+ FluButton 添加账户 + 单卡三进度条（five_hour/weekly/monthly 绑定 quotaModel）+ 状态文案（错误/缓存态走 mock 三态样例）；验证：探针断言切换选择器渲染变化 + 三进度条 value 与 mock 一致 ✅ 2026-08-27（probe_qml_usage ② PASS：combo textRole=workspace_id 显示账户、切换后 bar 值 35/62/81→12/28/44 同步更新、normal 态状态文案空；④ PASS：error/cached 场景状态文案含模拟/缓存标注（mock 三态驱动）；QuotaBar 自绘进度条替代 FluProgressBar——**1.6.7 FluProgressBar 含 Infinite 循环动画，offscreen 下 0xC0000005 崩溃（库 bug）**；ListModel 补 getNumber/getString Slot（混合类型 Slot 返回 float 触发 Shiboken copy-convert 崩溃）+ count 属性）
+- [x] PL008.6.c 饼图 —— QtCharts PieSeries（用量百分比），弧色分级 = contracts 共享阈值 + Theme.qml 自持三色（chunk_ok/warn/danger 色板键，不引用不复刻 qt6 的 quota_chunk_color），动态更新 clear-append；验证：探针断言扇区数与 mock infos 一致 + 分级色阈值边界（warn-1/warn/danger-1/danger 四值断言颜色） ✅ 2026-08-27（probe_qml_usage ③ PASS：扇区数=3（当前账户三窗口）、值 [35,62,81]、扇区色 [#47c18c,#ffb020,#ff4b4b]（分级 ok/warn/danger）、边界四值断言（warn-1→ok/warn→warn/danger-1→warn/danger→danger）；PieSeries 不在 QObject 树，探针经 UsagePage 暴露 pieCount/pieValues/pieColors 属性断言；**QtCharts QML 需 QApplication**（QGuiApplication 崩 0xC0000005）；onCountChanged→clear 递归死循环已移除；FluNavigationView 页面加载需 FluPaneItem onTap 显式 push（官方 demo 模式，FluNavigationView 不自动加载））
+
+### PL008.7 数据与动态页
+
+- [x] PL008.7.a TableView（QtQuick.TableView，列头对齐现有 COLUMN_IDS，行高列宽静态配置对齐 qt6 视觉）绑定 usageModel；验证：探针断言表格行数与 mock 一致 ✅ 2026-08-27（probe_qml_data_page ① PASS：列头 9 列与 ui.json table_columns 动态一致、表格行数=2（mock month rows）、首行格式化对齐 qt6 _render_table（label 直显/calls 原样/total=88.0K KMB/cache_rate=0.0%（缓存 0/总量）/cost=$3.40）；QtQuick.TableView + 列头 Row 固定行 + 表体空态覆盖（data_empty_text）；列 id 语义绑定 cellText 分支（P23），嵌套 role 经 model["tokens.total"] 访问；列宽/行高 QML 静态常量对齐 qt6 观感；列元数据经 contracts.TABLE_COLUMNS 注入（ui.json table_columns 权威 + TABLE_COLUMN_IDS 导入期契约校验）；DataPage 文案经 contracts.DATA_PAGE_TEXTS 注入）
+- [x] PL008.7.b Releases 时间线 —— ListView + 自绘 delegate（版本号/日期/正文）+ 空态占位文案；验证：探针断言空数据 mock 显示占位 + 有数据渲染条数一致 ✅ 2026-08-27（probe_qml_data_page ②③ PASS：normal 3 条渲染（首条 tag=v1.6.7/日期=2026-08-01 取前 10 字符/正文）+ error 场景空态占位（data_releases_empty）；ListView + 自绘 delegate（版本号粗体/日期/正文卡片样式）+ StackLayout 空态切换（currentIndex 绑 count）；⚠️ delegate 用 model.role 而非 modelData——Qt6 多 role QAbstractListModel 下 modelData 为 undefined（实测警告））
+
+### PL008.8 动效层（按需）
+
+- [x] PL008.8.a MultiEffect 卡片阴影/光晕（shadowEnabled + blur 包裹 FluCard，blur 静态不动画）+ 页面过渡（FluNavigationView 自带 + 自定义 Transition opacity+位移）；验证：无头冒烟 + 手动目检清单（阴影可见/过渡流畅） ✅ 2026-08-27（probe_qml_effects ① PASS：MultiEffect 静态能力（shadowEnabled=true + blurEnabled/blur 静态数值）+ 两页入场过渡 opacity 0→1 归位 + 零警告；新建 ui/qml/effects/CardShadow.qml 封装（shadowEnabled + blur 静态不动画 + default property content），接入 UsagePage 五卡区与 DataPage releases 卡；页面过渡 = 各页根 opacity 淡入（NumberAnimation 300ms 有限动画，不阻塞）；⚠️ offscreen 下 Repeater/ListView 的 delegate 不实例化（Qt offscreen 环境限制，连基础 Text delegate 也 0）——卡片阴影 DOM 可见性无法无头断言，属手动目检清单（PL008.9.a 联调核对））
+- [x] PL008.8.b 粒子系统（**必做**）—— QtQuick.Particles（ParticleSystem + Emitter + ImageParticle + ParticleGroup），启动画面或背景点缀二选一；验证：无头冒烟不崩 + 手动目检帧率流畅 ✅ 2026-08-27（probe_qml_effects ② PASS：粒子三件套就位（ParticleGroup spark + ImageParticle Fade/colorVariation + Emitter emitRate 8/AngleDirection 上浮）+ offscreen 冒烟不崩零警告；选**背景点缀**：UsagePage 底部上浮粒子，z 序低于内容区，粒子在卡片间隙可见；offscreen 冒烟不崩（fx_probe 预验证 MultiEffect/Particles offscreen 可创建））
+
+### PL008.9 验收与版本推进（虚拟数据演示版）
+
+- [x] PL008.9.a 全页面 mock 联调 —— launcher.py 启动完整 UI：用量监控页两区 + 数据动态页 + 单基础主题 + 动效/光影/阴影/粒子全可看可交互；验证：手动目检清单逐项核对（对照 qt6 版布局与字段）+ offscreen 冒烟 ✅ 2026-08-27（probe_qml_fullapp PASS：FluWindow 根 + 两页导航标题 + Theme 单例 + context 15 键齐备 + 三 model 行数 + 框架零警告；全页面 offscreen 冒烟 = usage/data_page/effects/fullapp 四探针全过；手动目检清单：五卡值/账户切换/三进度条/饼图/背景粒子/卡片阴影/导航切页/明细表格/Releases 卡，对照 qt6 布局与字段）
+- [x] PL008.9.b 错误策略对齐核对 —— QML 版落实"不崩溃/不阻塞/有提示/能自愈"：FluInfoBar/Flyout 替代状态栏提示、缓存兜底标注、失败保留旧视图（mock 三态样例驱动）；验证：三态样例逐一目检 + 无头冒烟 ✅ 2026-08-27（FluInfoBar 接入 UsagePage：showError/showWarning 替代状态栏提示（onCompleted 绑 root + onStatusTextChanged 触发），⚠️ FluInfoBar 是 FluObject 非 Item——root 需 onCompleted 显式赋值，调用 API 是 showError/showWarning 非 create；缓存兜底标注 statusText="缓存数据"（cached 态）；保留旧视图：演示版无刷新操作标注 N/A（真实链路留 P27）；三态样例探针断言（probe_qml_usage ④）+ offscreen 冒烟零警告；手动目检：三态启动查看通知条）
+- [x] PL008.9.c 收尾验证 —— qt6 全量回归 0 异常（QML 开发期间回归保持绿）+ IMPORT OK + 四主题冒烟 + 文档同步（README 结构/AGENTS 命令补 qml launcher）；验证：回归全绿 ✅ 2026-08-27（qt6 全量回归 64 脚本 0 失败 + IMPORT OK + probe_qt6_smoke 四主题冒烟 PASS；README 结构同步 ui/qt6 + ui/qml（含 launcher.py/main.qml/两页/theme/effects）+ services.mock_service + 主题路径 ui/qt6/themes + QML 演示版启动说明；AGENTS 命令已在 PL008.4 补 QML 独立验证，无需再加）
+- [x] PL008.9.d 版本推进 V0.2.6.1 三处同步（base.json/README 徽章/x.progress 版本行）+ commit 草稿，一次 commit 收口（git 由用户执行）；验证：三处字面一致 + logger.VERSION ✅ 2026-08-27（三处字面一致 + logger.VERSION=V0.2.6.1；版本推进在批次收尾全量回归绿后执行，不污染回归集——A018 纪律；commit 草稿见汇报，git 由用户执行）
+- [x] PL008.9.e 范围外标注 —— 接入真实业务（setContextProperty 换 get_service）与 main.py --frontend 分发 + qt6 文案直读改造（y.problem 已登记）列为后续批次（PL009 规划时立），不在本批验收；验证：x.progress 备注到位 + y.problem 条目在位 ✅ 2026-08-27（范围外三项落位：① 接入真实业务 + --frontend 分发 → y.problem **P27** 新增登记（2026-08-27）② qt6 文案直读改造 → y.problem **P26** 在位（2026-08-26）③ z.plan 决策 6/8 + 方案 Phase 6/7 已列范围外——本批 QML 保持虚拟数据演示版角色）

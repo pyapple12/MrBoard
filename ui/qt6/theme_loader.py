@@ -1,4 +1,4 @@
-# 主题资源加载器（PL007）：ui/themes/ 为零 .py 的纯声明式资源文件夹，
+# 主题资源加载器（PL007）：ui/qt6/themes/ 为零 .py 的纯声明式资源文件夹，
 # 本模块是唯一代码入口——扫描注册表逐主题加载 theme.json + base.qss 构建 QSS 全集；
 # 契约校验链全套保留（A3.5/C0.6/E3.9/动态色必含，文件源适配）；新增主题 =
 # 新建文件夹 + theme.json，不改任何一行 .py
@@ -7,7 +7,13 @@ import json
 import re
 from pathlib import Path
 
-from config.static.static_config import get_static_config
+from services.contracts import (
+    DEFAULT_THEME_NAME,
+    QUOTA_COLOR_OK,
+    QUOTA_DANGER_PERCENT,
+    QUOTA_WARN_PERCENT,
+    THEME_NAMES,
+)
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,16 +33,9 @@ except (OSError, UnicodeDecodeError, ValueError) as exc:
     # O3.5：读取/编码失败与缺失同策略转 RuntimeError 中文诊断（含路径）
     raise RuntimeError(f"基础 QSS 模板读取失败：{_QSS_PATH}（{exc}）") from None
 
-_SC = get_static_config()
-
-# 主题名常量（6A.3 R3：ui.json themes 数组派生，与 settings.THEMES 同源；
-# 数组是注册顺序唯一权威——文件夹多出的未注册主题不加载仅警告）
-THEME_NAMES = tuple(str(item) for item in _SC.ui["themes"])
-# A3.5：主题名长度契约校验（数组被手改短会致索引越界，导入期即抛错）
-if len(THEME_NAMES) < 2:
-    raise RuntimeError(
-        f"ui.json themes 数组至少需要 light/dark 两项，当前 {THEME_NAMES}"
-    )
+# 主题名常量（6A.3 R3：经 services.contracts 派生，与 settings.THEMES 同源；
+# 数组是注册顺序唯一权威——文件夹多出的未注册主题不加载仅警告；
+# THEME_NAMES/DEFAULT_THEME_NAME 已由 services.contracts 统一解包与校验）
 
 # O3.4：主题资源根目录整体缺失检查上移到注册循环之前（M0.6 设计意图——
 # 打包/部署异常时显式中文诊断先于 _load_theme 的单主题缺失提示；原位置在
@@ -55,10 +54,8 @@ _QUOTA_DYNAMIC_KEYS = (
     "pie_text",
 )
 
-# 配额阈值与托盘专用色（S8.3 外置 ui.json，静态配置解包）
-QUOTA_WARN_PERCENT = int(_SC.ui["quota_warn_percent"])
-QUOTA_DANGER_PERCENT = int(_SC.ui["quota_danger_percent"])
-QUOTA_COLOR_OK = str(_SC.ui["colors"]["quota_ok"])
+# 配额阈值与托盘专用色（QUOTA_WARN_PERCENT/QUOTA_DANGER_PERCENT/QUOTA_COLOR_OK）
+# 均由 services.contracts 统一解包（本模块不再直读 ui.json）
 
 
 def _load_theme(name: str) -> dict:
@@ -141,9 +138,7 @@ if tuple(_PALETTES.keys()) != THEME_NAMES:
         f"ui.json themes 数组与实际加载主题不一致：{THEME_NAMES} vs {list(_PALETTES)}"
     )
 
-DEFAULT_THEME_NAME = THEME_NAMES[0]
-
-# PL003.1.a：注册制构建 QSS 全集
+# PL003.1.a：注册制构建 QSS 全集（DEFAULT_THEME_NAME 由 services.contracts 提供）
 _THEME_QSS: dict[str, str] = {
     name: _build_theme(name, palette) for name, palette in _PALETTES.items()
 }
@@ -173,19 +168,18 @@ def quota_chunk_color(percent: int, theme_name: str | None = None) -> str:
     return palette["chunk_ok"]
 
 
-# ===== ui/theme_loader.py 模块说明 =====
+# ===== ui/qt6/theme_loader.py 模块说明 =====
 # 模块级常量：
 #   _THEMES_DIR：主题资源根目录（Path(__file__).parent / "themes" 自定位）
 #   _QSS_TEMPLATE：共享 QSS 结构模板（_templates/base.qss 文件加载，非 Python 常量）
-#   _SC：静态配置解包（themes 注册表/quota_* 阈值/colors 节）
 #   _PALETTES：注册制调色板全集（各主题 theme.json palette，N 主题泛化 PL003.1）
 #   THEME_DISPLAY_NAMES：主题显示名映射（theme.json display_name，承接原 ui.json
 #     THEME_DISPLAY_NAMES；公开导出供 main_window 引用）
 #   _QUOTA_DYNAMIC_KEYS：配额窗口内动态色键集（chunk 三档/quota_gray/pie_bg/pie_text，
 #     每主题必含契约校验——运行时 setStyleSheet 覆盖不走 QSS 占位符，残留检测兜不住）
-#   QUOTA_WARN_PERCENT / QUOTA_DANGER_PERCENT：配额阈值（ui.json 驱动）
-#   QUOTA_COLOR_OK：托盘专用正常色（PL003.1.e：与窗口主题无关，留 ui.json colors）
-#   THEME_NAMES / DEFAULT_THEME_NAME：主题名常量（ui.json themes 数组派生）
+#   QUOTA_WARN_PERCENT / QUOTA_DANGER_PERCENT：配额阈值（services.contracts 统一解包）
+#   QUOTA_COLOR_OK：托盘专用正常色（services.contracts 解包，仅 system_tray 使用）
+#   THEME_NAMES / DEFAULT_THEME_NAME：主题名常量（services.contracts 派生）
 #   _THEME_QSS：注册制构建的 QSS 全集（dict[theme_name, qss]）
 # 函数：
 #   _load_theme(name)：读 theme.json + 结构契约校验（缺文件/坏 JSON/根非对象/
@@ -202,4 +196,4 @@ def quota_chunk_color(percent: int, theme_name: str | None = None) -> str:
 #   未注册主题目录仅 logger.warning 不中断
 # 关联配置：ui.json themes 数组（注册顺序唯一权威）+ quota_* 阈值 + colors 节；
 #   各主题 theme.json（display_name/palette 含 font_family 与动态色六键）；
-#   ui/themes/_templates/base.qss（共享样式模板）
+#   ui/qt6/themes/_templates/base.qss（共享样式模板）

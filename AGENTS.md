@@ -5,8 +5,9 @@
 ## 运行与验证
 
 - 入口 `main.py`：GUI 为默认模式；版本号 `VERSION` 单一来源在 `config/static/base.json` 的 `version` 字段，由 `utils/logger.py` 单点导出（main.py/main_window.py/system_tray.py 共引，D1/R4 模式）
-- 没有测试/lint 命令。改动后验证：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.main_window, ui.system_tray, ui.theme_loader, services.service, ui.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）；功能验证脚本在 `.temp/verify_*.py`（数量随批次增长，全量回归 = 全部 verify_*.py 脚本运行；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护计数）
-- GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
+- 没有测试/lint 命令。验证节奏（2026-08-27 定，加速开发）：**小改动只跑相关 verify 子集 + IMPORT 冒烟**（下方 import 命令 + 受影响的 verify/probe）；**全量回归（全部 verify\_*.py）在批次收尾/汇报前跑一次**。功能验证脚本在 `.temp/verify_*.py`（数量随批次增长；分批次清单见 x.progress.md"阶段验证命令速查"，AGENTS.md 不再重复维护计数）；IMPORT 命令：`.\.venv\Scripts\python.exe -c "import main, modules.opencode_usage, modules.go_quota, modules.pricing, modules.exporter, modules.browser_creds, modules.credential_store, config.settings, config.static.static_config, ui.qt6.main_window, ui.qt6.system_tray, ui.qt6.theme_loader, services.service, services.mock_service, ui.qt6.task_runner, utils.logger, utils.file_utils, utils.retry, utils.convert, utils.network, utils.windows, utils.sqlite_utils"`。不要直接跑 GUI 验证（会弹窗阻塞）
+- QML 前端独立验证（⚠️ PyQt6/PySide6 同进程不可混用，z.plan 风险 2）：`.\.venv\Scripts\python.exe -c "import ui.qml.launcher"`（单独进程，不与其他 PyQt6 模块同进程 import）
+- GUI 无头初始化验证（不弹窗）：`$env:QT_QPA_PLATFORM="offscreen"; .\.venv\Scripts\python.exe -c "from PyQt6.QtWidgets import QApplication; from ui.qt6.main_window import MainWindow; app = QApplication([]); w = MainWindow(); print('GUI init OK')"`
 - 依赖（`requirements.txt`）：PyQt6（其余按需添加，见 z.plan.md）
 
 ## 环境陷阱
@@ -16,7 +17,7 @@
 
 ## 结构与约定
 
-- 包结构按依赖单向分层（参考 AccelWorld）：`utils/` 通用工具（file_utils/retry/convert 无业务依赖；logger 允许依赖 `config.static` 读取日志路径，不依赖其他业务模块）→ `config/` 配置 → `modules/` 业务核心（opencode_usage 用量统计、go_quota Go 配额、pricing 定价、exporter 导出、browser_creds 浏览器凭据）→ `ui/` 界面（main_window 主窗口、system_tray 托盘、themes 主题 QSS）→ `data/` 静态数据 + 运行数据（凭据/日志/价格缓存）
+- 包结构按依赖单向分层（参考 AccelWorld）：`utils/` 通用工具（file_utils/retry/convert 无业务依赖；logger 允许依赖 `config.static` 读取日志路径，不依赖其他业务模块）→ `config/` 配置 → `modules/` 业务核心（opencode_usage 用量统计、go_quota Go 配额、pricing 定价、exporter 导出、browser_creds 浏览器凭据）→ `ui/` 界面层（`ui/qt6/` QtWidgets 前端：main_window 主窗口、system_tray 托盘、theme_loader + themes 主题 QSS；QML 前端 PL008 起并行孵化于 `ui/qml/`）→ `data/` 静态数据 + 运行数据（凭据/日志/价格缓存）
 - `config/` 配置分两类（S8 定案，对齐 AccelWorld）：
   - **静态配置**（`config/static/`，只读，json 驱动）：`static_config.py` 加载器 + `config.json` 引导映射表 + `base.json`（应用参数：版本/间隔/端口/上限等）+ `ui.json`（UI 参数：颜色/阈值/表头）；模块顶层 `_SC = get_static_config()` 一次性解包，运行时零 IO
   - **用户配置**（`config/settings.py`，可读写）：AppConfig dataclass，存项目内 `config/user_config.json`（路径由 base.json `user_config_path` 指定）
