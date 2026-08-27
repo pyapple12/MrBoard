@@ -14,9 +14,11 @@ Item {
     id: root
     objectName: "dataPage"
 
-    // 页面入场过渡（PL008.8.a：opacity 淡入，有限动画不阻塞）
-    opacity: 0
+    // 页面入场过渡（PL008.8.a：opacity 淡入，有限动画不阻塞；
+    // A021-P0.3：reducedMotion 下 opacity 直达 1、Behavior 禁用，无动画）
+    opacity: Theme.reducedMotion ? 1 : 0
     Behavior on opacity {
+        enabled: !Theme.reducedMotion
         NumberAnimation {
             duration: 300
         }
@@ -27,6 +29,16 @@ Item {
     property int tableRowHeight: 30
 
     // ===== 验证/调试属性（.temp/probe_qml_data_page.py 读取） =====
+    property real typeScaleCaption: TypeScale.caption
+    property real typeScaleBody: TypeScale.body
+    property real typeScaleTitle: TypeScale.title
+    property string themeChunkOk: Theme.chunkOk
+    property string themeChunkWarn: Theme.chunkWarn
+    property string themeChunkDanger: Theme.chunkDanger
+    property bool themeReducedMotion: Theme.reducedMotion
+    property string themeBorderSubtle: Theme.borderSubtle
+    property string themeRowStripe: Theme.rowStripe
+    property int themeRadius: Theme.radius
     property string headerTitles: headerTitlesText()
     property int tableRowCount: tableView.rows
     property bool tableEmpty: usageModel.count === 0
@@ -132,7 +144,7 @@ Item {
         // ===== 用量明细表格区 =====
         Text {
             text: dataPageTexts.detail_title
-            font.pixelSize: 14
+            font.pointSize: TypeScale.body
             color: Theme.textPrimary
         }
 
@@ -144,7 +156,7 @@ Item {
                     width: root.tableColumnWidths[index]
                     height: root.tableRowHeight
                     color: Theme.cardBg
-                    border.color: "#E0E0E0"
+                    border.color: Theme.borderSubtle
                     border.width: 1
                     Text {
                         anchors.fill: parent
@@ -152,7 +164,7 @@ Item {
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                         text: modelData.title
-                        font.pixelSize: 12
+                        font.pointSize: TypeScale.caption
                         font.bold: true
                         color: Theme.textPrimary
                     }
@@ -180,8 +192,8 @@ Item {
                     required property int column
                     required property int row
                     required property var model
-                    color: row % 2 === 1 ? "#F4F4F4" : "transparent"
-                    border.color: "#E0E0E0"
+                    color: row % 2 === 1 ? Theme.rowStripe : "transparent"
+                    border.color: Theme.borderSubtle
                     border.width: 1
                     Text {
                         anchors.fill: parent
@@ -190,7 +202,7 @@ Item {
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                         text: root.cellText(column, model)
-                        font.pixelSize: 12
+                        font.pointSize: TypeScale.caption
                         color: Theme.textPrimary
                     }
                 }
@@ -200,7 +212,7 @@ Item {
                 visible: usageModel.count === 0
                 anchors.centerIn: parent
                 text: dataPageTexts.table_empty
-                font.pixelSize: 12
+                font.pointSize: TypeScale.caption
                 color: Theme.textSecondary
             }
         }
@@ -208,7 +220,7 @@ Item {
         // ===== 官方动态时间线 =====
         Text {
             text: dataPageTexts.releases_title
-            font.pixelSize: 14
+            font.pointSize: TypeScale.body
             color: Theme.textPrimary
         }
 
@@ -231,8 +243,8 @@ Item {
                         anchors.fill: parent
                         anchors.margins: 5
                         color: Theme.cardBg
-                        radius: 6
-                        border.color: "#E0E0E0"
+                        radius: Theme.radius
+                        border.color: Theme.borderSubtle
                         border.width: 1
                     }
                     Column {
@@ -244,20 +256,20 @@ Item {
                             spacing: 8
                             Text {
                                 text: model.tag_name
-                                font.pixelSize: 13
+                                font.pointSize: TypeScale.title
                                 font.bold: true
                                 color: Theme.textPrimary
                             }
                             Text {
                                 text: String(model.published_at).slice(0, 10)
-                                font.pixelSize: 12
+                                font.pointSize: TypeScale.caption
                                 color: Theme.textSecondary
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                         }
                         Text {
                             text: model.body || ""
-                            font.pixelSize: 12
+                            font.pointSize: TypeScale.body
                             color: Theme.textSecondary
                             wrapMode: Text.Wrap
                             width: releaseList.width - 20
@@ -272,7 +284,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: dataPageTexts.releases_empty
-                    font.pixelSize: 12
+                    font.pointSize: TypeScale.caption
                     color: Theme.textSecondary
                 }
             }

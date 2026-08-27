@@ -15,16 +15,19 @@ Item {
     id: root
     objectName: "usagePage"
 
-    // 页面入场过渡（PL008.8.a：opacity 淡入，有限动画不阻塞）
-    opacity: 0
+    // 页面入场过渡（PL008.8.a：opacity 淡入，有限动画不阻塞；
+    // A021-P0.3：reducedMotion 下 opacity 直达 1、Behavior 禁用，无动画）
+    opacity: Theme.reducedMotion ? 1 : 0
     Behavior on opacity {
+        enabled: !Theme.reducedMotion
         NumberAnimation {
             duration: 300
         }
     }
 
     // 背景粒子点缀（PL008.8.b 必做：ParticleGroup 承载 + ImageParticle 渲染 +
-    // Emitter 发射；z 序低于内容区，粒子在卡片间隙可见）
+    // Emitter 发射；z 序低于内容区，粒子在卡片间隙可见；
+    // A021-P0.3：reducedMotion 下 emitRate=0 停发）
     ParticleSystem {
         id: particleSystem
         objectName: "particleSystem"
@@ -47,7 +50,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             height: 30
-            emitRate: 8
+            emitRate: Theme.reducedMotion ? 0 : 8
             lifeSpan: 3500
             size: 3
             endSize: 8
@@ -154,6 +157,7 @@ Item {
     property int pieCount: pieSeries.count
     property string pieValues: sliceValuesText()
     property string pieColors: sliceColorsText()
+    property string sliceLabels: sliceLabelsText()
 
     ColumnLayout {
         anchors.fill: parent
@@ -171,23 +175,23 @@ Item {
                     Layout.preferredHeight: 84
                     FluArea {
                         anchors.fill: parent
-                        radius: 8
+                        radius: Theme.radius
                         color: Theme.cardBg
-                        border.color: "#E0E0E0"
+                        border.color: Theme.borderSubtle
                         border.width: 1
                         Column {
                             anchors.centerIn: parent
                             spacing: 4
                             Text {
                                 text: cardValue(modelData)
-                                font.pixelSize: 20
+                                font.pointSize: TypeScale.title
                                 font.bold: true
                                 color: Theme.textPrimary
                                 anchors.horizontalCenter: parent.horizontalCenter
                             }
                             Text {
                                 text: cardTitles[modelData] || ""
-                                font.pixelSize: 12
+                                font.pointSize: TypeScale.caption
                                 color: Theme.textSecondary
                                 anchors.horizontalCenter: parent.horizontalCenter
                             }
@@ -201,9 +205,9 @@ Item {
         FluArea {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 8
+            radius: Theme.radius
             color: Theme.cardBg
-            border.color: "#E0E0E0"
+            border.color: Theme.borderSubtle
             border.width: 1
 
             ColumnLayout {
@@ -215,7 +219,7 @@ Item {
                     spacing: 8
                     Text {
                         text: "配额账户"
-                        font.pixelSize: 14
+                        font.pointSize: TypeScale.body
                         color: Theme.textPrimary
                     }
                     FluComboBox {
@@ -224,10 +228,14 @@ Item {
                         Layout.fillWidth: true
                         model: quotaModel
                         textRole: "workspace_id"
+                        Accessible.name: "配额账户选择器"
+                        Accessible.role: Accessible.ComboBox
                     }
                     FluButton {
                         text: "添加账户"
-                        font.pixelSize: 13
+                        font.pointSize: TypeScale.body
+                        Accessible.name: "添加账户"
+                        Accessible.role: Accessible.Button
                         onClicked: {
                             console.log("PL008.6: 添加账户（演示版占位）")
                         }
@@ -238,7 +246,7 @@ Item {
                     text: root.statusText
                     visible: root.statusText !== ""
                     color: Theme.chunkWarn
-                    font.pixelSize: 12
+                    font.pointSize: TypeScale.caption
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
                 }
@@ -255,12 +263,14 @@ Item {
                     to: 100
                     value: quotaModel.getNumber(quotaCombo.currentIndex, "five_hour.usage_percent")
                     color: colorForPercent(value)
+                    Accessible.name: "5 小时配额使用率"
+                    Accessible.role: Accessible.ProgressBar
                     Text {
                         anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.topMargin: -18
                         text: "5 小时"
-                        font.pixelSize: 12
+                        font.pointSize: TypeScale.caption
                         color: Theme.textSecondary
                     }
                 }
@@ -273,12 +283,14 @@ Item {
                     to: 100
                     value: quotaModel.getNumber(quotaCombo.currentIndex, "weekly.usage_percent")
                     color: colorForPercent(value)
+                    Accessible.name: "每周配额使用率"
+                    Accessible.role: Accessible.ProgressBar
                     Text {
                         anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.topMargin: -18
                         text: "每周"
-                        font.pixelSize: 12
+                        font.pointSize: TypeScale.caption
                         color: Theme.textSecondary
                     }
                 }
@@ -291,12 +303,14 @@ Item {
                     to: 100
                     value: quotaModel.getNumber(quotaCombo.currentIndex, "monthly.usage_percent")
                     color: colorForPercent(value)
+                    Accessible.name: "每月配额使用率"
+                    Accessible.role: Accessible.ProgressBar
                     Text {
                         anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.topMargin: -18
                         text: "每月"
-                        font.pixelSize: 12
+                        font.pointSize: TypeScale.caption
                         color: Theme.textSecondary
                     }
                 }
@@ -304,7 +318,7 @@ Item {
                 // ===== 饼图（QtCharts PieSeries，用量百分比，clear-append 动态更新） =====
                 Text {
                     text: "用量分布"
-                    font.pixelSize: 14
+                    font.pointSize: TypeScale.body
                     color: Theme.textPrimary
                 }
                 ChartView {
@@ -362,7 +376,18 @@ Item {
         return parts.join(",")
     }
 
+    // 饼图扇区 label 文本（探针验证用，逗号连接——A021-P1.3 双编码）
+    function sliceLabelsText() {
+        var parts = []
+        for (var i = 0; i < pieSeries.count; i++) {
+            parts.push(pieSeries.at(i).label)
+        }
+        return parts.join(",")
+    }
+
     // 重建饼图：当前账户三窗口扇区（clear-append），弧色按 usage_percent 分级
+    // A021-P1.3：扇区 label 显示窗口名+百分比（labelVisible），分级色 + 数值文案
+    // 双编码并存——色弱/读屏用户不依赖颜色也能区分扇区含义
     function updateSlices() {
         pieSeries.clear()
         var idx = quotaCombo.currentIndex
@@ -375,6 +400,8 @@ Item {
             var percent = quotaModel.getNumber(idx, windows[i][0] + ".usage_percent")
             var slice = pieSeries.append(windows[i][1], percent)
             slice.color = colorForPercent(percent)
+            slice.label = windows[i][1] + " " + percent.toFixed(0) + "%"
+            slice.labelVisible = true
         }
     }
 

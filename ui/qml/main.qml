@@ -23,6 +23,10 @@ FluWindow {
     property string themeChunkDanger: Theme.chunkDanger
     property string themePie1: Theme.pie1
     property string themeName: Theme.themeName
+    property bool themeReducedMotion: Theme.reducedMotion
+    property string themeBorderSubtle: Theme.borderSubtle
+    property string themeRowStripe: Theme.rowStripe
+    property int themeRadius: Theme.radius
 
     // 页面组件（PL008.6 用量监控页已实现；PL008.7 数据与动态页为占位）
     FluNavigationView {

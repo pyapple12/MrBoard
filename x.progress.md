@@ -1,7 +1,7 @@
 # 开发进度追踪（x.progress.md）
 
 > 依据：`z.plan.md`（myboard 方案报告）
-> 当前版本：V0.2.6.1（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
+> 当前版本：V0.2.6.2（VERSION 单一来源在 config/static/base.json 的 version 字段；**2026-08-24 起启用四段式版本号规则 V0.2.4.3 形式**，此前为 ver 0.NNN 两段式）
 > 记录格式：状态 [⏳ 待开发, ✅ 已完成] / 优先级 [高, 中, 低]
 > 执行原则：每阶段完成后运行验证命令确认无回归，再进入下一阶段
 > 错误策略：各模块开发时落实 z.plan.md 第四章约定（统一错误类型/降级不中断/缓存兜底/宽容解析/节流去重/保留旧数据/只读防误写）
@@ -601,3 +601,26 @@ main_window 切换调用（PL006.3）：删四个数据任务类与对应 Signal
 - [x] PL008.9.c 收尾验证 —— qt6 全量回归 0 异常（QML 开发期间回归保持绿）+ IMPORT OK + 四主题冒烟 + 文档同步（README 结构/AGENTS 命令补 qml launcher）；验证：回归全绿 ✅ 2026-08-27（qt6 全量回归 64 脚本 0 失败 + IMPORT OK + probe_qt6_smoke 四主题冒烟 PASS；README 结构同步 ui/qt6 + ui/qml（含 launcher.py/main.qml/两页/theme/effects）+ services.mock_service + 主题路径 ui/qt6/themes + QML 演示版启动说明；AGENTS 命令已在 PL008.4 补 QML 独立验证，无需再加）
 - [x] PL008.9.d 版本推进 V0.2.6.1 三处同步（base.json/README 徽章/x.progress 版本行）+ commit 草稿，一次 commit 收口（git 由用户执行）；验证：三处字面一致 + logger.VERSION ✅ 2026-08-27（三处字面一致 + logger.VERSION=V0.2.6.1；版本推进在批次收尾全量回归绿后执行，不污染回归集——A018 纪律；commit 草稿见汇报，git 由用户执行）
 - [x] PL008.9.e 范围外标注 —— 接入真实业务（setContextProperty 换 get_service）与 main.py --frontend 分发 + qt6 文案直读改造（y.problem 已登记）列为后续批次（PL009 规划时立），不在本批验收；验证：x.progress 备注到位 + y.problem 条目在位 ✅ 2026-08-27（范围外三项落位：① 接入真实业务 + --frontend 分发 → y.problem **P27** 新增登记（2026-08-27）② qt6 文案直读改造 → y.problem **P26** 在位（2026-08-26）③ z.plan 决策 6/8 + 方案 Phase 6/7 已列范围外——本批 QML 保持虚拟数据演示版角色）
+
+## P. 第21轮审计修复任务清单（依据 z.plan.md 附录 A021，2026-08-28 规划）
+
+> 来源：第 21 轮 QML 前端 UI 设计审计（qt-ui-design skill 清单，V0.2.6.1 基线）；P 级 6 条（Critical 3 / Warning 3），参考级观察项 2 条维持豁免
+> 范围：仅 ui/qml/ 前端设计合规整改，不涉及 qt6 与业务层；QML 版保持虚拟数据演示版角色，不接真实业务
+
+### P0 正确性（Critical 3 条）
+
+- [x] P0.1 字号体系整改 —— 新建 ui/qml/theme/TypeScale.qml 单例（modular scale：caption 12 / body 16 / title 21 / display 28 四档）+ theme/qmldir 注册；UsagePage/DataPage 全部 `font.pixelSize` 改 `font.pointSize` 并从 TypeScale 取档（卡片数值→title、卡片标题/配额账户/进度条标签→caption、正文/表格/动态→body 起步，对齐 16px 最小正文）；验证：探针断言两页所有 Text 无 pixelSize 直写 + 正文档 ≥16
+- [x] P0.2 三色对比度校正 —— Theme.qml chunkWarn 由 #FFB020 调深至白底对比度 ≥3:1（候选 #E58E00），chunkOk/chunkDanger 同步白底核对 ≥3:1；验证：探针计算三色对比度断言 ≥3:1
+- [x] P0.3 reduced-motion 路径 —— Theme 单例增 `reducedMotion` 属性（默认 false，QSettings 或代码开关）；粒子 Emitter 与根 opacity 过渡绑定之：开启时 emitRate=0、opacity 直达 1；验证：探针断言切 reducedMotion 后粒子停止/无过渡
+
+### P1 规范与无障碍（Warning 3 条）
+
+- [x] P1.1 颜色/圆角 token 化 —— Theme 单例补 `borderSubtle`（#E0E0E0）/`rowStripe`（#F4F4F4）色键 + `radius` 统一 8；UsagePage/DataPage 六处 #E0E0E0、斑马纹 #F4F4F4、radius 6/8 改引用单例；验证：grep 两页零硬编码色/圆角残留 + 探针断言卡片圆角一致
+- [x] P1.2 Accessible 属性 —— 交互元素补 Accessible.name/role/description：添加账户按钮、导航两页（main.qml FluPaneItem）、三进度条、账户选择器；验证：探针断言关键交互元素 Accessible.name 非空
+- [x] P1.3 饼图双编码 —— legend 开启或扇区外补百分比标签，分级色 + 数值文案并存（色弱可用）；验证：探针断言 pieSeries 每扇区有可见 label 或 legend 启用
+
+### P4 验证与收尾
+
+- [x] P4.1 全量验证收尾 —— QML 独立探针（usage/data_page/fullapp）+ 相关 verify 子集 + IMPORT 冒烟 + 手动目检（窗口模式核对字号/颜色/粒子可关）；x.progress 勾选 + commit 草稿（git 由用户执行）
+
+**P 系列完成小结（2026-08-28）**：TDD 先行（`.temp/probe_qml_a021_p.py` offscreen 源码+运行时断言 21 项 + 窗口探针 `probe_qml_usage` 增补 P1.3 扇区 label 断言，修复前窗口探针因 Accessible 语法致 UsagePage 未实例化 FAIL——FluPaneItem 非 Item 派生禁挂 Accessible 附加属性（已移除导航项两处）、FluProgressBar 不支持 Accessible.value（已删三处））。实施要点——P0.1 新建 TypeScale 单例四档（caption 9/body 12/title 14/display 18 pointSize，随 OS DPI 缩放）两页 13 处 font.pixelSize 全改引用、P0.2 三色按 WCAG 白底 ≥3:1 校正（ok #47C18C→#3CA36F 3.15/warn #FFB020→#C77F00 3.25/danger #FF4B4B 3.3 不动）、P0.3 Theme.reducedMotion 开关绑粒子 emitRate 与两页入场过渡 Behavior.enabled、P1.1 两页六处 #E0E0E0 + 斑马纹 + radius 6/8 全改 Theme.borderSubtle/rowStripe/radius 引用、P1.2 按钮/选择器/三进度条补 Accessible.name/role（5 处）、P1.3 扇区 label=窗口名+百分比 + labelVisible 双编码；验证：全量回归 64 脚本 **0 失败** + IMPORT OK + QML 独立验证（import ui.qml.launcher）+ 四探针（a021_p/usage/effects/data_page/fullapp）全 PASS + 版本 V0.2.6.2 三处一致 + logger.VERSION。
